@@ -483,6 +483,10 @@ Eval datasets can also be uploaded to LangSmith as datasets for their built-in e
 
 Build in this order. Each phase should be working and testable before moving to the next.
 
+### Phase 0: Repository setup
+0. Initialize Git repo, create `.gitignore`, push to GitHub
+1. Copy BUILD_SPEC.md into project as CLAUDE.md (or reference it)
+
 ### Phase 1: Foundation
 1. FastAPI project structure with routers (chat, admin, webhooks)
 2. PostgreSQL schema + migrations (all tables)
@@ -537,3 +541,6 @@ Build in this order. Each phase should be working and testable before moving to 
 - **Write tests for every component when building it, not after.** Each phase in the build sequence includes specific tests. When building a new function, write the test in the same session. Run `pytest` before considering a phase complete.
 - **Mock LLM calls in unit tests.** Tests that hit a real LLM are flaky and expensive. Use mock responses for deterministic tests. Real LLM calls only happen in the eval suite.
 - **Run the eval suite before any deployment.** After changing prompts, models, or routing logic, run `python evals/run_evals.py` and check for regressions against baseline before deploying.
+- **Git commit after every completed step.** Each numbered item in the build sequence gets a commit when working. Use descriptive messages: "Phase 2.6: generate demo KB documents" not "update files." Push to GitHub after each phase is complete.
+- **Never commit broken code.** Run tests before committing. If tests fail, fix before committing.
+- **Create a .gitignore from day one.** Exclude: `__pycache__/`, `.env`, `node_modules/`, `*.pyc`, `.venv/`, database files, and any API keys or secrets.
