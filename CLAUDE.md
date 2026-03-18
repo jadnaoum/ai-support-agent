@@ -51,6 +51,8 @@ pytest                            # requires support_agent_test DB
 
 Note: use `pip3` or `python3 -m pip` if `pip` is not found (macOS default).
 
+**GitHub:** https://github.com/jadnaoum/ai-support-agent — committed and pushed 2026-03-18. `.env` excluded via `.gitignore`.
+
 ### Phase 2: Knowledge agent — NOT STARTED
 
 Next steps (BUILD_SPEC.md §5–10):
