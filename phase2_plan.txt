@@ -1,0 +1,264 @@
+PHASE 2 PLAN: KNOWLEDGE AGENT
+==============================
+
+CONTEXT
+-------
+Phase 1 is complete (FastAPI, schema, seed data, 84 passing tests, pushed to GitHub).
+Phase 2 adds: KB ingestion pipeline, knowledge agent with pgvector RAG, a LangGraph
+supervisor→knowledge_agent graph, and SSE streaming. After this phase, the chat
+endpoint will respond with real AI answers sourced from the knowledge base.
+
+
+FILES TO CREATE / MODIFY
+------------------------
+backend/db/models.py                        Modify  — add embedding = Column(Vector(1536)) to KBChunk
+backend/ingestion/chunker.py                Create  — token-based chunker using tiktoken
+backend/ingestion/ingest.py                 Create  — reads docs/kb/, chunks, embeds via LiteLLM, upserts to pgvector
+docs/kb/returns_and_refunds.md              Create  — 500–1000 word KB doc
+docs/kb/shipping.md                         Create
+docs/kb/payments.md                         Create
+docs/kb/account_management.md               Create
+docs/kb/warranties.md                       Create
+docs/kb/faq.md                              Create
+backend/agents/graph.py                     Create  — AgentState TypedDict + compiled LangGraph graph
+backend/agents/supervisor.py                Create  — supervisor node (hardcoded to knowledge_agent in Phase 2)
+backend/agents/knowledge_agent.py           Create  — pgvector search + LiteLLM response generation
+backend/routers/chat.py                     Modify  — replace 501 stub with SSE implementation
+backend/db/migrations/versions/002_hnsw_index.py  Create — HNSW index migration
+backend/config.py                           Modify  — add eval_judge_model: str = "gpt-4o"
+backend/requirements.txt                    Modify  — add tiktoken
+tests/test_ingestion/__init__.py            Create  — empty
+tests/test_ingestion/test_chunker.py        Create  — pure unit tests, no mocks
+tests/test_ingestion/test_ingest.py         Create  — mock litellm.aembedding
+tests/test_agents/__init__.py               Create  — empty
+tests/test_agents/test_knowledge_agent.py   Create  — mock litellm.aembedding + litellm.acompletion
+tests/test_agents/test_graph.py             Create  — mock graph node calls
+tests/test_routers/test_chat.py             Modify  — update 501 test; add SSE streaming tests
+evals/eval_retrieval.py                     Create  — 20-question eval with LLM-as-judge scoring
+evals/datasets/knowledge_qa.json            Create  — 20 Q&A pairs across all 6 KB categories
+
+
+STEP-BY-STEP IMPLEMENTATION
+----------------------------
+
+STEP 1 — ORM + chunker  [commit: "Phase 2.5a: add KBChunk.embedding to ORM + chunker with unit tests"]
+
+  backend/db/models.py:
+    - Add at top: from pgvector.sqlalchemy import Vector
+    - Add to KBChunk class: embedding = Column(Vector(1536), nullable=True)
+    - No new migration needed — column already exists in DB from migration 001 raw SQL
+
+  backend/ingestion/chunker.py:
+    Function: chunk_text(text: str, max_tokens: int = 400, overlap_tokens: int = 50) -> list[str]
+    - Use tiktoken.get_encoding("cl100k_base") at module level (matches text-embedding-3-small)
+    - Split text on "\n\n" into paragraphs
+    - Accumulate paragraphs into buffer; when adding next paragraph would exceed max_tokens, finalize chunk
+    - Overlap: backfill final paragraphs from previous buffer until overlap_tokens budget used
+    - Edge cases: empty/whitespace → [], single oversized paragraph → return as-is (soft limit)
+
+  tests/test_ingestion/test_chunker.py (8 tests, no DB, no mocks):
+    - test_empty_string_returns_empty_list
+    - test_single_short_paragraph_returns_one_chunk
+    - test_chunk_count_scales_with_length
+    - test_chunks_have_overlap
+    - test_no_chunk_exceeds_max_tokens_significantly
+    - test_single_oversized_paragraph_kept_as_one_chunk
+    - test_whitespace_only_input
+    - test_default_parameters_work
+
+
+STEP 2 — KB documents + ingest script  [commit after ingest run: "Phase 2.5b: KB ingestion script with integration tests" then "Phase 2.6+7: 6 KB docs ingested — N chunks"]
+
+  docs/kb/*.md (6 files, 500–1000 words each, markdown headers + bullets):
+    returns_and_refunds.md  — 30-day standard / 14-day electronics, defective item process, non-returnables
+    shipping.md             — standard/express/overnight rates, tracking, lost packages, PO boxes
+    payments.md             — accepted methods, charge timing, failed payments, promo codes, price matching
+    account_management.md   — password reset, email change, 2FA, order history, notification prefs
+    warranties.md           — per-product warranty lengths, what's covered, claim process, what voids warranty
+    faq.md                  — 10+ Q&A pairs covering order changes, gift wrap, authenticity, stolen packages
+
+  backend/ingestion/ingest.py:
+    - KB_DIR = Path(__file__).parent.parent.parent / "docs" / "kb"
+    - FILENAME_TO_CATEGORY = {"returns_and_refunds.md": "returns", "shipping.md": "shipping", ...}
+    - Per file:
+        1. Check if KBDocument with this filename exists → if so, delete its chunks then delete doc
+        2. Create new KBDocument, flush to get id
+        3. Call chunk_text(content) → list of strings
+        4. Batch embed: litellm.aembedding(model=settings.litellm_embedding_model, input=all_chunks)
+           → response["data"][i]["embedding"] gives list[float] for chunk i
+        5. Create KBChunk rows with embedding values, db.add_all(), await db.commit()
+    - After all files: CREATE INDEX IF NOT EXISTS idx_kb_embedding ON kb_chunks USING hnsw (embedding vector_cosine_ops)
+    - Entrypoint: if __name__ == "__main__": asyncio.run(ingest_all())
+    - Run as: python -m backend.ingestion.ingest
+
+  tests/test_ingestion/test_ingest.py (mock: backend.ingestion.ingest.litellm.aembedding):
+    - Mock returns {"data": [{"embedding": [0.1]*1536} for each chunk]}
+    - test_ingest_creates_kb_document
+    - test_ingest_creates_chunks
+    - test_ingest_chunk_has_embedding
+    - test_reingest_deletes_old_chunks_no_duplicates
+    - test_embedding_batch_called_once_per_document
+
+
+STEP 3 — LangGraph graph  [commit: "Phase 2.8+9: knowledge agent, supervisor, LangGraph graph"]
+
+  backend/agents/graph.py:
+    AgentState (TypedDict):
+      messages: list[dict]        # [{"role": "customer"|"agent", "content": str}]
+      customer_id: str
+      customer_context: dict      # Phase 2: always {}; Phase 3 will populate from DB
+      current_intent: str         # set by supervisor
+      routing_decision: str       # set by supervisor (for audit logging)
+      confidence: float           # set by knowledge agent
+      response: str               # final response text
+      requires_escalation: bool   # Phase 3: set when confidence < threshold
+      actions_taken: list[dict]   # audit trail
+
+    build_graph() → compiled graph:
+      builder = StateGraph(AgentState)
+      builder.add_node("supervisor", supervisor_node)
+      builder.add_node("knowledge_agent", knowledge_agent_node)
+      builder.add_edge(START, "supervisor")
+      builder.add_conditional_edges("supervisor", route_after_supervisor, {"knowledge_agent": "knowledge_agent"})
+      builder.add_edge("knowledge_agent", END)
+      return builder.compile()
+
+    graph = build_graph()  ← module-level, reused across all requests
+
+  backend/agents/supervisor.py:
+    async def supervisor_node(state, config) -> dict:
+        # Phase 2: hardcoded routing
+        return {"current_intent": "knowledge_query", "routing_decision": "hardcoded_knowledge_phase2"}
+
+    def route_after_supervisor(state) -> str:
+        return "knowledge_agent"  # Phase 3 will add intent classification
+
+
+STEP 4 — Knowledge agent  [same commit as step 3]
+
+  backend/agents/knowledge_agent.py:
+    async def knowledge_agent_node(state: AgentState, config: RunnableConfig) -> dict:
+      1. Extract query: last message where role == "customer"
+      2. Embed: litellm.aembedding(model=settings.litellm_embedding_model, input=[query])
+         → query_embedding = response["data"][0]["embedding"]
+      3. Vector search via raw SQL (pass embedding as str(list) — pgvector accepts '[0.1, 0.2, ...]'):
+           SELECT c.id, c.chunk_text, d.title, d.category,
+                  (c.embedding <=> :embedding) AS cosine_distance
+           FROM kb_chunks c JOIN kb_documents d ON c.document_id = d.id
+           WHERE c.embedding IS NOT NULL
+           ORDER BY c.embedding <=> :embedding LIMIT 5
+         DB session from: db = config["configurable"]["db"]
+      4. Format context: join chunks with "\n\n---\n\n", include source title
+      5. Build messages for LLM:
+           system: SYSTEM_PROMPT.format(context=context)  ← constant at top of file
+           then: last max_context_messages from state["messages"]
+      6. litellm.acompletion(model=settings.litellm_model, messages=..., stream=False)
+         → agent_response = response.choices[0].message.content
+      7. confidence = 1.0 - chunks[0].cosine_distance  (0=identical, 1=orthogonal)
+      8. Return: {"response": agent_response, "confidence": confidence, "actions_taken": [...]}
+
+    IMPORTANT: Do NOT commit inside the node. The endpoint owns the commit.
+
+
+STEP 5 — SSE streaming endpoint  [commit: "Phase 2.10: SSE streaming endpoint wired to LangGraph"]
+
+  backend/routers/chat.py — replace 501 stub with:
+
+    @router.get("/chat/stream/{conversation_id}")
+    async def stream_response(conversation_id: str, db: AsyncSession = Depends(get_db)):
+      1. Validate conversation exists (404 if not)
+      2. Load latest customer message (422 if none)
+      3. Load full conversation history (up to max_context_messages), build messages_for_state
+      4. Build initial_state dict (all AgentState keys, customer_context={})
+      5. Define async generator event_generator():
+           config = {"configurable": {"db": db}}
+           async for chunk in graph.astream(initial_state, config=config, stream_mode="updates"):
+               if "knowledge_agent" in chunk:
+                   final_output = chunk["knowledge_agent"]
+           # Stream response word-by-word
+           for word in final_output["response"].split(" "):
+               yield ServerSentEvent(data=word + " ", event="token")
+           # Persist to DB
+           agent_msg = Message(id=uuid4(), conversation_id=..., role="agent",
+                               content=full_response, agent_type="knowledge")
+           db.add(agent_msg); await db.flush()
+           db.add(AuditLog(id=uuid4(), conversation_id=..., message_id=agent_msg.id,
+                           agent_type="knowledge", action="search_kb",
+                           routing_decision=..., confidence=...))
+           await db.commit()
+           yield ServerSentEvent(data="", event="done")
+      6. Return EventSourceResponse(event_generator())
+
+    NOTE: Using graph.astream(stream_mode="updates") + word-by-word emission rather than
+    astream_events, because litellm.acompletion is called directly (not via LangChain Runnable)
+    so on_chat_model_stream events won't fire. Word-by-word is sufficient for Phase 2.
+
+  tests/test_routers/test_chat.py updates:
+    - Remove/update the test that asserts 501
+    - Add mock for backend.routers.chat.graph.astream → fake async generator yielding
+      {"knowledge_agent": {"response": "Test answer.", "confidence": 0.85,
+                           "routing_decision": "knowledge_query", "actions_taken": []}}
+    - test_stream_returns_200_with_sse_content_type
+    - test_stream_no_customer_message_returns_422
+    - test_stream_persists_agent_message_to_db
+    - test_stream_creates_audit_log
+
+
+STEP 6 — Migration 002  [commit: included with step 5 or separate]
+
+  backend/db/migrations/versions/002_hnsw_index.py:
+    revision = "002", down_revision = "001"
+    upgrade: CREATE INDEX IF NOT EXISTS idx_kb_embedding ON kb_chunks USING hnsw (embedding vector_cosine_ops)
+    downgrade: DROP INDEX IF EXISTS idx_kb_embedding
+  Run: alembic upgrade head
+
+
+STEP 7 — Evals  [commit: "Phase 2 evals: retrieval eval + baseline set"]
+
+  evals/datasets/knowledge_qa.json:
+    20 Q&A objects: {question, expected_answer_contains: [...], expected_kb_category, difficulty}
+    Cover all 6 categories; include 4-5 multi-hop questions
+
+  evals/eval_retrieval.py:
+    For each question:
+      - Run graph.ainvoke(state, config={"configurable": {"db": db}})
+      - Keyword score: fraction of expected_answer_contains phrases found in response
+      - LLM-as-judge: litellm.acompletion(model=settings.eval_judge_model, ...) → float 0–1
+      - passed = keyword_score >= 0.8 and judge_score >= 0.7
+    Print per-question pass/fail and overall pass rate
+    Save/compare to evals/baselines/retrieval_baseline.json
+
+
+COMMIT STRATEGY
+---------------
+1. Phase 2.5a: add KBChunk.embedding to ORM + chunker with unit tests
+2. Phase 2.5b: KB ingestion script with integration tests
+3. Phase 2.6: generate 6 demo KB documents in docs/kb/
+4. Phase 2.7: ingest demo KB — N chunks across 6 documents
+5. Phase 2.8+9: knowledge agent, supervisor, LangGraph graph
+6. Phase 2.10: SSE streaming endpoint wired to LangGraph
+7. Phase 2 tests: all tests passing
+8. Phase 2 evals: retrieval eval + baseline set
+
+
+VERIFICATION
+------------
+1. pytest                              — all tests green (84 existing + new ingestion/agent/stream tests)
+2. python -m backend.ingestion.ingest  — confirms N chunks inserted across 6 docs
+3. uvicorn backend.main:app --reload
+   POST /api/conversations             — get conversation_id
+   POST /api/chat                      — submit customer message
+   GET  /api/chat/stream/{id}          — confirm SSE token stream (curl or browser)
+4. python evals/eval_retrieval.py      — confirm >= 80% pass rate
+
+
+CRITICAL NOTES
+--------------
+- ALL LLM calls via litellm — never import anthropic/openai SDKs directly
+- No DB commits inside graph nodes — endpoint owns the commit after streaming completes
+- asyncio_default_fixture_loop_scope = function — new test files must follow same conftest.py
+  pattern (sync setup_database with asyncio.run(), fresh NullPool engine per test in db fixture)
+- pgvector SQL parameter: pass embedding as str(list) e.g. "[0.1, 0.2, ...]" in raw SQL
+- tiktoken encoding "cl100k_base" — correct for text-embedding-3-small
+- Vector column in ORM (pgvector.sqlalchemy.Vector) — test schema will now create it via
+  Base.metadata.create_all, matching the migration that already ran in the real DB
