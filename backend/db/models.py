@@ -7,6 +7,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, relationship
 from sqlalchemy.sql import func
+from pgvector.sqlalchemy import Vector
 
 
 class Base(DeclarativeBase):
@@ -209,7 +210,7 @@ class KBChunk(Base):
     document_id = Column(UUID(as_uuid=False), ForeignKey("kb_documents.id"), nullable=False)
     chunk_text = Column(Text, nullable=False)
     chunk_index = Column(Integer, nullable=False)
-    # embedding column added via migration (pgvector)
+    embedding = Column(Vector(1536), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     document = relationship("KBDocument", back_populates="chunks")
