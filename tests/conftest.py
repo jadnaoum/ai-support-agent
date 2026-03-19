@@ -20,6 +20,21 @@ from backend.main import app
 from backend.db.models import Base, Customer, Product, Order, OrderItem, Conversation, Message
 from backend.db.session import get_db
 
+
+@pytest.fixture(autouse=True)
+def reset_sse_starlette_app_status():
+    """Reset sse_starlette's module-level AppStatus.should_exit_event before each test.
+
+    AppStatus.should_exit_event is created on the first event loop that runs an SSE
+    response and held as a class attribute. pytest-asyncio uses function-scoped loops,
+    so the Event from Loop-N is bound to that loop's Future. On Loop-(N+1) calling
+    await event.wait() raises "Future attached to a different loop". Resetting to None
+    forces sse_starlette to create a fresh Event on the current loop each time.
+    """
+    from sse_starlette.sse import AppStatus
+    AppStatus.should_exit_event = None
+    yield
+
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
     "postgresql+asyncpg://jad@localhost:5432/support_agent_test",

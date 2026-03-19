@@ -5,10 +5,11 @@ Covers: POST /api/conversations, POST /api/chat,
         GET /api/chat/stream/{id}, GET /health
 """
 import uuid
+from unittest.mock import patch, AsyncMock, MagicMock
 import pytest
 from sqlalchemy import select
 
-from backend.db.models import Conversation, Message
+from backend.db.models import Conversation, Message, AuditLog
 
 
 # ---------------------------------------------------------------------------
@@ -140,13 +141,79 @@ async def test_send_message_missing_fields_returns_422(client):
 # GET /api/chat/stream/{conversation_id}
 # ---------------------------------------------------------------------------
 
-async def test_stream_existing_conversation_returns_501(client, active_conversation):
-    response = await client.get(f"/api/chat/stream/{active_conversation.id}")
-    assert response.status_code == 501
-    assert "Phase 2" in response.json()["detail"]
+FAKE_AGENT_OUTPUT = {
+    "response": "Your return window is 30 days.",
+    "confidence": 0.85,
+    "routing_decision": "hardcoded_knowledge_phase2",
+    "actions_taken": [
+        {"agent": "knowledge", "action": "search_kb", "chunks_retrieved": 3, "top_similarity": 0.85}
+    ],
+}
+
+
+async def fake_astream(*args, **kwargs):
+    yield {"knowledge_agent": FAKE_AGENT_OUTPUT}
 
 
 async def test_stream_unknown_conversation_returns_404(client):
     response = await client.get(f"/api/chat/stream/{uuid.uuid4()}")
     assert response.status_code == 404
     assert "Conversation not found" in response.json()["detail"]
+
+
+async def test_stream_no_customer_message_returns_422(client, active_conversation):
+    # active_conversation has no messages
+    response = await client.get(f"/api/chat/stream/{active_conversation.id}")
+    assert response.status_code == 422
+    assert "No customer message" in response.json()["detail"]
+
+
+@patch("backend.agents.graph.graph.astream", side_effect=fake_astream)
+async def test_stream_returns_sse_content_type(mock_stream, client, conversation_with_messages):
+    response = await client.get(f"/api/chat/stream/{conversation_with_messages.id}")
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers["content-type"]
+
+
+@patch("backend.agents.graph.graph.astream", side_effect=fake_astream)
+async def test_stream_emits_token_events(mock_stream, client, conversation_with_messages):
+    response = await client.get(f"/api/chat/stream/{conversation_with_messages.id}")
+    assert "event: token" in response.text
+
+
+@patch("backend.agents.graph.graph.astream", side_effect=fake_astream)
+async def test_stream_emits_done_event(mock_stream, client, conversation_with_messages):
+    response = await client.get(f"/api/chat/stream/{conversation_with_messages.id}")
+    assert "event: done" in response.text
+
+
+@patch("backend.agents.graph.graph.astream", side_effect=fake_astream)
+async def test_stream_persists_agent_message(mock_stream, client, db, conversation_with_messages):
+    await client.get(f"/api/chat/stream/{conversation_with_messages.id}")
+
+    # conversation_with_messages already has one pre-existing agent message;
+    # filter to the one the SSE endpoint added (identified by its content).
+    result = await db.execute(
+        select(Message).where(
+            Message.conversation_id == conversation_with_messages.id,
+            Message.role == "agent",
+            Message.content == FAKE_AGENT_OUTPUT["response"],
+        )
+    )
+    agent_msgs = result.scalars().all()
+    assert len(agent_msgs) == 1
+    assert agent_msgs[0].agent_type == "knowledge"
+
+
+@patch("backend.agents.graph.graph.astream", side_effect=fake_astream)
+async def test_stream_creates_audit_log(mock_stream, client, db, conversation_with_messages):
+    await client.get(f"/api/chat/stream/{conversation_with_messages.id}")
+
+    result = await db.execute(
+        select(AuditLog).where(AuditLog.conversation_id == conversation_with_messages.id)
+    )
+    logs = result.scalars().all()
+    assert len(logs) == 1
+    assert logs[0].agent_type == "knowledge"
+    assert logs[0].action == "search_kb"
+    assert logs[0].confidence == FAKE_AGENT_OUTPUT["confidence"]
