@@ -89,17 +89,34 @@ Pulled forward from Phase 5. Wired up before building the frontend so traces are
 - API key in `.env` (`LANGCHAIN_API_KEY`, `LANGCHAIN_TRACING_V2=true`, `LANGCHAIN_PROJECT=ai-support-agent`)
 - No LangSmith imports outside `backend/tracing/setup.py`
 
-### Phase 4 (frontend) — NEXT
+### Minimal chat UI — COMPLETE (2026-03-19)
 
-Pulling Phase 4 forward before Phase 3. Want a working chat UI to manually test the knowledge agent end-to-end before building out the full agent routing.
+Pulled Phase 4 forward (minimal scope only) to enable interactive manual testing before Phase 3.
 
-**To build:**
-- React + Vite + shadcn/ui project setup in `frontend/`
-- `Chat.jsx` — customer chat interface: message list, text input, SSE streaming via `useSSE.js` hook
-- `useSSE.js` — connects to `GET /api/chat/stream/{id}`, streams tokens into the message being composed
-- `CSATWidget.jsx` — star rating shown when conversation status is `resolved`
-- Build output served as static files from FastAPI (`frontend/dist/` → already wired in `backend/main.py`)
+- `frontend/` — Vite + React + Tailwind project
+- `frontend/src/App.jsx` — customer selector dropdown, message list with role-based styling (blue bubbles for customer, white cards for agent), text input + send button, SSE streaming, auto-scroll
+- `frontend/src/hooks/useSSE.js` — thin wrapper over `EventSource`; handles `token`/`done`/`error` events, appends tokens into the last message in state
+- `frontend/vite.config.js` — dev proxy: `/api` → `localhost:8000`
+- `backend/routers/admin.py` — added `GET /api/customers` for the dropdown
+- Build: `cd frontend && npm run build` → `dist/` served by FastAPI at `/`
 
-### Phase 3 (full agent routing) — after frontend
+**To run for manual testing:**
+```bash
+# Terminal 1 — backend
+source .venv/bin/activate
+uvicorn backend.main:app --reload
+
+# Terminal 2 — frontend with hot reload
+cd frontend && npm run dev
+# open http://localhost:5173
+```
+
+**Blocked on:** `ANTHROPIC_API_KEY` in `.env` is still the placeholder `your_anthropic_api_key_here`. LiteLLM calls `claude-sonnet-4-6` and fails with an auth error. Fill in a real key from console.anthropic.com to unblock manual testing.
+
+**LangSmith:** `LANGCHAIN_TRACING_V2=false` for now — key was giving 403s. Re-enable once a valid key is confirmed.
+
+**Not yet built (full Phase 4 scope for later):** typing indicator, CSAT widget, admin dashboard, polish.
+
+### Phase 3 (full agent routing) — NEXT after manual testing confirms Phase 2 works
 
 Real supervisor intent classification, action agent with tool registry (track/cancel/refund), escalation handler, customer context loading, input/output guardrails.

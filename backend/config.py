@@ -19,8 +19,6 @@ class Settings(BaseSettings):
     message_retention_days: int = 60
 
     # LangSmith tracing
-    langsmith_api_key: str = ""
-    langsmith_project: str = "ai-support-agent"
     langchain_tracing_v2: bool = False
     langchain_api_key: str = ""
     langchain_project: str = "ai-support-agent"
