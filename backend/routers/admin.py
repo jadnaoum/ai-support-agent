@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.db.session import get_db
-from backend.db.models import Conversation, Message, AuditLog, Escalation
+from backend.db.models import Conversation, Message, AuditLog, Escalation, Customer
 
 router = APIRouter(prefix="/api", tags=["admin"])
 
@@ -33,6 +33,13 @@ class MetricsResponse(BaseModel):
     escalation_rate: float
     avg_csat: Optional[float]
     csat_count: int
+
+
+@router.get("/customers")
+async def list_customers(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Customer).order_by(Customer.name))
+    customers = result.scalars().all()
+    return [{"id": c.id, "name": c.name, "email": c.email} for c in customers]
 
 
 @router.get("/conversations")
