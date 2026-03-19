@@ -77,6 +77,29 @@ Note: use `pip3` or `python3 -m pip` if `pip` is not found (macOS default).
 - `tests/test_routers/test_chat.py` — 18 tests including 7 SSE streaming tests
 - `tests/conftest.py` — added `reset_sse_starlette_app_status` autouse fixture; sse_starlette stores `AppStatus.should_exit_event` as a class-level `anyio.Event` bound to the first event loop — stale on subsequent pytest-asyncio function-scoped loops, causing "Future attached to a different loop"; reset to `None` before each test forces fresh creation
 
-**Evals: skipped for now.** Will add `evals/datasets/knowledge_qa.json` and eval runner in a later phase.
+**Evals: skipped for now.** Will add `evals/datasets/knowledge_qa.json` and eval runner after Phase 3.
 
-**Next: Phase 3** — full agent routing: real supervisor intent classification, action agent with tool registry (track/cancel/refund), escalation handler, customer context loading, input/output guardrails.
+### LangSmith tracing — COMPLETE (2026-03-19)
+
+Pulled forward from Phase 5. Wired up before building the frontend so traces are visible during manual testing.
+
+- `backend/tracing/setup.py` — only file that touches LangSmith; `init_tracing()` reads `langchain_tracing_v2`, `langchain_api_key`, `langchain_project` from settings and exports them to `os.environ` so LangGraph's built-in tracing activates automatically
+- `backend/main.py` — calls `init_tracing()` once at startup
+- `backend/config.py` — added `langchain_api_key` and `langchain_project` fields
+- API key in `.env` (`LANGCHAIN_API_KEY`, `LANGCHAIN_TRACING_V2=true`, `LANGCHAIN_PROJECT=ai-support-agent`)
+- No LangSmith imports outside `backend/tracing/setup.py`
+
+### Phase 4 (frontend) — NEXT
+
+Pulling Phase 4 forward before Phase 3. Want a working chat UI to manually test the knowledge agent end-to-end before building out the full agent routing.
+
+**To build:**
+- React + Vite + shadcn/ui project setup in `frontend/`
+- `Chat.jsx` — customer chat interface: message list, text input, SSE streaming via `useSSE.js` hook
+- `useSSE.js` — connects to `GET /api/chat/stream/{id}`, streams tokens into the message being composed
+- `CSATWidget.jsx` — star rating shown when conversation status is `resolved`
+- Build output served as static files from FastAPI (`frontend/dist/` → already wired in `backend/main.py`)
+
+### Phase 3 (full agent routing) — after frontend
+
+Real supervisor intent classification, action agent with tool registry (track/cancel/refund), escalation handler, customer context loading, input/output guardrails.
