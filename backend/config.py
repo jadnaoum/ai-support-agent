@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     langsmith_api_key: str = ""
     langsmith_project: str = "ai-support-agent"
     langchain_tracing_v2: bool = False
+    langchain_api_key: str = ""
+    langchain_project: str = "ai-support-agent"
 
     class Config:
         env_file = ".env"

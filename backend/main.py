@@ -5,6 +5,9 @@ from fastapi.responses import FileResponse
 import os
 
 from backend.routers import chat, admin, webhooks
+from backend.tracing.setup import init_tracing
+
+init_tracing()
 
 app = FastAPI(
     title="AI Customer Support Agent",
