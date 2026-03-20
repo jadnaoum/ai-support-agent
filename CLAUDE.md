@@ -117,13 +117,26 @@ cd frontend && npm run dev
 
 **Manual testing (2026-03-20):** ANTHROPIC_API_KEY set, LangSmith EU endpoint fixed. System end-to-end tested — chat UI working, SSE streaming working, traces appearing in LangSmith.
 
-### Phase 3: Full agent system — NEXT
+### Phase 3: Full agent system — IN PROGRESS
 
 Architecture revised from original supervisor-routing design. No separate supervisor node. The conversation agent is the only customer-facing node — it classifies intent, calls knowledge and action services, and generates all customer responses. Services return raw data only.
 
-**Steps:**
-1. `backend/agents/conversation.py` — single customer-facing agent: intent classification, service orchestration, response generation, escalation decisions
-2. `backend/agents/knowledge_service.py` — refactor existing `knowledge_agent.py` into a non-customer-facing service returning raw KB chunks
+**Steps 1+2: COMPLETE (2026-03-20) — 128 tests passing**
+
+- `backend/agents/conversation.py` — central customer-facing agent. Two-pass design: pass 1 classifies intent via LLM (JSON response) and sets `pending_service`; pass 2 (triggered when `actions_taken` is populated) generates the customer-facing response using service results. Handles knowledge_query, action_request, escalation_request, general intents.
+- `backend/agents/knowledge_service.py` — non-customer-facing. Embeds query, runs pgvector search, returns raw chunks to conversation agent. No LLM call.
+- `backend/agents/graph.py` — updated graph: `START → conversation_agent ↔ knowledge_service → END`. Conversation agent and knowledge_service form a cycle that terminates when `pending_service` clears.
+- `backend/agents/state.py` — updated to Phase 3 schema: `retrieved_context`, `action_results`, `escalation_reason`, `pending_service`.
+- `backend/routers/chat.py` — updated initial state fields; stream handler accumulates updates from all nodes; `agent_type="conversation"`.
+- Deleted: `supervisor.py`, `knowledge_agent.py` (replaced).
+- Tests: `test_conversation_agent.py` (10 tests), `test_knowledge_service.py` (7 tests), updated `test_graph.py` + `test_chat.py`.
+
+**Implementation notes:**
+- LangGraph 0.2.60 on Python 3.9 silently drops `None` state updates — use `""` as the "no pending service" sentinel instead of `None`.
+- Pass 2 detection uses `bool(actions_taken)` not `bool(retrieved_context)` — knowledge_service always appends to `actions_taken` even when it finds zero chunks, so this reliably signals that a service has run.
+- AsyncMock `side_effect=[list]` raises `StopIteration` when exhausted, which Python 3.9 converts to `StopAsyncIteration` inside LangGraph's async generators → `RuntimeError`. Fix: use a dispatch coroutine as `side_effect` instead of a list.
+
+**Steps 3–6: NEXT**
 3. `backend/agents/action_service.py` + `backend/tools/registry.py`, `order_tools.py`, `customer_tools.py` — tool registry with track/cancel/refund; returns results to conversation agent
 4. `backend/agents/escalation.py` — escalation handler: logs reason and context, conversation agent delivers the message
 5. Customer context loading — purchase history + computed risk score loaded at turn start
