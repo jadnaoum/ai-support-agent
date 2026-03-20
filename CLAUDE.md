@@ -136,8 +136,13 @@ Architecture revised from original supervisor-routing design. No separate superv
 - Pass 2 detection uses `bool(actions_taken)` not `bool(retrieved_context)` — knowledge_service always appends to `actions_taken` even when it finds zero chunks, so this reliably signals that a service has run.
 - AsyncMock `side_effect=[list]` raises `StopIteration` when exhausted, which Python 3.9 converts to `StopAsyncIteration` inside LangGraph's async generators → `RuntimeError`. Fix: use a dispatch coroutine as `side_effect` instead of a list.
 
-**Steps 3–6: NEXT**
-3. `backend/agents/action_service.py` + `backend/tools/registry.py`, `order_tools.py`, `customer_tools.py` — tool registry with track/cancel/refund; returns results to conversation agent
-4. `backend/agents/escalation.py` — escalation handler: logs reason and context, conversation agent delivers the message
-5. Customer context loading — purchase history + computed risk score loaded at turn start
+**Steps 3–5: COMPLETE (2026-03-20) — 177 tests passing**
+
+3. `backend/agents/action_service.py` + `backend/tools/registry.py`, `backend/tools/order_tools.py`, `backend/tools/customer_tools.py` — tool registry (`ToolDefinition` dataclass + `TOOL_REGISTRY` dict) with `track_order`, `cancel_order`, `process_refund`, `get_order_history`, `get_customer_context`. Action service strips null params before dispatch. Tests: `test_action_service.py` (10 tests), `test_order_tools.py` (16 tests).
+
+4. `backend/agents/escalation.py` — escalation handler node. Logs to `escalations` table, marks conversation `"escalated"`, returns template handoff message keyed by reason (`customer_requested`, `low_confidence`, `repeated_failure`, `policy_exception`). Reads `conversation_id` from `config["configurable"]`; safe when absent. Tests: `test_escalation.py` (10 tests).
+
+5. Customer context loading — `backend/tools/customer_tools.py`: `get_customer_context` (customer profile + up to 5 recent orders + risk score) and `get_risk_score` (0.0–1.0 based on refund frequency, refund ratio, escalated conversation count). Context loaded in `chat.py` before graph invocation (best-effort, never blocks on failure). `conversation.py` `_build_context_section` now includes customer name, risk score, and 3 most recent orders in the LLM prompt. Tests: `test_customer_tools.py` (13 tests).
+
+**Step 6: NEXT**
 6. `backend/guardrails/input_guard.py` + `output_guard.py` — prompt injection detection, hallucination/promise validation

@@ -46,7 +46,22 @@ If you are not sure about something, say so honestly and offer to connect the cu
 def _build_context_section(state: AgentState) -> str:
     chunks = state.get("retrieved_context") or []
     action_results = state.get("action_results") or []
+    customer_context = state.get("customer_context") or {}
     parts = []
+
+    if customer_context.get("name"):
+        orders = customer_context.get("recent_orders") or []
+        order_summary = ""
+        if orders:
+            lines = [
+                f"  - Order {o['order_id'][:8]}… | {o['status']} | ${o['total']:.2f}"
+                for o in orders[:3]
+            ]
+            order_summary = "\nRecent orders:\n" + "\n".join(lines)
+        parts.append(
+            f"\nCustomer: {customer_context['name']} (risk score: {customer_context.get('risk_score', 'n/a')}){order_summary}"
+        )
+
     if chunks:
         kb_text = "\n\n---\n\n".join(
             f"Source: {c['title']} ({c['category']})\n{c['chunk_text']}"

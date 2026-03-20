@@ -9,6 +9,7 @@ from backend.config import get_settings
 from backend.db.session import get_db
 from backend.db.models import Conversation, Message, Customer, AuditLog
 from backend.agents.state import AgentState
+from backend.tools.customer_tools import get_customer_context
 
 settings = get_settings()
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -125,11 +126,18 @@ async def stream_response(
         if m.role in ("customer", "agent")
     ]
 
-    # 4. Build initial agent state
+    # 4. Load customer context (best-effort — never block the request on failure)
+    try:
+        ctx_result = await get_customer_context(db, str(conversation.customer_id))
+        customer_context = ctx_result if ctx_result.get("success") else {}
+    except Exception:
+        customer_context = {}
+
+    # 5. Build initial agent state
     initial_state: AgentState = {
         "messages": messages_for_state,
         "customer_id": str(conversation.customer_id),
-        "customer_context": {},
+        "customer_context": customer_context,
         "retrieved_context": [],
         "action_results": [],
         "confidence": 0.0,
@@ -145,7 +153,7 @@ async def stream_response(
     # which conflicts with pytest-asyncio's event loop.
     from backend.agents.graph import graph  # noqa: PLC0415
 
-    # 5. SSE event generator
+    # 6. SSE event generator
     async def event_generator():
         # Accumulate state updates across all nodes in the graph
         final_output: dict = {}
