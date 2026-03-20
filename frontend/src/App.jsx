@@ -10,13 +10,17 @@ export default function App() {
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState(null)
   const bottomRef = useRef(null)
+  const inputRef = useRef(null)
   const { connect } = useSSE()
 
-  // Load demo customers on mount
+  // Load demo customers on mount and auto-select the first one
   useEffect(() => {
     fetch('/api/customers')
       .then(r => r.json())
-      .then(setCustomers)
+      .then(data => {
+        setCustomers(data)
+        if (data.length > 0) selectCustomer(data[0])
+      })
       .catch(() => setError('Could not load customers — is the backend running?'))
   }, [])
 
@@ -43,6 +47,7 @@ export default function App() {
     const text = input.trim()
     setInput('')
     setError(null)
+    inputRef.current?.focus()
 
     // Append customer message immediately
     setMessages(prev => [...prev, { role: 'customer', content: text }])
@@ -75,7 +80,7 @@ export default function App() {
           return updated
         })
       },
-      onDone: () => setStreaming(false),
+      onDone: () => { setStreaming(false); inputRef.current?.focus() },
       onError: () => {
         setStreaming(false)
         setError('Stream error — check the backend logs.')
@@ -140,10 +145,11 @@ export default function App() {
       {/* Input bar */}
       <div className="bg-white border-t px-4 py-3 flex gap-2">
         <input
+          ref={inputRef}
           className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
           placeholder={selectedCustomer ? 'Type a message…' : 'Select a customer first'}
           value={input}
-          disabled={!selectedCustomer || streaming}
+          disabled={!selectedCustomer}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
         />

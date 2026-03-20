@@ -63,9 +63,10 @@ async def knowledge_agent_node(state: AgentState, config: dict) -> dict:
     messages_for_llm = [
         {"role": "system", "content": SYSTEM_PROMPT.format(context=context)},
     ]
+    role_map = {"customer": "user", "agent": "assistant"}
     for msg in state["messages"][-settings.max_context_messages:]:
-        if msg["role"] in ("customer", "agent"):
-            messages_for_llm.append({"role": msg["role"], "content": msg["content"]})
+        if msg["role"] in role_map:
+            messages_for_llm.append({"role": role_map[msg["role"]], "content": msg["content"]})
 
     # Generate response — do NOT commit; the endpoint owns the DB commit
     llm_response = await litellm.acompletion(

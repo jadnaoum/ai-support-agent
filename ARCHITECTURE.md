@@ -6,13 +6,13 @@
 >
 > For the actionable build spec (what Claude Code should read), see BUILD_SPEC.md.
 >
-> Last updated: 2026-03-18
+> Last updated: 2026-03-19
 
 ---
 
 ## Project overview
 
-Multi-agent AI customer support system for e-commerce. Designed as a production-ready demo that can be publicly shared and eventually customized for different companies. Serves dual purpose: portfolio piece and foundation for consulting engagements.
+Multi-agent AI customer support system for e-commerce, built around a single conversation agent that owns the entire customer interaction. Knowledge retrieval and order actions are handled by backend services the conversation agent calls as needed — the customer only ever talks to one agent. Designed as a production-ready demo that can be publicly shared and eventually customized for different companies. Serves dual purpose: portfolio piece and foundation for consulting engagements.
 
 ---
 
@@ -53,9 +53,10 @@ Multi-agent AI customer support system for e-commerce. Designed as a production-
 - **Consideration for later:** If costs grow, evaluate Fly.io or a small Hetzner VPS.
 
 ### Orchestration: LangGraph
-- **Decision:** LangGraph for multi-agent orchestration
-- **Why:** Routing logic (triage → knowledge/action/escalation) maps naturally to a state graph. Provides visibility into agent transitions, which feeds into audit logging. Native integration with LangSmith for tracing. Explicit graph gives deterministic routing — when a customer asks for a refund, triage → action agent → execute, not agents having a conversation about it.
-- **Graph structure:** Supervisor node (triage) routes to one of three agent nodes based on intent classification.
+- **Decision:** LangGraph for agent orchestration with a central conversation agent
+- **Architecture (revised):** Single conversation agent owns the customer interaction and calls knowledge/action services as needed. No separate supervisor or triage node — the conversation agent handles intent classification, service orchestration, and response generation in one place.
+- **Why this over the original supervisor-routing design:** The original plan had a supervisor classifying intent and routing to separate knowledge/action/escalation agents, each generating their own customer-facing responses. This created a risk of tone inconsistency across agents and hand-off seams in the conversation. With one conversation agent owning the customer relationship, tone and empathy stay consistent regardless of whether the customer is asking a question, requesting a refund, or being escalated. The services behind it are simpler too — they just fetch data or execute actions and return results, no prompt engineering for customer-facing text.
+- **Why still use LangGraph (vs. plain function calls):** The conversation agent calling services could technically be plain Python function calls. LangGraph still earns its place because: (1) structured traces in LangSmith show exactly which services were called per turn, (2) the state graph makes the flow explicit and auditable, (3) conditional edges handle multi-step turns cleanly (e.g., KB lookup → action execution → response in one turn), (4) portfolio signal — demonstrates orchestration competence.
 - **Known tradeoff:** Steeper learning curve, fast-evolving API can break tutorials, multiple layers of abstraction to debug. Worth it for the control and observability it provides.
 - **Alternatives considered:**
   - **n8n / Zapier:** Good for linear service-to-service workflows (and already used for KB ingestion, content pipelines). Wrong for conversational AI — no native support for conversational state management, confidence-based routing, or agent-to-agent handoff with shared context. n8n may still be used for peripheral workflows (KB ingestion, future Slack/JIRA integrations).
@@ -64,7 +65,7 @@ Multi-agent AI customer support system for e-commerce. Designed as a production-
   - **OpenAI Agents SDK:** Simpler, but locks into OpenAI ecosystem — conflicts with LiteLLM model-agnostic decision.
   - **Google ADK:** Same ecosystem lock-in concern (Gemini-native), smaller community.
   - **PydanticAI:** Good for single-agent structured tasks, not designed for multi-agent orchestration.
-  - **Single LLM with tools (no framework):** Dramatically less code (~50 lines vs ~500). Works for simple cases. But loses: explicit routing control, separation of agent permissions/tools, structured traces for audit logging, and portfolio signal. The spec's requirements (confidence-based escalation, customer risk routing, audit logging, multi-agent separation) justify the orchestration overhead.
+  - **Single LLM with tools (no framework):** Dramatically less code (~50 lines vs ~500). Works for simple cases. But loses: explicit routing control, separation of agent permissions/tools, structured traces for audit logging, and portfolio signal. The spec's requirements (confidence-based escalation, customer risk routing, audit logging, service separation) justify the orchestration overhead.
 
 ### Prompt management: Not in v1, designed for later
 - **Decision:** No dedicated prompt management tool now. Prompts live in code, versioned with git.
@@ -78,12 +79,12 @@ Multi-agent AI customer support system for e-commerce. Designed as a production-
 ### Database: PostgreSQL + pgvector (single database)
 - **Decision:** One PostgreSQL instance handles both structured data and vector search (via pgvector extension)
 - **Structured data:** Conversation sessions, audit logs, CSAT scores, customer context (purchase history, refunds, risk profile), order data
-- **Vector search:** KB article embeddings stored in a pgvector-enabled table alongside metadata (article title, category, last updated). Knowledge agent queries the same database for both customer context and KB search.
+- **Vector search:** KB article embeddings stored in a pgvector-enabled table alongside metadata (article title, category, last updated). Knowledge service queries the same database for both customer context and KB search.
 - **Deployment:** Railway managed PostgreSQL with pgvector extension enabled
 - **Why single database over separate vector DB:**
   - One fewer service to deploy, configure, and pay for on Railway
   - No CORS or cross-service connection management
-  - Knowledge agent queries one database instead of two (customer context + KB search)
+  - Knowledge service queries one database instead of two (customer context + KB search)
   - Demo KB will be small (dozens to hundreds of documents) — pgvector handles this without performance issues
   - Simpler to explain to clients: "it's all in one database"
 - **Alternatives considered:**
@@ -121,26 +122,29 @@ Customer message
 └────────┬────────┘
          │
          ▼
-┌─────────────────┐
-│ LangGraph       │  Triage + intent routing
-│ Supervisor      │
-└──┬─────┬─────┬──┘
-   │     │     │
-   ▼     ▼     ▼
-┌─────┐┌─────┐┌──────────┐
-│ KB  ││Action││Escalation│
-│Agent││Agent ││ Handler  │
-└──┬──┘└──┬──┘└──────────┘
-   │      │
-   ▼      ▼
+┌──────────────────────┐
+│  Conversation Agent  │  Single customer-facing agent
+│  (intent + tone +    │  Classifies intent, calls services,
+│   response)          │  generates all customer responses
+└──┬─────────────┬─────┘
+   │             │
+   ▼             ▼
+┌──────────┐ ┌──────────┐
+│Knowledge │ │ Action   │  Not customer-facing
+│ Service  │ │ Service  │  Return raw data/results
+└────┬─────┘ └────┬─────┘
+     │             │
+     ▼             ▼
 ┌──────────────────────────┐
 │ PostgreSQL + pgvector    │
 │ (structured + vectors)   │
 └──────────────────────────┘
 ```
 
+Escalation is a decision the conversation agent makes — not a separate service. When it triggers, the escalation handler logs the reason and context, and the conversation agent delivers the handoff message to the customer.
+
 ### Cross-cutting concerns (not in request flow)
-- **LiteLLM** — wraps every LLM call from supervisor and agents
+- **LiteLLM** — wraps every LLM call from the conversation agent (knowledge and action services don't make LLM calls — they query the DB and execute tools)
 - **LangSmith** — traces full graph execution asynchronously in background
 - **Audit logging** — writes to PostgreSQL as part of request handling
 
@@ -148,18 +152,36 @@ Customer message
 
 ## Agent design decisions
 
-### Knowledge agent
-- Searches pgvector for KB articles via RAG and reads customer context (purchase history, risk score) from the same PostgreSQL database
+### Architecture change: single conversation agent (revised from supervisor-routing model)
+- **Original design:** Supervisor node classifies intent and routes to one of three separate agents (knowledge, action, escalation), each generating their own customer-facing responses.
+- **Revised design:** One conversation agent owns the entire customer interaction. It classifies intent itself, calls knowledge and action services for data/execution, and generates all customer-facing text. Services are not customer-facing — they return raw data.
+- **Why the change:**
+  - **Tone consistency:** With three agents each generating customer responses, tone and personality could vary between a knowledge answer and a refund confirmation. One agent means one voice.
+  - **Simpler prompt engineering:** Only one agent needs a customer-facing system prompt with tone, empathy, de-escalation instructions. Services just need functional prompts (or none at all — they can be pure code).
+  - **Multi-step turns:** A customer saying "I want to return my broken laptop" needs both KB lookup (return policy) and action execution (initiate refund) in one turn. With the supervisor model, this required routing to two agents sequentially. With one conversation agent, it naturally calls both services and synthesizes the response.
+  - **Cleaner separation of concerns:** The conversation agent is responsible for the customer relationship. Services are responsible for data and execution. No blurred lines.
+
+### Conversation agent
+- The only customer-facing component. Owns tone, empathy, de-escalation, and all dialogue decisions.
+- Classifies intent from the customer message (no separate supervisor) and decides which services to invoke.
+- Can call multiple services in a single turn when the customer's request requires it.
+- Decides when to escalate based on: customer explicitly requesting human, low confidence, policy exceptions, repeated failures.
+
+### Knowledge service
+- Not customer-facing. Returns raw KB chunks and metadata to the conversation agent.
+- Searches pgvector for KB articles via RAG. The conversation agent provides the search query.
 - Single database query layer: "who is this customer" (structured tables) + "what's the answer to their question" (pgvector similarity search)
 
-### Action agent
-- Executes order operations (cancel, track, refund) through a defined API layer
+### Action service
+- Not customer-facing. Returns structured action results to the conversation agent.
+- Executes order operations (cancel, track, refund) through the tool registry.
 - **Tool registry:** Structured config defining what actions exist, what parameters each requires, and what permissions are needed. This is what makes the system customizable for different companies. Without it, action logic gets hardcoded.
-- Actions are logged for audit
+- Actions are logged for audit.
 
-### Escalation handler
-- Triggered when: customer explicitly requests human, agent confidence is below threshold, or agent doesn't know what to do
-- Logs the escalation reason and conversation context
+### Escalation
+- Not a separate agent or service — it's a decision the conversation agent makes.
+- When triggered, the escalation handler logs the reason and conversation context to the database.
+- The conversation agent delivers the handoff message to the customer, maintaining tone consistency even during escalation.
 
 ---
 
@@ -182,7 +204,7 @@ Customer message
 ### Customer context
 - Stored in PostgreSQL: purchase history, refund history, past interactions
 - **Risk scoring:** Customers flagged based on past negative experiences. Policies can vary based on risk level (e.g., more generous refund policy for customers who've had bad experiences)
-- Context loaded by knowledge agent and action agent to personalize responses
+- Context loaded by the conversation agent at the start of each turn to personalize responses and inform decisions
 
 ### CSAT
 - Triggered at end of conversation (post-conversation event)
@@ -218,6 +240,17 @@ Customer message
   - **When NOT to add it:** A small e-commerce KB with straightforward policies and a customer base where SQL joins are manageable. The overhead of designing a graph schema, building extraction pipelines, and maintaining the graph isn't justified until the data complexity demands it.
   - **Security/access control via graphs:** Graph databases can model permission structures (Agent Role → can access → Action Type → requires → Authorization Level). Worth considering at enterprise scale, but a simple permissions table in PostgreSQL covers current needs.
 - **Prompt management (PromptLayer or similar):** When non-technical team members need to edit agent prompts without code deploys. Not needed while solo-developing, relevant when pitching to companies with dedicated customer success teams.
+- **LLM optimization and tiered model routing:** v1 uses a single model (Claude Sonnet 4.6) for the conversation agent. In production, not every turn needs a premium model. Future optimization path:
+  - **Tiered routing:** Route simple queries (order tracking, FAQ) to a cheaper/faster model (e.g. Claude Haiku, GPT-4o Mini, Gemini Flash) and reserve the premium model for complex conversations (escalation decisions, multi-step refund flows, emotionally sensitive interactions). The conversation agent's confidence score and intent classification can drive model selection.
+  - **A/B testing models:** LiteLLM makes swapping models a config change. Run the same eval suite across different models to compare quality vs. cost. Use CSAT scores and escalation rates as real-world quality signals.
+  - **Open-source fallback:** For clients requiring data sovereignty or lower costs at scale, swap to a self-hosted open-source model (e.g. Llama) via LiteLLM without changing agent code. Relevant for enterprise clients or high-volume deployments where token costs become significant.
+  - **When to optimize:** Not until there's real usage data. Premature model optimization is guesswork. Ship with the best model, collect CSAT and cost data, then make informed trade-offs.
+- **LLM cost tracking and dashboard:** As usage grows, visibility into LLM spend becomes critical — both for internal budgeting and for demonstrating ROI to clients.
+  - **Per-conversation cost tracking:** Log token counts (input + output) and model used per conversation turn. LiteLLM exposes this in its response metadata. Store alongside audit logs in PostgreSQL.
+  - **Admin dashboard integration:** Add a cost panel to the admin dashboard showing: total spend over time, average cost per conversation, cost by model, cost by conversation type (knowledge vs. action vs. escalation). This is a strong demo feature — clients care about cost predictability.
+  - **Budget alerts:** Set configurable spend thresholds that trigger alerts (e.g. daily/monthly caps). Prevents runaway costs from unexpected traffic spikes or prompt loops.
+  - **LiteLLM proxy (optional):** For multi-model or multi-client deployments, LiteLLM's proxy server provides centralized cost tracking, rate limiting, and model routing across all API calls. Overkill for v1 but valuable at scale.
+  - **Third-party options:** Tools like Cloudidr or Helicone provide plug-and-play cost dashboards with 1-2 lines of integration. Worth evaluating if building a custom dashboard isn't justified.
 
 ---
 
@@ -240,5 +273,9 @@ Customer message
 - [ ] Admin dashboard specific metrics and views
 - [ ] Specific guardrail implementation (custom vs. library like NeMo Guardrails)
 - [ ] Custom domain for demo URL
-- [ ] Exact PostgreSQL schema (tables, relationships)
-- [ ] LangGraph state machine definition (nodes, edges, state schema)
+
+## Decisions resolved
+
+- [x] **Agent architecture:** Single conversation agent with backend services (not supervisor-routing to multiple customer-facing agents). See "Architecture change" in Agent design decisions above.
+- [x] **PostgreSQL schema:** Defined and implemented in Phase 1.
+- [x] **LangGraph state machine:** Defined in BUILD_SPEC.md — conversation agent as central node calling knowledge/action services.
