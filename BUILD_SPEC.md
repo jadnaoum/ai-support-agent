@@ -289,13 +289,14 @@ There is no separate supervisor/triage node. The conversation agent handles inte
 
 Define actions as structured config. Each tool specifies: name, description (for LLM), parameters with types, required permissions, and the function to execute.
 
-### v1 tools
+### v1 tools (agent-callable)
 | Tool | Parameters | What it does |
 |---|---|---|
 | track_order | order_id | Returns order status and tracking info |
 | cancel_order | order_id, reason | Cancels order if status allows, logs action |
 | process_refund | order_id, amount, reason | Initiates refund, checks against customer risk score for auto-approval |
-| get_order_history | customer_id | Returns recent orders for context |
+
+**Security note:** `get_order_history`, `get_customer_context`, and `get_risk_score` are NOT agent-callable tools. Customer context and order history are loaded by the API layer and injected into agent state before the graph runs. The agent-callable tools above (track, cancel, refund) must validate that the order_id belongs to the current customer from state — reject any order that doesn't match.
 
 **Implementation note:** v1 tools are mock implementations. Each tool should validate parameters, log the action to audit, and return a realistic confirmation response — but NOT connect to any external e-commerce API or build real payment/shipping integrations. The value is in the tool registry pattern, parameter validation, and audit trail, not the underlying operations. Keep the mock logic simple and deterministic (e.g., cancel_order checks order status, returns success/failure accordingly). Do not over-engineer the tools themselves.
 
@@ -451,3 +452,4 @@ Build in this order. Each phase should be working and testable before moving to 
 - **Prompts live in the agent files as constants.** No separate prompt files for now, but keep them at the top of each file, clearly labeled, easy to extract later.
 - **Use async throughout.** FastAPI routes, DB queries, LLM calls — all async.
 - **Environment variables for all config.** LLM model, API keys, DB connection string, confidence thresholds. Nothing hardcoded.
+- **Customer context is injected by the API layer, never queried by the agent.** The `chat.py` router resolves the authenticated customer from the session, loads their context (profile, order history, risk score), and injects it into the agent state BEFORE the graph runs. The conversation agent and all services receive `customer_context` as read-only state — they must NEVER have tools that accept an arbitrary `customer_id` parameter. This prevents prompt injection attacks from tricking the agent into querying other customers' data. `get_customer_context` and `get_risk_score` are called by the API layer only, not registered as agent-callable tools.

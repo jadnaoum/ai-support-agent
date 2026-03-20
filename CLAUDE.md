@@ -138,7 +138,8 @@ Architecture revised from original supervisor-routing design. No separate superv
 
 **Steps 3–5: COMPLETE (2026-03-20) — 177 tests passing**
 
-3. `backend/agents/action_service.py` + `backend/tools/registry.py`, `backend/tools/order_tools.py`, `backend/tools/customer_tools.py` — tool registry (`ToolDefinition` dataclass + `TOOL_REGISTRY` dict) with `track_order`, `cancel_order`, `process_refund`, `get_order_history`, `get_customer_context`. Action service strips null params before dispatch. Tests: `test_action_service.py` (10 tests), `test_order_tools.py` (16 tests).
+3. `backend/agents/action_service.py` + `backend/tools/registry.py`, `backend/tools/order_tools.py`, `backend/tools/customer_tools.py` — tool registry (`ToolDefinition` dataclass + `TOOL_REGISTRY` dict) with `track_order`, `cancel_order`, `process_refund`. Action service strips null params before dispatch. Tests: `test_action_service.py` (10 tests), `test_order_tools.py` (16 tests).
+   **Security refactor (2026-03-20):** `get_order_history` and `get_customer_context` removed from `TOOL_REGISTRY` — they are NOT agent-callable. Customer context and order history are loaded by `chat.py` before the graph runs and injected as read-only state. Keeping them out of the registry prevents prompt injection attacks from tricking the agent into querying arbitrary customer data. Functions remain in `order_tools.py` / `customer_tools.py` for API-layer use only.
 
 4. `backend/agents/escalation.py` — escalation handler node. Logs to `escalations` table, marks conversation `"escalated"`, returns template handoff message keyed by reason (`customer_requested`, `low_confidence`, `repeated_failure`, `policy_exception`). Reads `conversation_id` from `config["configurable"]`; safe when absent. Tests: `test_escalation.py` (10 tests).
 
