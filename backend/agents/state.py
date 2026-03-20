@@ -4,10 +4,12 @@ from typing import TypedDict
 class AgentState(TypedDict):
     messages: list[dict]        # [{"role": "customer"|"agent", "content": str}]
     customer_id: str
-    customer_context: dict      # Phase 2: always {}; Phase 3 will populate from DB
-    current_intent: str         # set by supervisor
-    routing_decision: str       # set by supervisor (for audit logging)
-    confidence: float           # set by knowledge agent
-    response: str               # final response text
-    requires_escalation: bool   # Phase 3: set when confidence < threshold
-    actions_taken: list[dict]   # audit trail
+    customer_context: dict      # purchase history, risk score (populated in Phase 3 step 5)
+    retrieved_context: list     # KB chunks returned by knowledge_service (cleared each turn)
+    action_results: list        # Results from action_service calls this turn
+    confidence: float           # conversation agent's confidence in its response
+    requires_escalation: bool
+    escalation_reason: str      # why escalation was triggered
+    actions_taken: list[dict]   # audit trail of all service calls this turn
+    response: str               # final customer-facing response text
+    pending_service: str        # internal routing: "knowledge"|"action"|"escalation"|"" (empty = none pending)

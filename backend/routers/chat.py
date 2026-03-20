@@ -130,12 +130,14 @@ async def stream_response(
         "messages": messages_for_state,
         "customer_id": str(conversation.customer_id),
         "customer_context": {},
-        "current_intent": "",
-        "routing_decision": "",
+        "retrieved_context": [],
+        "action_results": [],
         "confidence": 0.0,
-        "response": "",
         "requires_escalation": False,
+        "escalation_reason": "",
         "actions_taken": [],
+        "response": "",
+        "pending_service": "",
     }
 
     # Lazy import — avoids LangGraph compile() running at module load time,
@@ -144,17 +146,24 @@ async def stream_response(
 
     # 5. SSE event generator
     async def event_generator():
+        # Accumulate state updates across all nodes in the graph
         final_output: dict = {}
         try:
             config = {"configurable": {"db": db}}
             async for chunk in graph.astream(initial_state, config=config, stream_mode="updates"):
-                if "knowledge_agent" in chunk:
-                    final_output = chunk["knowledge_agent"]
+                for node_output in chunk.values():
+                    if isinstance(node_output, dict):
+                        final_output.update(node_output)
 
             # Stream response word-by-word
             response_text = final_output.get("response", "")
             for word in response_text.split(" "):
                 yield ServerSentEvent(data=word + " ", event="token")
+
+            # Determine what services were called (for audit logging)
+            actions_taken = final_output.get("actions_taken", [])
+            services_called = [a.get("service", "") for a in actions_taken]
+            action = "search_kb" if "knowledge_service" in services_called else "conversation_response"
 
             # Persist agent message
             agent_msg = Message(
@@ -162,7 +171,7 @@ async def stream_response(
                 conversation_id=conversation_id,
                 role="agent",
                 content=response_text,
-                agent_type="knowledge",
+                agent_type="conversation",
             )
             db.add(agent_msg)
             await db.flush()
@@ -172,14 +181,14 @@ async def stream_response(
                 id=str(uuid.uuid4()),
                 conversation_id=conversation_id,
                 message_id=agent_msg.id,
-                agent_type="knowledge",
-                action="search_kb",
+                agent_type="conversation",
+                action=action,
                 input_data={"query": latest_msg.content},
                 output_data={
                     "response_length": len(response_text),
-                    "actions_taken": final_output.get("actions_taken", []),
+                    "actions_taken": actions_taken,
                 },
-                routing_decision=final_output.get("routing_decision", "knowledge_query"),
+                routing_decision=", ".join(services_called) if services_called else "direct_response",
                 confidence=final_output.get("confidence", 0.0),
             ))
             await db.commit()

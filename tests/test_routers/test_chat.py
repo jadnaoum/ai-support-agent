@@ -144,15 +144,14 @@ async def test_send_message_missing_fields_returns_422(client):
 FAKE_AGENT_OUTPUT = {
     "response": "Your return window is 30 days.",
     "confidence": 0.85,
-    "routing_decision": "hardcoded_knowledge_phase2",
     "actions_taken": [
-        {"agent": "knowledge", "action": "search_kb", "chunks_retrieved": 3, "top_similarity": 0.85}
+        {"service": "knowledge_service", "action": "search_kb", "chunks_retrieved": 3, "top_similarity": 0.85}
     ],
 }
 
 
 async def fake_astream(*args, **kwargs):
-    yield {"knowledge_agent": FAKE_AGENT_OUTPUT}
+    yield {"conversation_agent": FAKE_AGENT_OUTPUT}
 
 
 async def test_stream_unknown_conversation_returns_404(client):
@@ -202,7 +201,7 @@ async def test_stream_persists_agent_message(mock_stream, client, db, conversati
     )
     agent_msgs = result.scalars().all()
     assert len(agent_msgs) == 1
-    assert agent_msgs[0].agent_type == "knowledge"
+    assert agent_msgs[0].agent_type == "conversation"
 
 
 @patch("backend.agents.graph.graph.astream", side_effect=fake_astream)
@@ -214,6 +213,6 @@ async def test_stream_creates_audit_log(mock_stream, client, db, conversation_wi
     )
     logs = result.scalars().all()
     assert len(logs) == 1
-    assert logs[0].agent_type == "knowledge"
+    assert logs[0].agent_type == "conversation"
     assert logs[0].action == "search_kb"
     assert logs[0].confidence == FAKE_AGENT_OUTPUT["confidence"]
