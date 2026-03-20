@@ -138,6 +138,7 @@ async def stream_response(
         "actions_taken": [],
         "response": "",
         "pending_service": "",
+        "pending_action": {},
     }
 
     # Lazy import — avoids LangGraph compile() running at module load time,

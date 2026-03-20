@@ -22,6 +22,7 @@ def make_state(**overrides) -> AgentState:
         "actions_taken": [],
         "response": "",
         "pending_service": "",
+        "pending_action": {},
     }
     base.update(overrides)
     return base
@@ -41,6 +42,11 @@ def make_completion_response(content: str) -> MagicMock:
 def test_route_returns_knowledge_service_when_pending():
     state = make_state(pending_service="knowledge")
     assert _route_after_conversation(state) == "knowledge_service"
+
+
+def test_route_returns_action_service_when_pending():
+    state = make_state(pending_service="action")
+    assert _route_after_conversation(state) == "action_service"
 
 
 def test_route_returns_end_when_no_pending():
@@ -67,6 +73,7 @@ def test_graph_has_expected_nodes():
     g = build_graph()
     assert "conversation_agent" in g.nodes
     assert "knowledge_service" in g.nodes
+    assert "action_service" in g.nodes
 
 
 # ---------------------------------------------------------------------------

@@ -297,7 +297,7 @@ Define actions as structured config. Each tool specifies: name, description (for
 | process_refund | order_id, amount, reason | Initiates refund, checks against customer risk score for auto-approval |
 | get_order_history | customer_id | Returns recent orders for context |
 
-For demo: tools can log the intended action and return a mock confirmation rather than connecting to a real e-commerce backend.
+**Implementation note:** v1 tools are mock implementations. Each tool should validate parameters, log the action to audit, and return a realistic confirmation response — but NOT connect to any external e-commerce API or build real payment/shipping integrations. The value is in the tool registry pattern, parameter validation, and audit trail, not the underlying operations. Keep the mock logic simple and deterministic (e.g., cancel_order checks order status, returns success/failure accordingly). Do not over-engineer the tools themselves.
 
 ---
 

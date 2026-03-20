@@ -20,12 +20,21 @@ settings = get_settings()
 INTENT_PROMPT = """You are an intent classifier for a customer support system.
 Classify the customer's latest message into exactly one category:
 - knowledge_query: asking about policies, shipping, returns, products, warranties, or account info
-- action_request: wants to track an order, cancel an order, or request a refund
+- action_request: wants to track an order, cancel an order, request a refund, or view order history
 - escalation_request: explicitly asking to speak to a human agent or supervisor
 - general: greeting, thank you, or a simple message that needs no information lookup
 
-Respond with valid JSON only, no markdown:
-{"intent": "<category>", "confidence": <0.0-1.0>}"""
+For action_request, also extract the action and any parameters mentioned.
+Available actions: track_order, cancel_order, process_refund, get_order_history
+Use null for parameters the customer did not mention.
+
+Respond with valid JSON only, no markdown.
+Examples:
+{"intent": "knowledge_query", "confidence": 0.9}
+{"intent": "action_request", "confidence": 0.95, "action": "cancel_order", "params": {"order_id": "12345", "reason": "changed_mind"}}
+{"intent": "action_request", "confidence": 0.9, "action": "track_order", "params": {"order_id": null}}
+{"intent": "escalation_request", "confidence": 0.95}
+{"intent": "general", "confidence": 0.99}"""
 
 RESPONSE_PROMPT = """You are a helpful, empathetic customer support agent for an e-commerce store.
 You handle questions about orders, returns, shipping, payments, and product policies.
@@ -49,8 +58,12 @@ def _build_context_section(state: AgentState) -> str:
     return "\n".join(parts)
 
 
-async def _classify_intent(state: AgentState) -> tuple[str, float]:
-    """Call LLM to classify the customer's latest message."""
+async def _classify_intent(state: AgentState) -> tuple[str, float, dict]:
+    """
+    Call LLM to classify the customer's latest message.
+    Returns (intent, confidence, action_details).
+    action_details is {"tool": ..., "params": {...}} for action_request, {} otherwise.
+    """
     last_message = ""
     for msg in reversed(state["messages"]):
         if msg["role"] == "customer":
@@ -73,9 +86,17 @@ async def _classify_intent(state: AgentState) -> tuple[str, float]:
             if raw.startswith("json"):
                 raw = raw[4:]
         parsed = json.loads(raw.strip())
-        return parsed.get("intent", "general"), float(parsed.get("confidence", 0.8))
+        intent = parsed.get("intent", "general")
+        confidence = float(parsed.get("confidence", 0.8))
+        action_details = {}
+        if intent == "action_request":
+            action_details = {
+                "tool": parsed.get("action", ""),
+                "params": parsed.get("params") or {},
+            }
+        return intent, confidence, action_details
     except Exception:
-        return "general", 0.5
+        return "general", 0.5, {}
 
 
 async def _generate_response(state: AgentState) -> str:
@@ -112,14 +133,17 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
 
     # Pass 1: intent classification
     if not service_ran:
-        intent, confidence = await _classify_intent(state)
+        intent, confidence, action_details = await _classify_intent(state)
 
         if intent == "knowledge_query":
             return {"pending_service": "knowledge", "confidence": confidence}
 
         if intent == "action_request":
-            # action_service added in Phase 3 step 3; fall back to KB lookup for now
-            return {"pending_service": "knowledge", "confidence": confidence}
+            return {
+                "pending_service": "action",
+                "pending_action": action_details,
+                "confidence": confidence,
+            }
 
         if intent == "escalation_request":
             return {

@@ -57,6 +57,18 @@ async def test_knowledge_query_sets_confidence(mock_complete):
 
 
 @patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
+async def test_action_request_sets_pending_service_and_action(mock_complete):
+    mock_complete.return_value = make_completion_response(
+        '{"intent": "action_request", "confidence": 0.95, "action": "cancel_order", "params": {"order_id": "abc123"}}'
+    )
+    state = make_state(messages=[{"role": "customer", "content": "Cancel my order abc123"}])
+    result = await conversation_agent_node(state, {})
+    assert result["pending_service"] == "action"
+    assert result["pending_action"]["tool"] == "cancel_order"
+    assert result["pending_action"]["params"]["order_id"] == "abc123"
+
+
+@patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
 async def test_escalation_request_sets_requires_escalation(mock_complete):
     mock_complete.return_value = make_completion_response(
         '{"intent": "escalation_request", "confidence": 0.95}'
