@@ -144,5 +144,13 @@ Architecture revised from original supervisor-routing design. No separate superv
 
 5. Customer context loading — `backend/tools/customer_tools.py`: `get_customer_context` (customer profile + up to 5 recent orders + risk score) and `get_risk_score` (0.0–1.0 based on refund frequency, refund ratio, escalated conversation count). Context loaded in `chat.py` before graph invocation (best-effort, never blocks on failure). `conversation.py` `_build_context_section` now includes customer name, risk score, and 3 most recent orders in the LLM prompt. Tests: `test_customer_tools.py` (13 tests).
 
-**Step 6: NEXT**
-6. `backend/guardrails/input_guard.py` + `output_guard.py` — prompt injection detection, hallucination/promise validation
+**Step 6: COMPLETE (2026-03-20) — 203 tests passing**
+
+6. `backend/guardrails/input_guard.py` — two-stage input guard: fast regex pattern check for obvious injection (no LLM call), then LLM classifier for subtle prompt injection, abusive, and off-topic content. Fails open on LLM error so it never blocks legitimate traffic.
+   `backend/guardrails/output_guard.py` — rule-based output guard (no LLM call): impossible promise detection (catches past-tense action claims when the tool was never called) + order ID hallucination detection (catches UUIDs in the response not present in retrieved context, action results, or customer messages). Both guards wired into `conversation_agent_node`: input guard runs at the start of pass 1; output guard runs before returning the final response in pass 1 (general intent) and pass 2.
+   Tests: `test_input_guard.py` (11 tests), `test_output_guard.py` (15 tests).
+
+**Phase 3 COMPLETE.**
+
+**Next: Phase 4 — Frontend**
+- React + Vite + shadcn/ui project setup (admin dashboard, typing indicator, CSAT widget)

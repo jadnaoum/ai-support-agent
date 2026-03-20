@@ -12,6 +12,8 @@ import litellm
 
 from backend.config import get_settings
 from backend.agents.state import AgentState
+from backend.guardrails.input_guard import check_input
+from backend.guardrails.output_guard import check_output
 
 settings = get_settings()
 
@@ -148,6 +150,19 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
 
     # Pass 1: intent classification
     if not service_ran:
+        # --- Input guard ---
+        last_message = next(
+            (m["content"] for m in reversed(state["messages"]) if m["role"] == "customer"),
+            "",
+        )
+        guard = await check_input(last_message)
+        if not guard["safe"]:
+            return {
+                "response": guard["blocked_response"],
+                "pending_service": "",
+                "confidence": 1.0,
+            }
+
         intent, confidence, action_details = await _classify_intent(state)
 
         if intent == "knowledge_query":
@@ -170,6 +185,14 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
 
         # general — answer directly without a service call
         response = await _generate_response(state)
+        out_guard = check_output(response, state)
+        if not out_guard["safe"]:
+            return {
+                "pending_service": "escalation",
+                "requires_escalation": True,
+                "escalation_reason": "policy_exception",
+                "confidence": confidence,
+            }
         return {"response": response, "confidence": confidence, "pending_service": ""}
 
     # Pass 2: check confidence before generating response.
@@ -188,4 +211,14 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
     # Generate the customer-facing response using service results
     response = await _generate_response(state)
     top_similarity = retrieved[0]["similarity"] if retrieved else state.get("confidence", 1.0)
+
+    out_guard = check_output(response, state)
+    if not out_guard["safe"]:
+        return {
+            "pending_service": "escalation",
+            "requires_escalation": True,
+            "escalation_reason": "policy_exception",
+            "confidence": top_similarity,
+        }
+
     return {"response": response, "confidence": top_similarity, "pending_service": ""}
