@@ -153,5 +153,13 @@ Architecture revised from original supervisor-routing design. No separate superv
 
 **Phase 3 COMPLETE.**
 
+**Post-Phase 3 housekeeping (2026-03-20):**
+- Security refactor: `get_order_history` and `get_customer_context` removed from `TOOL_REGISTRY`. Only `track_order`, `cancel_order`, `process_refund` are agent-callable. Context functions remain in source for API-layer use only.
+- `SYSTEM_REFERENCE.md` generated from actual code: all API endpoints, AgentState schema, LangGraph nodes, tool registry, all 10 DB tables + 12 indexes, both guardrails, KB pipeline, config, integration points.
+- `architecture.html` generated: full visual diagram of all system zones, execution paths, and KB ingestion pipeline. Open in browser.
+
 **Next: Phase 4 — Frontend**
-- React + Vite + shadcn/ui project setup (admin dashboard, typing indicator, CSAT widget)
+- Typing indicator while agent streams
+- CSAT widget shown when conversation resolves
+- Admin dashboard (`Admin.jsx`) — conversation log with filters, metrics panel
+- Audit log viewer
