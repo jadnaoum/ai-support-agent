@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI Support Agent — Architecture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0f1117;
+    color: #e2e8f0;
+    min-height: 100vh;
+    padding: 40px 24px 80px;
+  }
+
+  h1 {
+    text-align: center;
+    font-size: 22px;
+    font-weight: 600;
+    color: #f8fafc;
+    letter-spacing: 0.02em;
+    margin-bottom: 6px;
+  }
+
+  .subtitle {
+    text-align: center;
+    font-size: 13px;
+    color: #64748b;
+    margin-bottom: 48px;
+  }
+
+  /* ── Section labels ── */
+  .section-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #475569;
+    margin-bottom: 12px;
+  }
+
+  /* ── Layout ── */
+  .diagram {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  /* ── Row containers ── */
+  .row {
+    display: flex;
+    align-items: stretch;
+    gap: 16px;
+    position: relative;
+  }
+
+  .row + .row {
+    margin-top: 0;
+  }
+
+  /* ── Connector arrows between rows ── */
+  .connector {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 36px;
+    position: relative;
+  }
+
+  .connector-line {
+    width: 2px;
+    height: 100%;
+    background: #334155;
+    margin: 0 auto;
+  }
+
+  .connector-arrow {
+    font-size: 18px;
+    color: #475569;
+    line-height: 1;
+  }
+
+  /* ── Generic box ── */
+  .box {
+    border-radius: 10px;
+    padding: 16px 18px;
+    position: relative;
+    flex: 1;
+  }
+
+  .box-title {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .box-title .icon {
+    font-size: 16px;
+    line-height: 1;
+  }
+
+  .box-body {
+    font-size: 11.5px;
+    color: #94a3b8;
+    line-height: 1.65;
+  }
+
+  .box-body code {
+    font-family: "SF Mono", "Fira Code", monospace;
+    font-size: 10.5px;
+    background: rgba(255,255,255,0.06);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: #cbd5e1;
+  }
+
+  .tag {
+    display: inline-block;
+    font-size: 9.5px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 4px;
+    margin-left: 4px;
+    vertical-align: middle;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  /* ── Colour themes ── */
+
+  /* Client / browser */
+  .theme-client {
+    background: #1e293b;
+    border: 1px solid #334155;
+  }
+  .theme-client .box-title { color: #7dd3fc; }
+  .theme-client .tag { background: #0c4a6e; color: #7dd3fc; }
+
+  /* FastAPI */
+  .theme-api {
+    background: #1a2332;
+    border: 1px solid #1d4ed8;
+  }
+  .theme-api .box-title { color: #93c5fd; }
+  .theme-api .tag { background: #1e3a5f; color: #93c5fd; }
+
+  /* Agent */
+  .theme-agent {
+    background: #1c1f2e;
+    border: 1px solid #7c3aed;
+  }
+  .theme-agent .box-title { color: #c4b5fd; }
+  .theme-agent .tag { background: #2e1065; color: #c4b5fd; }
+
+  /* Service node */
+  .theme-service {
+    background: #1a2028;
+    border: 1px solid #0e7490;
+  }
+  .theme-service .box-title { color: #67e8f9; }
+  .theme-service .tag { background: #0c3040; color: #67e8f9; }
+
+  /* Guardrails */
+  .theme-guard {
+    background: #1f1c14;
+    border: 1px solid #b45309;
+  }
+  .theme-guard .box-title { color: #fcd34d; }
+  .theme-guard .tag { background: #431a07; color: #fcd34d; }
+
+  /* Database */
+  .theme-db {
+    background: #1a1f1a;
+    border: 1px solid #166534;
+  }
+  .theme-db .box-title { color: #86efac; }
+  .theme-db .tag { background: #052e16; color: #86efac; }
+
+  /* External */
+  .theme-ext {
+    background: #1e1b2e;
+    border: 1px solid #6d28d9;
+    border-style: dashed;
+  }
+  .theme-ext .box-title { color: #a78bfa; }
+  .theme-ext .tag { background: #2e1065; color: #a78bfa; }
+
+  /* Tool */
+  .theme-tool {
+    background: #1f1a1a;
+    border: 1px solid #9f1239;
+  }
+  .theme-tool .box-title { color: #fda4af; }
+  .theme-tool .tag { background: #4c0519; color: #fda4af; }
+
+  /* ── Specific layout helpers ── */
+
+  .full-width { width: 100%; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .four-col { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+
+  /* ── Divider with label ── */
+  .zone {
+    border: 1px solid #1e293b;
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 0;
+    position: relative;
+  }
+
+  .zone-label {
+    position: absolute;
+    top: -11px;
+    left: 18px;
+    background: #0f1117;
+    padding: 0 8px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #475569;
+  }
+
+  /* ── Arrow between zones ── */
+  .between {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px 0;
+    gap: 3px;
+  }
+
+  .between .arrow-shaft {
+    width: 2px;
+    height: 18px;
+    background: #334155;
+  }
+
+  .between .arrow-label {
+    font-size: 10px;
+    color: #475569;
+    letter-spacing: 0.06em;
+  }
+
+  .between .arrowhead {
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 7px solid #334155;
+  }
+
+  /* ── Horizontal arrow ── */
+  .h-arrow {
+    display: flex;
+    align-items: center;
+    color: #475569;
+    font-size: 11px;
+    gap: 4px;
+    padding: 0 4px;
+    flex-shrink: 0;
+    align-self: center;
+  }
+
+  .h-arrow::after { content: "→"; font-size: 16px; }
+
+  /* ── State fields table ── */
+  .fields {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2px 12px;
+    font-size: 11px;
+    margin-top: 6px;
+  }
+
+  .field-name {
+    font-family: "SF Mono", "Fira Code", monospace;
+    font-size: 10.5px;
+    color: #c4b5fd;
+    white-space: nowrap;
+  }
+
+  .field-desc {
+    color: #64748b;
+    font-size: 10.5px;
+  }
+
+  /* ── Flow path annotation ── */
+  .flow-paths {
+    margin-top: 32px;
+  }
+
+  .flow-path {
+    background: #141820;
+    border: 1px solid #1e293b;
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 12px;
+  }
+
+  .flow-path-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #cbd5e1;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .flow-path-title .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+
+  .flow-steps {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+  }
+
+  .step {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 4px 10px;
+    color: #94a3b8;
+    white-space: nowrap;
+  }
+
+  .step-arrow {
+    color: #475569;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+
+  /* Badge */
+  .badge {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 99px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    vertical-align: middle;
+    margin-left: 4px;
+  }
+
+  .badge-green { background: #14532d; color: #86efac; }
+  .badge-red   { background: #4c0519; color: #fda4af; }
+  .badge-blue  { background: #1e3a5f; color: #93c5fd; }
+  .badge-amber { background: #431a07; color: #fcd34d; }
+  .badge-purple { background: #2e1065; color: #c4b5fd; }
+
+  hr.sep {
+    border: none;
+    border-top: 1px solid #1e293b;
+    margin: 40px 0;
+  }
+
+  h2 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #94a3b8;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 20px;
+  }
+</style>
+</head>
+<body>
+
+<h1>AI Customer Support Agent</h1>
+<p class="subtitle">Architecture Diagram — generated from codebase · Phase 3 complete · 203 tests</p>
+
+<div class="diagram">
+
+  <!-- ═══════════════════════════════════════════════
+       ZONE 1: CLIENT
+  ════════════════════════════════════════════════ -->
+  <div class="zone">
+    <span class="zone-label">Client</span>
+    <div class="three-col">
+      <div class="box theme-client">
+        <div class="box-title"><span class="icon">🖥</span> React SPA <span class="tag">Vite + Tailwind</span></div>
+        <div class="box-body">
+          Customer selector dropdown<br>
+          Message list (role-based styling)<br>
+          Text input + Send button<br>
+          SSE token streaming → auto-scroll<br>
+          <code>useSSE.js</code> hook
+        </div>
+      </div>
+      <div class="box theme-client">
+        <div class="box-title"><span class="icon">🔌</span> Connections</div>
+        <div class="box-body">
+          <code>POST /api/conversations</code><br>
+          <code>POST /api/chat</code><br>
+          <code>GET /api/chat/stream/{id}</code> SSE<br>
+          <code>GET /api/customers</code><br>
+          <code>POST /api/csat</code>
+        </div>
+      </div>
+      <div class="box theme-client">
+        <div class="box-title"><span class="icon">🛠</span> Dev Proxy</div>
+        <div class="box-body">
+          <code>vite.config.js</code><br>
+          <code>/api/*</code> → <code>localhost:8000</code><br><br>
+          Production:<br>
+          FastAPI serves <code>frontend/dist/</code><br>
+          as static files (SPA fallback)
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="between">
+    <div class="arrow-shaft"></div>
+    <div class="arrow-label">HTTP / SSE</div>
+    <div class="arrowhead"></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       ZONE 2: API LAYER
+  ════════════════════════════════════════════════ -->
+  <div class="zone">
+    <span class="zone-label">API Layer — FastAPI + uvicorn</span>
+
+    <!-- Startup -->
+    <div class="box theme-api full-width" style="margin-bottom:16px">
+      <div class="box-title"><span class="icon">🚀</span> main.py — Startup</div>
+      <div class="box-body" style="display:flex;gap:24px;flex-wrap:wrap">
+        <span><code>init_tracing()</code> — exports LangSmith env vars</span>
+        <span>CORS middleware (all origins)</span>
+        <span>Mounts: chat · admin · webhooks routers</span>
+        <span><code>GET /health</code></span>
+        <span>SPA static file serving (<code>frontend/dist/</code>)</span>
+      </div>
+    </div>
+
+    <div class="three-col">
+      <!-- chat router -->
+      <div class="box theme-api">
+        <div class="box-title"><span class="icon">💬</span> chat.py</div>
+        <div class="box-body">
+          <code>POST /api/conversations</code><br>
+          → validate customer, create Conversation<br><br>
+          <code>POST /api/chat</code><br>
+          → insert customer Message<br><br>
+          <code>GET /api/chat/stream/{id}</code> <span class="badge badge-blue">SSE</span><br>
+          → load history (≤50 msgs)<br>
+          → <code>get_customer_context()</code> <span class="badge badge-amber">best-effort</span><br>
+          → build AgentState<br>
+          → <code>graph.astream()</code><br>
+          → stream tokens word-by-word<br>
+          → persist Message + AuditLog
+        </div>
+      </div>
+
+      <!-- admin router -->
+      <div class="box theme-api">
+        <div class="box-title"><span class="icon">📊</span> admin.py</div>
+        <div class="box-body">
+          <code>GET /api/customers</code><br>
+          → list all (name order)<br><br>
+          <code>GET /api/conversations</code><br>
+          → filter: status, customer,<br>
+          &nbsp;&nbsp;csat_min/max, limit/offset<br><br>
+          <code>GET /api/conversations/{id}</code><br>
+          → with messages, audit_logs,<br>
+          &nbsp;&nbsp;escalations<br><br>
+          <code>GET /api/metrics</code><br>
+          → totals, escalation rate, avg CSAT
+        </div>
+      </div>
+
+      <!-- webhooks -->
+      <div class="box theme-api">
+        <div class="box-title"><span class="icon">🔗</span> webhooks.py</div>
+        <div class="box-body">
+          <code>POST /api/csat</code><br>
+          → validates score 1–5<br>
+          → rejects if conversation active<br>
+          → rejects if already rated<br>
+          → updates <code>conversations.csat_score</code><br><br>
+          <span style="color:#475569;font-size:11px">Guards: 400 active · 409 duplicate · 422 range</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="between">
+    <div class="arrow-shaft"></div>
+    <div class="arrow-label">LangGraph .astream()</div>
+    <div class="arrowhead"></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       ZONE 3: AGENT SYSTEM
+  ════════════════════════════════════════════════ -->
+  <div class="zone">
+    <span class="zone-label">Agent System — LangGraph StateGraph</span>
+
+    <!-- State -->
+    <div class="box theme-agent full-width" style="margin-bottom:16px">
+      <div class="box-title"><span class="icon">🗂</span> AgentState — TypedDict (state.py)</div>
+      <div class="fields">
+        <span class="field-name">messages</span>         <span class="field-desc">list[dict] — full conversation history [{role, content}]</span>
+        <span class="field-name">customer_id</span>      <span class="field-desc">str — set by chat.py before graph runs</span>
+        <span class="field-name">customer_context</span> <span class="field-desc">dict — {name, email, order_count, recent_orders, risk_score} — read-only inside graph</span>
+        <span class="field-name">retrieved_context</span><span class="field-desc">list — KB chunks from knowledge_service [{chunk_text, title, category, similarity}]</span>
+        <span class="field-name">action_results</span>   <span class="field-desc">list — tool outputs from action_service</span>
+        <span class="field-name">confidence</span>       <span class="field-desc">float — LLM classification confidence or top KB similarity</span>
+        <span class="field-name">requires_escalation</span><span class="field-desc">bool</span>
+        <span class="field-name">escalation_reason</span><span class="field-desc">str — "customer_requested" | "low_confidence" | "policy_exception"</span>
+        <span class="field-name">actions_taken</span>    <span class="field-desc">list[dict] — audit trail, also used as Pass-2 trigger signal</span>
+        <span class="field-name">response</span>         <span class="field-desc">str — final customer-facing text</span>
+        <span class="field-name">pending_service</span>  <span class="field-desc">str — routing sentinel: "knowledge" | "action" | "escalation" | "" (empty = END)</span>
+        <span class="field-name">pending_action</span>   <span class="field-desc">dict — {tool, params} set by conversation_agent, consumed by action_service</span>
+      </div>
+    </div>
+
+    <!-- Graph flow -->
+    <div style="display:grid;grid-template-columns:3fr 2fr;gap:16px">
+
+      <!-- Left: graph nodes -->
+      <div style="display:flex;flex-direction:column;gap:12px">
+
+        <!-- START -->
+        <div style="text-align:center;font-size:11px;color:#475569;padding:6px 0">
+          START (from chat.py)
+        </div>
+
+        <!-- Conversation agent -->
+        <div class="box theme-agent">
+          <div class="box-title"><span class="icon">🧠</span> conversation_agent <span class="tag">customer-facing · LLM</span></div>
+          <div class="box-body">
+            <strong style="color:#c4b5fd;font-size:11px">Pass 1</strong> — intent classification (<code>actions_taken</code> empty)<br>
+            &nbsp;① <code>check_input()</code> — input guard<br>
+            &nbsp;② LLM → <code>INTENT_PROMPT</code> → JSON <code>{intent, confidence, action?, params?}</code><br>
+            &nbsp;③ Route: <code>knowledge_query</code> · <code>action_request</code> · <code>escalation_request</code> · <code>general</code><br>
+            &nbsp;&nbsp;&nbsp;general: generate directly → <code>check_output()</code> → return<br><br>
+            <strong style="color:#c4b5fd;font-size:11px">Pass 2</strong> — response generation (<code>actions_taken</code> non-empty)<br>
+            &nbsp;① KB similarity check → escalate if &lt; 0.7<br>
+            &nbsp;② <code>_build_context_section()</code>: customer + KB chunks + action results<br>
+            &nbsp;③ LLM → <code>RESPONSE_PROMPT</code> + context → response<br>
+            &nbsp;④ <code>check_output()</code> — output guard<br>
+            &nbsp;⑤ Return response, <code>pending_service=""</code>
+          </div>
+        </div>
+
+        <!-- routing -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:center">
+          <div style="text-align:center;font-size:10px;color:#0e7490">↓ "knowledge"</div>
+          <div style="text-align:center;font-size:10px;color:#0e7490">↓ "action"</div>
+          <div style="text-align:center;font-size:10px;color:#9f1239">↓ "escalation"</div>
+        </div>
+
+        <!-- Services row -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+          <div class="box theme-service">
+            <div class="box-title" style="font-size:12px"><span class="icon">🔍</span> knowledge_service</div>
+            <div class="box-body">
+              Embed query<br>
+              <code>litellm.aembedding</code><br>
+              pgvector cosine search<br>
+              LIMIT 5<br>
+              Returns raw chunks<br>
+              <span class="badge badge-blue">no LLM</span>
+            </div>
+          </div>
+          <div class="box theme-service">
+            <div class="box-title" style="font-size:12px"><span class="icon">⚙️</span> action_service</div>
+            <div class="box-body">
+              Read <code>pending_action</code><br>
+              Strip null params<br>
+              Lookup <code>TOOL_REGISTRY</code><br>
+              Execute handler<br>
+              Clear <code>pending_action</code><br>
+              <span class="badge badge-blue">no LLM</span>
+            </div>
+          </div>
+          <div class="box theme-tool">
+            <div class="box-title" style="font-size:12px"><span class="icon">🚨</span> escalation_handler</div>
+            <div class="box-body">
+              Build context summary<br>
+              Write <code>Escalation</code> row<br>
+              Set conv <code>status="escalated"</code><br>
+              Return template msg<br>
+              <span class="badge badge-red">→ END</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- return arrows -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:center">
+          <div style="text-align:center;font-size:10px;color:#0e7490">↑ back to Pass 2</div>
+          <div style="text-align:center;font-size:10px;color:#0e7490">↑ back to Pass 2</div>
+          <div style="text-align:center;font-size:10px;color:#475569">—</div>
+        </div>
+
+        <div style="text-align:center;font-size:11px;color:#475569;padding:6px 0">
+          → END → <code>event_generator</code> streams response
+        </div>
+      </div>
+
+      <!-- Right: guardrails -->
+      <div style="display:flex;flex-direction:column;gap:12px">
+
+        <div class="box theme-guard">
+          <div class="box-title"><span class="icon">🛡</span> Input Guard <span class="tag">input_guard.py</span></div>
+          <div class="box-body">
+            Runs at <strong>Pass 1 start</strong><br><br>
+            <strong style="color:#fcd34d;font-size:11px">Stage 1 — Regex (no LLM)</strong><br>
+            14 compiled patterns:<br>
+            "ignore ... instructions"<br>
+            "you are now", "jailbreak"<br>
+            "system prompt", DAN tokens<br>
+            → instant block<br><br>
+            <strong style="color:#fcd34d;font-size:11px">Stage 2 — LLM classifier</strong><br>
+            Categories:<br>
+            <code>safe</code> · <code>prompt_injection</code><br>
+            <code>abusive</code> · <code>off_topic</code><br><br>
+            Fail-open: LLM error → <code>safe:True</code>
+          </div>
+        </div>
+
+        <div class="box theme-guard">
+          <div class="box-title"><span class="icon">🔒</span> Output Guard <span class="tag">output_guard.py</span></div>
+          <div class="box-body">
+            Runs <strong>before returning</strong> (Pass 1 general + Pass 2)<br>
+            <span class="badge badge-blue">no LLM — rule-based</span><br><br>
+            <strong style="color:#fcd34d;font-size:11px">Check 1 — Impossible promises</strong><br>
+            "I've cancelled" → needs <code>cancel_order</code><br>
+            "refund has been processed" → needs <code>process_refund</code><br><br>
+            <strong style="color:#fcd34d;font-size:11px">Check 2 — ID hallucination</strong><br>
+            Extracts all UUIDs from response<br>
+            Cross-checks against:<br>
+            · customer_context orders<br>
+            · action_results<br>
+            · customer messages<br>
+            Unknown UUID → flag<br><br>
+            Failure → <code>escalation_reason="policy_exception"</code>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="between">
+    <div class="arrow-shaft"></div>
+    <div class="arrow-label">TOOL_REGISTRY dispatch</div>
+    <div class="arrowhead"></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       ZONE 4: TOOL REGISTRY
+  ════════════════════════════════════════════════ -->
+  <div class="zone">
+    <span class="zone-label">Tool Registry — agent-callable only</span>
+    <div class="three-col">
+      <div class="box theme-tool">
+        <div class="box-title"><span class="icon">📦</span> track_order</div>
+        <div class="box-body">
+          <strong>Params:</strong> <code>order_id?</code><br>
+          Uses most-recent if omitted<br>
+          Validates customer ownership<br><br>
+          <strong>Returns:</strong><br>
+          <code>{success, order_id, status,<br>total, placed_at, items[]}</code>
+        </div>
+      </div>
+      <div class="box theme-tool">
+        <div class="box-title"><span class="icon">❌</span> cancel_order</div>
+        <div class="box-body">
+          <strong>Params:</strong> <code>order_id?</code>, <code>reason?</code><br>
+          Rejects: delivered / already cancelled<br>
+          Sets <code>status="cancelled"</code><br><br>
+          <strong>Returns:</strong><br>
+          <code>{success, order_id, message}</code>
+        </div>
+      </div>
+      <div class="box theme-tool">
+        <div class="box-title"><span class="icon">💰</span> process_refund</div>
+        <div class="box-body">
+          <strong>Params:</strong> <code>order_id?</code>, <code>amount?</code>, <code>reason?</code><br>
+          Requires: delivered or cancelled<br>
+          Creates <code>Refund</code> row, sets <code>status="refunded"</code><br>
+          Reason normalised (broken→defective etc.)<br><br>
+          <strong>Returns:</strong><br>
+          <code>{success, refund_id, amount, msg}</code>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:12px;font-size:11px;color:#475569;padding:0 4px">
+      ⚠ <code>get_order_history</code> and <code>get_customer_context</code> are <strong>NOT in the registry</strong> — loaded by the API layer only.
+      Keeping them out prevents prompt injection from querying arbitrary customer data.
+    </div>
+  </div>
+
+  <div class="between">
+    <div class="arrow-shaft"></div>
+    <div class="arrow-label">SQLAlchemy async</div>
+    <div class="arrowhead"></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       ZONE 5: DATABASE
+  ════════════════════════════════════════════════ -->
+  <div class="zone">
+    <span class="zone-label">Database — PostgreSQL + pgvector</span>
+
+    <div class="four-col" style="margin-bottom:12px">
+      <div class="box theme-db">
+        <div class="box-title"><span class="icon">👤</span> customers</div>
+        <div class="box-body">id · name · email (unique)<br>created_at · metadata (JSONB)</div>
+      </div>
+      <div class="box theme-db">
+        <div class="box-title"><span class="icon">📦</span> products</div>
+        <div class="box-body">id · name · category · price<br>return_window_days · warranty_months<br>metadata (JSONB)</div>
+      </div>
+      <div class="box theme-db">
+        <div class="box-title"><span class="icon">🛒</span> orders</div>
+        <div class="box-body">id · customer_id (FK, idx)<br>status · total_amount<br>created_at · updated_at</div>
+      </div>
+      <div class="box theme-db">
+        <div class="box-title"><span class="icon">🧾</span> order_items</div>
+        <div class="box-body">id · order_id (FK)<br>product_id (FK)<br>quantity · price_at_purchase</div>
+      </div>
+    </div>
+
+    <div class="four-col" style="margin-bottom:12px">
+      <div class="box theme-db">
+        <div class="box-title"><span class="icon">💸</span> refunds</div>
+        <div class="box-body">id · order_id · customer_id (idx)<br>amount · reason · status<br>initiated_by · conversation_id<br>processed_at</div>
+      </div>
+      <div class="box theme-db">
+        <div class="box-title"><span class="icon">💬</span> conversations</div>
+        <div class="box-body">id · customer_id (idx)<br>status (idx) · started_at<br>summary · messages_purged<br>csat_score (partial idx) · csat_comment</div>
+      </div>
+      <div class="box theme-db">
+        <div class="box-title"><span class="icon">📝</span> messages</div>
+        <div class="box-body">id · conversation_id (idx)<br>role · content · agent_type<br>created_at</div>
+      </div>
+      <div class="box theme-db">
+        <div class="box-title"><span class="icon">📋</span> audit_logs</div>
+        <div class="box-body">id · conversation_id (idx)<br>message_id (idx) · agent_type<br>action · input_data · output_data<br>routing_decision · confidence</div>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="box theme-db">
+        <div class="box-title"><span class="icon">🚨</span> escalations</div>
+        <div class="box-body">
+          id · conversation_id (idx)<br>
+          reason (idx): customer_requested / low_confidence / unknown_intent / policy_exception / repeated_failure<br>
+          agent_confidence · context_summary
+        </div>
+      </div>
+      <div class="box theme-db" style="border-color:#0e7490">
+        <div class="box-title" style="color:#67e8f9"><span class="icon">🔎</span> kb_documents + kb_chunks <span class="tag" style="background:#0c3040;color:#67e8f9">pgvector</span></div>
+        <div class="box-body">
+          <strong>kb_documents:</strong> id · filename · title · category · version<br>
+          <strong>kb_chunks:</strong> id · document_id (idx, cascade) · chunk_text · chunk_index<br>
+          <strong>embedding: VECTOR(1536)</strong> — HNSW index (cosine ops)<br>
+          19 chunks across 6 documents (current)
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="between">
+    <div class="arrow-shaft"></div>
+    <div class="arrow-label">External services</div>
+    <div class="arrowhead"></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       ZONE 6: EXTERNAL
+  ════════════════════════════════════════════════ -->
+  <div class="zone">
+    <span class="zone-label">External Integrations</span>
+    <div class="three-col">
+      <div class="box theme-ext">
+        <div class="box-title"><span class="icon">🤖</span> LiteLLM <span class="tag">all LLM calls</span></div>
+        <div class="box-body">
+          <code>litellm.acompletion()</code><br>
+          Model: <code>claude-sonnet-4-6</code><br>
+          Used by: conversation_agent (×2 per turn),<br>
+          input_guard (classifier)<br><br>
+          <code>litellm.aembedding()</code><br>
+          Model: <code>text-embedding-3-small</code><br>
+          Used by: knowledge_service, ingest.py<br><br>
+          <span style="color:#475569;font-size:11px">No provider SDK imported directly anywhere</span>
+        </div>
+      </div>
+      <div class="box theme-ext">
+        <div class="box-title"><span class="icon">🔭</span> LangSmith <span class="tag">tracing</span></div>
+        <div class="box-body">
+          Imported ONLY in <code>backend/tracing/setup.py</code><br>
+          <code>init_tracing()</code> called once at startup<br>
+          Exports <code>LANGCHAIN_*</code> env vars<br>
+          LangGraph autodiscovers and traces automatically<br><br>
+          Endpoint: EU region<br>
+          <code>eu.api.smith.langchain.com</code><br><br>
+          <span style="color:#475569;font-size:11px">Zero LangSmith imports in agent code</span>
+        </div>
+      </div>
+      <div class="box theme-ext">
+        <div class="box-title"><span class="icon">📡</span> SSE (sse_starlette)</div>
+        <div class="box-body">
+          <code>EventSourceResponse</code> wraps async generator<br><br>
+          Events:<br>
+          <code>token</code> — one word (space-appended)<br>
+          <code>done</code> — stream complete<br>
+          <code>error</code> — exception message<br><br>
+          <span style="color:#475569;font-size:11px">AppStatus.should_exit_event reset<br>in conftest.py — pytest loop isolation</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       EXECUTION PATHS
+  ════════════════════════════════════════════════ -->
+  <hr class="sep" />
+  <h2>Request Execution Paths</h2>
+
+  <div class="flow-paths">
+
+    <div class="flow-path">
+      <div class="flow-path-title">
+        <span class="dot" style="background:#7c3aed"></span>
+        Knowledge Query — "What is your return policy?"
+      </div>
+      <div class="flow-steps">
+        <span class="step">POST /api/chat</span>
+        <span class="step-arrow">→</span>
+        <span class="step">GET /api/chat/stream</span>
+        <span class="step-arrow">→</span>
+        <span class="step">load history + customer_context</span>
+        <span class="step-arrow">→</span>
+        <span class="step">graph START</span>
+        <span class="step-arrow">→</span>
+        <span class="step">conversation_agent Pass 1</span>
+        <span class="step-arrow">→</span>
+        <span class="step">input_guard ✓</span>
+        <span class="step-arrow">→</span>
+        <span class="step">LLM → knowledge_query (0.95)</span>
+        <span class="step-arrow">→</span>
+        <span class="step">pending_service="knowledge"</span>
+        <span class="step-arrow">→</span>
+        <span class="step">knowledge_service</span>
+        <span class="step-arrow">→</span>
+        <span class="step">embed query</span>
+        <span class="step-arrow">→</span>
+        <span class="step">pgvector search (5 chunks)</span>
+        <span class="step-arrow">→</span>
+        <span class="step">conversation_agent Pass 2</span>
+        <span class="step-arrow">→</span>
+        <span class="step">similarity ≥ 0.7 ✓</span>
+        <span class="step-arrow">→</span>
+        <span class="step">LLM + KB context → response</span>
+        <span class="step-arrow">→</span>
+        <span class="step">output_guard ✓</span>
+        <span class="step-arrow">→</span>
+        <span class="step">END</span>
+        <span class="step-arrow">→</span>
+        <span class="step">stream tokens</span>
+        <span class="step-arrow">→</span>
+        <span class="step">persist Message + AuditLog</span>
+      </div>
+    </div>
+
+    <div class="flow-path">
+      <div class="flow-path-title">
+        <span class="dot" style="background:#0e7490"></span>
+        Action Request — "Cancel my order"
+      </div>
+      <div class="flow-steps">
+        <span class="step">conversation_agent Pass 1</span>
+        <span class="step-arrow">→</span>
+        <span class="step">LLM → action_request (cancel_order)</span>
+        <span class="step-arrow">→</span>
+        <span class="step">pending_service="action"</span>
+        <span class="step-arrow">→</span>
+        <span class="step">pending_action={tool:"cancel_order", params:{}}</span>
+        <span class="step-arrow">→</span>
+        <span class="step">action_service</span>
+        <span class="step-arrow">→</span>
+        <span class="step">strip null params</span>
+        <span class="step-arrow">→</span>
+        <span class="step">TOOL_REGISTRY["cancel_order"]</span>
+        <span class="step-arrow">→</span>
+        <span class="step">validate ownership</span>
+        <span class="step-arrow">→</span>
+        <span class="step">DB: set cancelled</span>
+        <span class="step-arrow">→</span>
+        <span class="step">conversation_agent Pass 2</span>
+        <span class="step-arrow">→</span>
+        <span class="step">LLM + action result → response</span>
+        <span class="step-arrow">→</span>
+        <span class="step">output_guard ✓</span>
+        <span class="step-arrow">→</span>
+        <span class="step">END</span>
+      </div>
+    </div>
+
+    <div class="flow-path">
+      <div class="flow-path-title">
+        <span class="dot" style="background:#dc2626"></span>
+        Escalation — "I want to speak to a human" or low KB confidence
+      </div>
+      <div class="flow-steps">
+        <span class="step">conversation_agent Pass 1</span>
+        <span class="step-arrow">→</span>
+        <span class="step">LLM → escalation_request <em>OR</em> Pass 2: similarity &lt; 0.7 <em>OR</em> output_guard fails</span>
+        <span class="step-arrow">→</span>
+        <span class="step">pending_service="escalation"</span>
+        <span class="step-arrow">→</span>
+        <span class="step">escalation_handler</span>
+        <span class="step-arrow">→</span>
+        <span class="step">write Escalation row</span>
+        <span class="step-arrow">→</span>
+        <span class="step">conversations.status="escalated"</span>
+        <span class="step-arrow">→</span>
+        <span class="step">handoff message (by reason)</span>
+        <span class="step-arrow">→</span>
+        <span class="step">END → stream handoff</span>
+      </div>
+    </div>
+
+    <div class="flow-path">
+      <div class="flow-path-title">
+        <span class="dot" style="background:#b45309"></span>
+        Blocked Input — prompt injection or abusive content
+      </div>
+      <div class="flow-steps">
+        <span class="step">conversation_agent Pass 1</span>
+        <span class="step-arrow">→</span>
+        <span class="step">input_guard Stage 1: regex match</span>
+        <span class="step-arrow">→</span>
+        <span class="step">OR Stage 2: LLM → prompt_injection / abusive / off_topic</span>
+        <span class="step-arrow">→</span>
+        <span class="step">return blocked_response</span>
+        <span class="step-arrow">→</span>
+        <span class="step">pending_service="" → END</span>
+        <span class="step-arrow">→</span>
+        <span class="step">stream safe reply — no escalation</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       KB INGESTION PIPELINE
+  ════════════════════════════════════════════════ -->
+  <hr class="sep" />
+  <h2>KB Ingestion Pipeline (offline)</h2>
+
+  <div class="row">
+    <div class="box theme-service" style="flex:none;width:160px;text-align:center">
+      <div class="box-title" style="justify-content:center"><span class="icon">📄</span> docs/kb/*.md</div>
+      <div class="box-body">6 documents<br>27.5 KB total<br>~4,700 words</div>
+    </div>
+    <div class="h-arrow"></div>
+    <div class="box theme-service" style="flex:none;width:200px">
+      <div class="box-title"><span class="icon">✂️</span> chunker.py</div>
+      <div class="box-body">tiktoken cl100k_base<br>max 400 tokens/chunk<br>50-token overlap<br>paragraph-aware split</div>
+    </div>
+    <div class="h-arrow"></div>
+    <div class="box theme-ext" style="flex:none;width:210px">
+      <div class="box-title"><span class="icon">🔢</span> litellm.aembedding</div>
+      <div class="box-body">text-embedding-3-small<br>batch embed all chunks<br>→ Vector(1536)</div>
+    </div>
+    <div class="h-arrow"></div>
+    <div class="box theme-db" style="flex:none;width:210px">
+      <div class="box-title"><span class="icon">💾</span> pgvector upsert</div>
+      <div class="box-body">Delete old chunks (idempotent)<br>Insert kb_documents row<br>Insert kb_chunks rows<br>Create HNSW index</div>
+    </div>
+    <div class="h-arrow"></div>
+    <div class="box theme-db" style="flex:none;width:140px;text-align:center">
+      <div class="box-title" style="justify-content:center"><span class="icon">✅</span> Live</div>
+      <div class="box-body">19 chunks<br>6 documents<br>HNSW ready</div>
+    </div>
+  </div>
+
+</div><!-- /diagram -->
+
+</body>
+</html>
