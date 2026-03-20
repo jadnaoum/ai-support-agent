@@ -4,6 +4,7 @@ from backend.agents.state import AgentState
 from backend.agents.conversation import conversation_agent_node
 from backend.agents.knowledge_service import knowledge_service_node
 from backend.agents.action_service import action_service_node
+from backend.agents.escalation import escalation_handler_node
 
 
 def _route_after_conversation(state: AgentState) -> str:
@@ -12,7 +13,8 @@ def _route_after_conversation(state: AgentState) -> str:
         return "knowledge_service"
     if pending == "action":
         return "action_service"
-    # "escalation" node added in Phase 3 step 4
+    if pending == "escalation":
+        return "escalation_handler"
     return END
 
 
@@ -22,6 +24,7 @@ def build_graph():
     builder.add_node("conversation_agent", conversation_agent_node)
     builder.add_node("knowledge_service", knowledge_service_node)
     builder.add_node("action_service", action_service_node)
+    builder.add_node("escalation_handler", escalation_handler_node)
 
     builder.add_edge(START, "conversation_agent")
     builder.add_conditional_edges(
@@ -30,12 +33,15 @@ def build_graph():
         {
             "knowledge_service": "knowledge_service",
             "action_service": "action_service",
+            "escalation_handler": "escalation_handler",
             END: END,
         },
     )
-    # Both services return results to conversation_agent for response generation
+    # Knowledge and action services return results to conversation_agent
     builder.add_edge("knowledge_service", "conversation_agent")
     builder.add_edge("action_service", "conversation_agent")
+    # Escalation handler ends the turn directly
+    builder.add_edge("escalation_handler", END)
 
     return builder.compile()
 

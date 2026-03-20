@@ -157,11 +157,20 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
         response = await _generate_response(state)
         return {"response": response, "confidence": confidence, "pending_service": ""}
 
-    # Pass 2: generate response using service results
+    # Pass 2: check confidence before generating response.
+    # If KB results are present but below threshold, escalate instead of guessing.
+    retrieved = state.get("retrieved_context") or []
+    if retrieved:
+        top_similarity = retrieved[0]["similarity"]
+        if top_similarity < settings.confidence_threshold:
+            return {
+                "pending_service": "escalation",
+                "requires_escalation": True,
+                "escalation_reason": "low_confidence",
+                "confidence": top_similarity,
+            }
+
+    # Generate the customer-facing response using service results
     response = await _generate_response(state)
-    top_similarity = (
-        state["retrieved_context"][0]["similarity"]
-        if state.get("retrieved_context")
-        else state.get("confidence", 1.0)
-    )
+    top_similarity = retrieved[0]["similarity"] if retrieved else state.get("confidence", 1.0)
     return {"response": response, "confidence": top_similarity, "pending_service": ""}

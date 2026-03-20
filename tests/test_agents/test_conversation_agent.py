@@ -172,3 +172,20 @@ async def test_system_prompt_includes_kb_context(mock_complete):
     system_msg = messages[0]
     assert system_msg["role"] == "system"
     assert "Electronics" in system_msg["content"]
+
+
+@patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
+async def test_low_confidence_kb_result_triggers_escalation(mock_complete):
+    """When KB similarity is below the confidence threshold, escalate instead of responding."""
+    # No LLM call should be made — escalation decision is based on similarity score alone
+    state = make_state(
+        retrieved_context=[
+            {"chunk_text": "...", "title": "T", "category": "c", "similarity": 0.1}
+        ],
+        actions_taken=FAKE_KB_ACTION,
+    )
+    result = await conversation_agent_node(state, {})
+    assert result["pending_service"] == "escalation"
+    assert result["requires_escalation"] is True
+    assert result["escalation_reason"] == "low_confidence"
+    mock_complete.assert_not_called()

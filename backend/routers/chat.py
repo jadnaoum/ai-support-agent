@@ -150,7 +150,7 @@ async def stream_response(
         # Accumulate state updates across all nodes in the graph
         final_output: dict = {}
         try:
-            config = {"configurable": {"db": db}}
+            config = {"configurable": {"db": db, "conversation_id": conversation_id}}
             async for chunk in graph.astream(initial_state, config=config, stream_mode="updates"):
                 for node_output in chunk.values():
                     if isinstance(node_output, dict):
