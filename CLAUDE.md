@@ -79,15 +79,17 @@ Note: use `pip3` or `python3 -m pip` if `pip` is not found (macOS default).
 
 **Evals: skipped for now.** Will add `evals/datasets/knowledge_qa.json` and eval runner after Phase 3.
 
-### LangSmith tracing — COMPLETE (2026-03-19)
+### LangSmith tracing — COMPLETE (2026-03-20)
 
 Pulled forward from Phase 5. Wired up before building the frontend so traces are visible during manual testing.
 
-- `backend/tracing/setup.py` — only file that touches LangSmith; `init_tracing()` reads `langchain_tracing_v2`, `langchain_api_key`, `langchain_project` from settings and exports them to `os.environ` so LangGraph's built-in tracing activates automatically
+- `backend/tracing/setup.py` — only file that touches LangSmith; `init_tracing()` reads `langchain_tracing_v2`, `langchain_api_key`, `langchain_project`, `langchain_endpoint` from settings and exports them to `os.environ` so LangGraph's built-in tracing activates automatically
 - `backend/main.py` — calls `init_tracing()` once at startup
-- `backend/config.py` — added `langchain_api_key` and `langchain_project` fields
-- API key in `.env` (`LANGCHAIN_API_KEY`, `LANGCHAIN_TRACING_V2=true`, `LANGCHAIN_PROJECT=ai-support-agent`)
+- `backend/config.py` — added `langchain_api_key`, `langchain_project`, `langchain_endpoint` fields
+- API key in `.env` (`LANGCHAIN_API_KEY`, `LANGCHAIN_TRACING_V2=true`, `LANGCHAIN_PROJECT=ai-support-agent`, `LANGCHAIN_ENDPOINT=https://eu.api.smith.langchain.com`)
 - No LangSmith imports outside `backend/tracing/setup.py`
+
+**EU region fix (2026-03-20):** LangSmith account is on the EU region. All keys were returning 403 because requests hit the default US endpoint (`api.smith.langchain.com`). Fixed by adding `LANGCHAIN_ENDPOINT=https://eu.api.smith.langchain.com` to `.env` and exporting it in `tracing/setup.py`. Traces confirmed working.
 
 ### Minimal chat UI — COMPLETE (2026-03-19)
 
@@ -111,12 +113,18 @@ cd frontend && npm run dev
 # open http://localhost:5173
 ```
 
-**Blocked on:** `ANTHROPIC_API_KEY` in `.env` is still the placeholder `your_anthropic_api_key_here`. LiteLLM calls `claude-sonnet-4-6` and fails with an auth error. Fill in a real key from console.anthropic.com to unblock manual testing.
-
-**LangSmith:** `LANGCHAIN_TRACING_V2=false` for now — key was giving 403s. Re-enable once a valid key is confirmed.
-
 **Not yet built (full Phase 4 scope for later):** typing indicator, CSAT widget, admin dashboard, polish.
 
-### Phase 3 (full agent routing) — NEXT after manual testing confirms Phase 2 works
+**Manual testing (2026-03-20):** ANTHROPIC_API_KEY set, LangSmith EU endpoint fixed. System end-to-end tested — chat UI working, SSE streaming working, traces appearing in LangSmith.
 
-Real supervisor intent classification, action agent with tool registry (track/cancel/refund), escalation handler, customer context loading, input/output guardrails.
+### Phase 3: Full agent system — NEXT
+
+Architecture revised from original supervisor-routing design. No separate supervisor node. The conversation agent is the only customer-facing node — it classifies intent, calls knowledge and action services, and generates all customer responses. Services return raw data only.
+
+**Steps:**
+1. `backend/agents/conversation.py` — single customer-facing agent: intent classification, service orchestration, response generation, escalation decisions
+2. `backend/agents/knowledge_service.py` — refactor existing `knowledge_agent.py` into a non-customer-facing service returning raw KB chunks
+3. `backend/agents/action_service.py` + `backend/tools/registry.py`, `order_tools.py`, `customer_tools.py` — tool registry with track/cancel/refund; returns results to conversation agent
+4. `backend/agents/escalation.py` — escalation handler: logs reason and context, conversation agent delivers the message
+5. Customer context loading — purchase history + computed risk score loaded at turn start
+6. `backend/guardrails/input_guard.py` + `output_guard.py` — prompt injection detection, hallucination/promise validation
