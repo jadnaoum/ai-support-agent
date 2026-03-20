@@ -38,5 +38,7 @@ def init_tracing() -> None:
     os.environ["LANGCHAIN_TRACING_V2"] = "true"
     os.environ["LANGCHAIN_API_KEY"] = settings.langchain_api_key
     os.environ["LANGCHAIN_PROJECT"] = settings.langchain_project
+    os.environ["LANGCHAIN_ENDPOINT"] = settings.langchain_endpoint
+    os.environ["LANGSMITH_USE_MULTIPART_INGEST"] = "false"
 
     logger.info("LangSmith tracing enabled (project=%s)", settings.langchain_project)

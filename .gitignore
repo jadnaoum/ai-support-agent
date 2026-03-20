@@ -13,3 +13,4 @@ node_modules/
 frontend/dist/
 *.log
 .DS_Store
+test_output.txt
