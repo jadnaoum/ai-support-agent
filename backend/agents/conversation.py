@@ -22,12 +22,12 @@ settings = get_settings()
 INTENT_PROMPT = """You are an intent classifier for a customer support system.
 Classify the customer's latest message into exactly one category:
 - knowledge_query: asking about policies, shipping, returns, products, warranties, or account info
-- action_request: wants to track an order, cancel an order, request a refund, or view order history
+- action_request: wants to track an order, cancel an order, or request a refund
 - escalation_request: explicitly asking to speak to a human agent or supervisor
 - general: greeting, thank you, or a simple message that needs no information lookup
 
 For action_request, also extract the action and any parameters mentioned.
-Available actions: track_order, cancel_order, process_refund, get_order_history
+Available actions: track_order, cancel_order, process_refund
 Use null for parameters the customer did not mention.
 
 Respond with valid JSON only, no markdown.

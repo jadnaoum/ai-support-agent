@@ -11,9 +11,7 @@ from backend.tools.order_tools import (
     track_order,
     cancel_order,
     process_refund,
-    get_order_history,
 )
-from backend.tools.customer_tools import get_customer_context
 
 
 @dataclass
@@ -51,17 +49,5 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
             "reason": {"type": "str", "required": False, "description": "Refund reason: defective, changed_mind, wrong_item, late_delivery, other."},
         },
         handler=process_refund,
-    ),
-    "get_order_history": ToolDefinition(
-        name="get_order_history",
-        description="Return the customer's recent order history.",
-        parameters={},
-        handler=get_order_history,
-    ),
-    "get_customer_context": ToolDefinition(
-        name="get_customer_context",
-        description="Return customer profile, recent orders, and risk score.",
-        parameters={},
-        handler=get_customer_context,
     ),
 }
