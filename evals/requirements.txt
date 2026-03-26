@@ -1,0 +1,6 @@
+# Eval framework dependencies
+# Install alongside the backend: pip install -r evals/requirements.txt
+
+openpyxl>=3.1.0   # reading/writing xlsx
+requests>=2.31.0  # HTTP calls to agent test endpoint
+litellm>=1.0.0    # LLM judge calls (same version as backend)

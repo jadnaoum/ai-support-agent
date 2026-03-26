@@ -1,6 +1,7 @@
 import uuid
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
@@ -208,3 +209,164 @@ async def stream_response(
             yield ServerSentEvent(data=str(e), event="error")
 
     return EventSourceResponse(event_generator())
+
+
+# ---------------------------------------------------------------------------
+# Test mode endpoint — only available when APP_ENV=test
+# ---------------------------------------------------------------------------
+
+class TestChatRequest(BaseModel):
+    """Request body for the test endpoint.
+
+    Full agent run mode (default):
+        - messages: conversation history [{"role": "customer"/"agent", "content": str}]
+        - mock_context: injected as customer_context in state (replaces DB lookup)
+        - customer_id: any string; used as customer_id in state
+
+    Output guard test mode (test_output_guard=True):
+        - agent_response: the response to evaluate
+        - tools_called: [{"tool": "cancel_order", "args": {...}}] — tools that were called
+        - known_ids: {"order_ids": [...], "customer_id": "..."} — IDs legitimately in context
+    """
+    customer_id: str = "test-customer"
+    messages: List[dict] = Field(default_factory=list)
+    mock_context: dict = Field(default_factory=dict)
+    # Output guard test mode
+    test_output_guard: bool = False
+    agent_response: str = ""
+    tools_called: List[dict] = Field(default_factory=list)
+    known_ids: dict = Field(default_factory=dict)
+
+
+class TestChatResponse(BaseModel):
+    # Full agent run fields
+    response: str = ""
+    actions_taken: List[dict] = Field(default_factory=list)
+    confidence: float = 0.0
+    inferred_intent: str = ""
+    requires_escalation: bool = False
+    escalation_reason: str = ""
+    input_guard_blocked: bool = False
+    input_guard_reason: str = ""
+    # Output guard test mode fields
+    output_guard_verdict: str = ""   # "pass" or "block"
+    output_guard_failure_type: str = ""
+
+
+@router.post("/chat/test", response_model=TestChatResponse)
+async def test_chat(
+    body: TestChatRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Eval-only endpoint: runs the agent with optional mock context injection.
+
+    Gated by APP_ENV=test — returns 404 in all other environments.
+    Never persists messages or audit logs to the database.
+    Escalation handler skips DB writes when conversation_id is absent (by design).
+    """
+    if settings.app_env != "test":
+        raise HTTPException(status_code=404, detail="Not found")
+
+    # --- Output guard test mode ---
+    if body.test_output_guard:
+        from backend.guardrails.output_guard import check_output  # noqa: PLC0415
+
+        # Translate tools_called [{"tool": "cancel_order", "args": {...}}]
+        # into the actions_taken format that the output guard reads
+        synthetic_actions_taken = [
+            {
+                "action": t.get("tool", ""),
+                "service": "action_service",
+                "params": t.get("args", {}),
+                "success": True,
+            }
+            for t in body.tools_called
+        ]
+        # Build known order IDs into customer_context so the guard can find them
+        synthetic_state: AgentState = {
+            "messages": [{"role": "customer", "content": "test"}],
+            "customer_id": body.customer_id,
+            "customer_context": {
+                "recent_orders": [
+                    {"order_id": oid}
+                    for oid in body.known_ids.get("order_ids", [])
+                ]
+            },
+            "retrieved_context": [],
+            "action_results": [],
+            "confidence": 1.0,
+            "requires_escalation": False,
+            "escalation_reason": "",
+            "actions_taken": synthetic_actions_taken,
+            "response": "",
+            "pending_service": "",
+            "pending_action": {},
+        }
+        guard_result = check_output(body.agent_response, synthetic_state)
+        return TestChatResponse(
+            output_guard_verdict="pass" if guard_result.get("safe") else "block",
+            output_guard_failure_type="none" if guard_result.get("safe") else guard_result.get("reason", "unknown"),
+        )
+
+    # --- Full agent run mode ---
+
+    # Check input guard explicitly so we can report its result in the response
+    from backend.guardrails.input_guard import check_input  # noqa: PLC0415
+
+    last_customer_msg = ""
+    for msg in reversed(body.messages):
+        if msg.get("role") == "customer":
+            last_customer_msg = msg.get("content", "")
+            break
+
+    if last_customer_msg:
+        guard_result = await check_input(last_customer_msg)
+        if not guard_result.get("safe"):
+            return TestChatResponse(
+                response=guard_result.get("blocked_response", ""),
+                input_guard_blocked=True,
+                input_guard_reason=guard_result.get("reason", ""),
+            )
+
+    initial_state: AgentState = {
+        "messages": body.messages,
+        "customer_id": body.customer_id,
+        "customer_context": body.mock_context,
+        "retrieved_context": [],
+        "action_results": [],
+        "confidence": 0.0,
+        "requires_escalation": False,
+        "escalation_reason": "",
+        "actions_taken": [],
+        "response": "",
+        "pending_service": "",
+        "pending_action": {},
+    }
+
+    from backend.agents.graph import graph  # noqa: PLC0415
+
+    # conversation_id="" — escalation handler skips DB writes when absent
+    config = {"configurable": {"db": db, "conversation_id": ""}}
+    final_state = await graph.ainvoke(initial_state, config=config)
+
+    # Infer intent from which services were called
+    services = {a.get("service", "") for a in (final_state.get("actions_taken") or [])}
+    if final_state.get("requires_escalation"):
+        inferred_intent = "escalation_request"
+    elif "action_service" in services:
+        inferred_intent = "action_request"
+    elif "knowledge_service" in services:
+        inferred_intent = "knowledge_query"
+    else:
+        inferred_intent = "general"
+
+    return TestChatResponse(
+        response=final_state.get("response", ""),
+        actions_taken=final_state.get("actions_taken") or [],
+        confidence=final_state.get("confidence", 0.0),
+        inferred_intent=inferred_intent,
+        requires_escalation=final_state.get("requires_escalation", False),
+        escalation_reason=final_state.get("escalation_reason", ""),
+        input_guard_blocked=False,
+        input_guard_reason="",
+    )
