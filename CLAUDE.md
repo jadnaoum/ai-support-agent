@@ -187,6 +187,39 @@ Schema additions (migration 002):
 - `eval_test_cases.xlsx` committed: 11-sheet, 215-case eval dataset covering input guard, intent classifier, output guard, KB retrieval, action execution, escalation, conversation quality, PII/data leakage, policy compliance, graceful failure, and context retention.
 - `architecture_plain.html` committed: alternative plain-style architecture diagram.
 
+### Phase 5: Eval framework — COMPLETE (2026-03-26)
+
+**Steps 25–30 complete. 216 unit tests still passing.**
+
+**Step 25: `POST /api/chat/test`** — gated by `APP_ENV=test` (returns 404 otherwise). Two modes:
+- **Full agent run**: accepts `messages` + `mock_context` (injected as `customer_context`), runs `graph.ainvoke()`, returns `response`, `actions_taken`, `inferred_intent`, `confidence`, `requires_escalation`, `escalation_reason`, `input_guard_blocked`, `input_guard_reason`
+- **Output guard test mode** (`test_output_guard=true`): accepts `agent_response`, `tools_called`, `known_ids` — runs `check_output()` only, returns `output_guard_verdict` + `output_guard_failure_type`
+- `config.py`: added `app_env: str = "development"` setting
+- `inferred_intent` is derived from `actions_taken`: `knowledge_service` → `knowledge_query`, `action_service` → `action_request`, `requires_escalation` → `escalation_request`, else `general`
+- Escalation handler already skips DB writes when `conversation_id=""` — safe for test mode
+
+**Steps 26–30: Eval runner + judges** in `evals/`
+- `evals/config.py` — judge model config, agent endpoint, sheet names, thresholds
+- `evals/judges/classification.py` — programmatic Input Guard + Intent Classifier judges; LLM fallback for Output Guard ambiguous cases (Haiku)
+- `evals/judges/behavioral.py` — Sonnet rubric judge for KB Retrieval, Action Execution, Escalation, Conversation Quality
+- `evals/judges/safety.py` — Sonnet rubric judge for PII, Policy Compliance, Graceful Failure, Context Retention
+- `evals/run_evals.py` — CLI runner: reads xlsx, calls agent, judges, writes run columns back to test sheets, updates Run History, writes `evals/results/{tag}.xlsx` with full reasoning + Regressions sheet
+- `evals/requirements.txt` — openpyxl, requests, litellm
+- `eval_test_cases.xlsx` moved from project root into `evals/` (correct location per spec)
+
+**Smoke test results (2026-03-26):**
+- Input Guard: **92%** (23/25 — 2 failures: LLM classifier over-blocks borderline "safe" messages IG-010, IG-018)
+- Output Guard: **44%** (11/25 — reveals real coverage gaps: guard misses tracking number hallucinations, cross-customer data leaks, policy violations like revealing system internals, and speculative claims not backed by tool results)
+
+**To run evals:**
+```bash
+APP_ENV=test uvicorn backend.main:app --reload   # terminal 1 — agent with test endpoint
+python evals/run_evals.py --tag "v1.0" --desc "baseline"  # terminal 2
+python evals/run_evals.py --tag "v1.1" --desc "intent fix" --sheets "Input Guard,Intent Classifier"
+```
+
+**Step 31 (calibration): skipped** — manual one-time run; do after full baseline is established.
+
 **Next: Phase 4 — Frontend**
 - Typing indicator while agent streams
 - CSAT widget shown when conversation resolves
