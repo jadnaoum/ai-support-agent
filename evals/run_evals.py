@@ -357,8 +357,11 @@ def _append_run_history(ws, run_id: int, tag: str, desc: str,
     Append one row per evaluated sheet plus an OVERALL row.
     Format: run_id | date | version_tag | change_description | eval_type | pass% | judge_model | notes
     """
-    from evals.config import JUDGE_MODEL_BEHAVIORAL, JUDGE_MODEL_CALIBRATION
-    judge_model = JUDGE_MODEL_CALIBRATION if calibrate else f"tiered ({JUDGE_MODEL_BEHAVIORAL})"
+    from evals.config import JUDGE_MODEL_BEHAVIORAL, JUDGE_MODEL_CALIBRATION, JUDGE_MODEL_CLASSIFICATION
+    judge_model = (
+        JUDGE_MODEL_CALIBRATION if calibrate
+        else f"classification: {JUDGE_MODEL_CLASSIFICATION} | behavioral+safety: {JUDGE_MODEL_BEHAVIORAL}"
+    )
     date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     for sheet, rate in sheet_pass_rates.items():
