@@ -76,10 +76,19 @@ project-root/
 │   │       └── useSSE.js        # SSE connection hook for streaming agent responses
 │   ├── package.json
 │   └── vite.config.js
+├── evals/
+│   ├── eval_data.xlsx               # 11-sheet test case file (215 cases across classification, behavioral, safety)
+│   ├── run_evals.py                 # Main runner: reads xlsx, calls agent API, calls judge, writes results
+│   ├── judges/
+│   │   ├── classification.py        # Cheap model judge — label comparison for input guard, intent classifier, output guard
+│   │   ├── behavioral.py            # Strong model judge — rubric-based scoring for KB retrieval, action execution, escalation, conversation quality
+│   │   └── safety.py                # Strong model judge — PII leakage, policy compliance, graceful failure, context retention
+│   ├── results/                     # Timestamped output spreadsheets from each run
+│   └── config.py                    # Judge model strings, agent API endpoint, pass/fail thresholds
 ├── docs/
-│   └── kb/                      # Knowledge base source documents (markdown/text/PDF)
-├── CLAUDE.md                    # → this file, or a copy of it
-└── railway.toml                 # Railway deployment config
+│   └── kb/                          # Knowledge base source documents (markdown/text/PDF)
+├── CLAUDE.md                        # → this file, or a copy of it
+└── railway.toml                     # Railway deployment config
 ```
 
 ---
@@ -414,6 +423,167 @@ Pre-generated conversations showing different routing paths:
 
 ---
 
+## Eval framework
+
+Standalone evaluation suite that tests the agent end-to-end via its API. Lives at project root in `evals/`, separate from production code. Treats the agent as a black box — sends messages the same way a real customer would and judges the responses.
+
+### Eval categories
+
+**Classification evals (75 cases, sheets 1-3)** — Programmatic label comparison. Tests the input guard, intent classifier, and output guard. Each case has a single expected label. Scored by cheap model.
+
+| Sheet | What it tests | Input | Expected output |
+|---|---|---|---|
+| Input Guard | Is the message safe, injection, abusive, or off-topic? | Single customer message | Label: safe / prompt_injection / abusive / off_topic |
+| Intent Classifier | What does the customer want? | Customer message (sometimes with conversation history) | Intent: knowledge_query / action_request / escalation_request / general / needs_clarification + confidence |
+| Output Guard | Is the agent's response truthful and safe? | Agent response + tools called + known IDs | Verdict: pass / block + failure type: hallucinated_action / leaked_id / policy_violation / none |
+
+**Behavioral evals (80 cases, sheets 4-7)** — LLM-as-judge with rubrics. Tests whether the agent does the right thing and says it the right way.
+
+| Sheet | What it tests | Input | Expected output |
+|---|---|---|---|
+| KB Retrieval | Did it find and use the right knowledge article? | Conversation + available KB articles | Correct article retrieved + accurate answer grounded in KB |
+| Action Execution | Did it call the right tool with the right arguments? | Conversation + mock account state | Correct tool call + correct args + honest reporting of result |
+| Escalation | Did it escalate when it should, and not when it shouldn't? | Conversation + mock account state | Correct escalation reason + context summary for human agent |
+| Conversation Quality | Is the tone appropriate — empathetic, professional, not robotic? | Conversation (agent response is `{{AGENT_RESPONSE}}` placeholder) | Multi-dimensional tone score: empathy, clarity, professionalism, formality |
+
+**Safety & robustness evals (60 cases, sheets 8-11)** — LLM-as-judge. Tests failure modes, security boundaries, and coherence under pressure.
+
+| Sheet | What it tests | Input | Expected output |
+|---|---|---|---|
+| PII & Data Leakage | Does it protect customer data and system internals? | Conversation + mock account state | Refuses cross-customer data requests, never exposes full card numbers or system prompt |
+| Policy Compliance | Does it apply business rules correctly, not just retrieve them? | Conversation + relevant policy text + mock account state | Correct policy decision (approve/deny/escalate) with accurate reasoning |
+| Graceful Failure | What happens when tools fail, KB returns nothing, or services are down? | Conversation + simulated failure (timeout, 500, no results) | Honest acknowledgment + escalation or retry. Never fabricates success. |
+| Context Retention | Does it remember what was said 4-6 turns ago? | Multi-turn conversation (5-8 turns) + mock account state | Correctly recalls order IDs, customer names, stated reasons, corrected details from earlier turns |
+
+### Test case structure
+
+Every test case includes a `judge_rubric` field (behavioral/safety evals) or an `expected_label` field (classification evals) that defines pass/partial/fail criteria. The rubric is injected into the judge prompt along with the agent's actual response. The judge returns a structured verdict.
+
+Multi-turn conversations are stored as JSON arrays in the `conversation` column. Mock account state, tool results, and known IDs are JSON objects in their respective columns. The runner parses these and injects them into the test harness.
+
+Conversation Quality cases use `{{AGENT_RESPONSE}}` as a placeholder in the conversation. The runner sends the conversation (minus the placeholder) to the agent, captures the real response, then sends the full conversation (with the real response) to the judge.
+
+### LLM judge configuration
+
+All judge calls go through LiteLLM — same pattern as the rest of the project. Judge model strings are configured in `evals/config.py` as environment variables with sensible defaults.
+
+```python
+# evals/config.py
+JUDGE_MODEL_CLASSIFICATION = env("EVAL_JUDGE_CLASSIFICATION", "claude-haiku-4-5-20251001")
+JUDGE_MODEL_BEHAVIORAL = env("EVAL_JUDGE_BEHAVIORAL", "claude-sonnet-4-20250514")
+JUDGE_MODEL_CALIBRATION = env("EVAL_JUDGE_CALIBRATION", "claude-opus-4-20250115")
+```
+
+**Classification judge (Haiku)** — Used for sheets 1-3. Simple task: compare the agent's output label against the expected label. The judge prompt is minimal — it just needs to extract the label from the agent's response and compare. Where exact string matching is possible (input guard, intent classifier), skip the LLM call entirely and compare programmatically. Only use the LLM judge for output guard cases where the verdict requires reasoning about tools called vs. claims made.
+
+**Behavioral/safety judge (Sonnet)** — Used for sheets 4-11. The judge receives: the test case context, the agent's actual response, the expected behavior description, and the pass/partial/fail rubric. It returns a structured JSON verdict:
+
+```json
+{
+  "verdict": "pass",
+  "reasoning": "Agent correctly retrieved the returns policy, identified the order was within the 30-day window, and asked about item condition before proceeding.",
+  "score": 1.0
+}
+```
+
+Scores: `pass` = 1.0, `partial` = 0.5, `fail` = 0.0. Aggregate pass rates per sheet are computed from these scores.
+
+**Calibration judge (Opus)** — Used for one-off calibration runs to validate that Sonnet's judgments are reliable. Run once when the eval suite is first built, and again when large batches of new test cases are added. The workflow:
+
+1. Run all 215 cases with Opus as judge. This produces the ground-truth baseline.
+2. Run the same 215 cases with Sonnet as judge.
+3. Compare verdicts case by case. Flag disagreements.
+4. For each disagreement, determine the cause:
+   - **Ambiguous rubric** — the pass/fail criteria are unclear. Fix: tighten the rubric wording until both models agree. This is the most common issue.
+   - **Sonnet insufficient** — the judgment genuinely requires stronger reasoning. Fix: tag the case as `requires_calibration_model` in the spreadsheet. The runner uses Opus for those specific cases and Sonnet for the rest.
+5. After calibration, daily runs use the tiered approach (Haiku for classification, Sonnet for behavioral/safety, Opus only for tagged cases).
+
+Calibration is not a recurring cost. It is a one-time validation that the cheaper judge is trustworthy.
+
+### Eval runner
+
+`evals/run_evals.py` is the main entry point. It reads test cases from the spreadsheet, executes them against the agent's API, judges the results, and writes everything back.
+
+**CLI interface:**
+
+```bash
+# Standard run
+python evals/run_evals.py --tag "v1.1_haiku_guard" --desc "Items 1,9: swap input+output guard to Haiku"
+
+# Calibration run (uses Opus for all judgments)
+python evals/run_evals.py --tag "v1.0_calibration" --desc "Initial calibration baseline" --calibrate
+
+# Run specific sheets only
+python evals/run_evals.py --tag "v1.2_intent_prompt" --desc "Items 5,6: clarifying questions" --sheets "Intent Classifier,KB Retrieval,Action Execution"
+```
+
+**What the runner does on each run:**
+
+1. Reads `evals/eval_data.xlsx`, loads test cases from all sheets (or `--sheets` filter)
+2. Starts the agent (or connects to a running instance via the API endpoint in `evals/config.py`)
+3. For each test case:
+   - Sends the customer message(s) to `POST /api/chat` with the mock context
+   - Captures the agent's full response
+   - Sends the response + rubric to the appropriate judge (Haiku for classification, Sonnet for behavioral/safety, or Opus if `--calibrate`)
+   - Records: `actual_output`, `judge_verdict` (pass/partial/fail), `judge_reasoning`, `score`
+4. After all cases complete:
+   - Appends a new column to each test sheet in `eval_data.xlsx` with the version tag as header. Each cell contains `PASS`, `PARTIAL`, or `FAIL`, color-coded (green/orange/red). This gives a visual regression tracker directly in the test case spreadsheet.
+   - Appends a summary row to the **Run History** sheet with: `run_id`, `date`, `version_tag`, `change_description`, per-sheet pass rates, `overall_pass%`, and `notes`.
+   - Writes a detailed results file to `evals/results/{version_tag}.xlsx` containing: full judge reasoning for every case, the agent's raw response, latency per case, and a **Regressions** sheet listing any cases that passed in the previous run but failed in this one.
+
+### Run History sheet
+
+Added to `eval_data.xlsx` as the 12th sheet. Populated automatically by the runner after each run.
+
+| Column | Type | Description |
+|---|---|---|
+| run_id | INT | Auto-incremented |
+| date | TIMESTAMP | When the run completed |
+| version_tag | VARCHAR | From `--tag` flag (e.g. `v1.1_haiku_guard`) |
+| change_description | TEXT | From `--desc` flag — maps to pending changes items |
+| input_guard_pass% | FLOAT | Aggregate pass rate for this sheet |
+| intent_classifier_pass% | FLOAT | |
+| output_guard_pass% | FLOAT | |
+| kb_retrieval_pass% | FLOAT | |
+| action_execution_pass% | FLOAT | |
+| escalation_pass% | FLOAT | |
+| conversation_quality_pass% | FLOAT | |
+| pii_leakage_pass% | FLOAT | |
+| policy_compliance_pass% | FLOAT | |
+| graceful_failure_pass% | FLOAT | |
+| context_retention_pass% | FLOAT | |
+| overall_pass% | FLOAT | Weighted average across all sheets |
+| judge_model | VARCHAR | Which judge model was used (or "tiered" for standard runs) |
+| notes | TEXT | Manual notes, added after the run if needed |
+
+### Per-sheet run columns
+
+Each of the 11 test case sheets gets a new column appended per run. The column header is the version tag (e.g. `v1.1_haiku_guard`). Cells below contain `PASS`, `PARTIAL`, or `FAIL` with color coding:
+- **PASS**: green background (`#E6F4EA`)
+- **PARTIAL**: orange background (`#FFF3E0`)
+- **FAIL**: red background (`#FCE4EC`)
+
+This means you can open any test case sheet and see the full history of that case across all runs, reading left to right. If test IG-013 passed in v1.0, passed in v1.1, and failed in v1.2, you see green → green → red in the row. No cross-referencing needed.
+
+### Regressions sheet (in detailed results file)
+
+Each detailed results file (`evals/results/{version_tag}.xlsx`) includes a Regressions sheet. This compares the current run against the immediately previous run and lists any test case where the verdict worsened (pass → partial, pass → fail, partial → fail). Columns: `test_id`, `sheet`, `previous_verdict`, `current_verdict`, `judge_reasoning`. This is the most actionable view after any run — you don't care about the 210 cases that still pass, you care about the 5 that broke.
+
+### Mock context injection
+
+The eval runner needs to simulate the API layer's context injection without requiring a real database. For each test case, the runner injects mock data that would normally come from the DB:
+
+- **`mock_account_state`** — Replaces what `get_customer_context` and order queries would return. Injected into the agent state as `customer_context`.
+- **`tools_called`** (output guard only) — Represents what tools actually returned during the turn. Injected into the guard's evaluation context.
+- **`available_kb_articles`** (KB retrieval only) — Replaces the real pgvector search with a fixed set of articles the agent can "find."
+- **`simulated_failure`** (graceful failure only) — Overrides tool responses with error states (500, timeout, 404).
+
+Implementation: the runner either mocks the DB layer and tool responses at the Python level (if running the agent in-process), or uses a test mode endpoint that accepts mock context alongside the message. Prefer the test mode endpoint approach — it keeps the eval runner fully decoupled from the agent's internals.
+
+**Test mode endpoint:** `POST /api/chat/test` — same as `POST /api/chat` but accepts an additional `mock_context` field in the request body. This endpoint is only available when `APP_ENV=test`. It injects the mock context into agent state instead of loading from the DB. This is the only addition to the production codebase required by the eval framework.
+
+---
+
 ## Build sequence
 
 Build in this order. Each phase should be working and testable before moving to the next.
@@ -446,7 +616,16 @@ Build in this order. Each phase should be working and testable before moving to 
 18. CSAT widget at conversation end
 19. Build and serve from FastAPI as static files
 
-### Phase 5: Admin + polish
+### Phase 5: Eval framework
+25. Test mode endpoint: `POST /api/chat/test` — accepts `mock_context` in request body, only available when `APP_ENV=test`
+26. Eval runner (`evals/run_evals.py`): reads test cases from xlsx, calls agent API, collects responses
+27. Classification judge (`evals/judges/classification.py`): programmatic label comparison where possible, Haiku LLM judge for output guard reasoning
+28. Behavioral judge (`evals/judges/behavioral.py`): Sonnet-based rubric evaluation for KB retrieval, action execution, escalation, conversation quality
+29. Safety judge (`evals/judges/safety.py`): Sonnet-based evaluation for PII leakage, policy compliance, graceful failure, context retention
+30. Results writer: appends run columns to test sheets, updates Run History, writes detailed results + regressions to `evals/results/`
+31. Calibration run: execute full suite with Opus, compare against Sonnet verdicts, flag disagreements, tighten rubrics
+
+### Phase 6: Admin + polish
 20. Admin dashboard: conversation logs with filters
 21. Basic metrics endpoint (escalation rate, CSAT avg)
 22. Audit log viewer
@@ -465,3 +644,7 @@ Build in this order. Each phase should be working and testable before moving to 
 - **Use async throughout.** FastAPI routes, DB queries, LLM calls — all async.
 - **Environment variables for all config.** LLM model, API keys, DB connection string, confidence thresholds. Nothing hardcoded.
 - **Customer context is injected by the API layer, never queried by the agent.** The `chat.py` router resolves the authenticated customer from the session, loads their context (profile, order history, risk score), and injects it into the agent state BEFORE the graph runs. The conversation agent and all services receive `customer_context` as read-only state — they must NEVER have tools that accept an arbitrary `customer_id` parameter. This prevents prompt injection attacks from tricking the agent into querying other customers' data. `get_customer_context` and `get_risk_score` are called by the API layer only, not registered as agent-callable tools.
+- **Eval runner is fully decoupled from agent internals.** The runner calls the agent via HTTP API only — no importing agent modules, no direct function calls. If the agent's internal structure changes, the runner should not need to change.
+- **Eval judge calls go through LiteLLM.** Same rule as the rest of the project. Judge model strings are configured as environment variables in `evals/config.py`.
+- **Test mode endpoint is gated by `APP_ENV=test`.** The `POST /api/chat/test` endpoint must not be accessible in production. It accepts mock context that bypasses DB lookups — exposing it in production would allow arbitrary context injection.
+- **Eval test cases are the source of truth.** `evals/eval_data.xlsx` is version-controlled. Changes to test cases, rubrics, or expected behaviors should be reviewed like code changes — they directly affect what "passing" means.
