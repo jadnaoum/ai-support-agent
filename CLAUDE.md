@@ -181,6 +181,12 @@ Schema additions (migration 002):
 
 `docs/kb/faq.md`: fixed cancellation contradiction — now consistent with tool (only pre-shipment cancellation possible).
 
+**BUILD_SPEC.md and eval framework additions (2026-03-25):**
+- `BUILD_SPEC.md` updated to reflect policy refactor: `final_sale` added to products schema, `delivered_at` added to orders schema, non-returnable category enum added, tool registry descriptions tightened with full eligibility rules, `risk_score` security note (injected by service layer — never LLM-provided).
+- Eval framework section added to `BUILD_SPEC.md`: Phase 5 (eval runner) fully specced — `POST /api/chat/test` endpoint (gated by `APP_ENV=test`), three judge types (exact match, LLM-as-judge, rule-based), three eval categories: classification (75 cases), behavioral (80 cases), safety/robustness (60 cases). Results written to `evals/results/`. New implementation rules section added to spec.
+- `eval_test_cases.xlsx` committed: 11-sheet, 215-case eval dataset covering input guard, intent classifier, output guard, KB retrieval, action execution, escalation, conversation quality, PII/data leakage, policy compliance, graceful failure, and context retention.
+- `architecture_plain.html` committed: alternative plain-style architecture diagram.
+
 **Next: Phase 4 — Frontend**
 - Typing indicator while agent streams
 - CSAT widget shown when conversation resolves
