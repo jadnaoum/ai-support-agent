@@ -25,12 +25,24 @@ import requests
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import litellm
+
 from evals.config import (  # noqa: E402
+    AGENT_MODEL,
     AGENT_TEST_ENDPOINT,
     AGENT_TIMEOUT,
+    AVG_AGENT_COMPLETION_TOKENS,
+    AVG_AGENT_PROMPT_TOKENS,
+    AVG_JUDGE_COMPLETION_TOKENS,
+    AVG_JUDGE_PROMPT_TOKENS,
     DEFAULT_CUSTOMER_ID,
     EVALS_DIR,
+    JUDGE_MODEL_BEHAVIORAL,
+    JUDGE_MODEL_CALIBRATION,
+    JUDGE_MODEL_CLASSIFICATION,
+    MODEL_PRICE_PER_TOKEN,
     RUN_HISTORY_SHEET,
+    SHEET_CALL_PROFILE,
     SHEET_JUDGE_TYPE,
     SHEET_NAMES,
     TEST_CASES_FILE,
@@ -315,12 +327,12 @@ _SHEET_RUNNERS = {
 # Results writing
 # ---------------------------------------------------------------------------
 
-def _append_run_column(ws, tag: str, row_results: list):
+def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float):
     """
     Append 3 columns to a test sheet for this run:
-      {tag}            — PASS / PARTIAL / FAIL  (color-coded)
-      {tag} response   — agent's response text (truncated to 500 chars)
-      {tag} reasoning  — judge's reasoning
+      "{tag} ($X.XXX)"  — PASS / PARTIAL / FAIL  (color-coded; cost in header)
+      "{tag} response"  — agent's response text (truncated to 500 chars)
+      "{tag} reasoning" — judge's reasoning
 
     row_results is a list aligned to data rows (row 2+).
     """
@@ -328,8 +340,8 @@ def _append_run_column(ws, tag: str, row_results: list):
     fill_map  = {"pass": FILL_PASS, "partial": FILL_PARTIAL, "fail": FILL_FAIL}
     label_map = {"pass": "PASS", "partial": "PARTIAL", "fail": "FAIL"}
 
-    # Column headers
-    for offset, title in enumerate([tag, f"{tag} response", f"{tag} reasoning"]):
+    verdict_header = f"{tag} (${sheet_cost:.3f})"
+    for offset, title in enumerate([verdict_header, f"{tag} response", f"{tag} reasoning"]):
         cell = ws.cell(1, col + offset, title)
         cell.fill = FILL_HEADER
         cell.font = FONT_BOLD
@@ -340,15 +352,12 @@ def _append_run_column(ws, tag: str, row_results: list):
         verdict    = result.get("verdict", "fail")
         row        = i + 2
 
-        # Verdict cell — color-coded
         verdict_cell = ws.cell(row, col, label_map.get(verdict, "FAIL"))
         verdict_cell.fill = fill_map.get(verdict, FILL_FAIL)
 
-        # Response cell
         response_text = str(agent_resp.get("response", "") or "")
         ws.cell(row, col + 1, response_text[:500])
 
-        # Reasoning cell
         ws.cell(row, col + 2, result.get("reasoning", ""))
 
 
@@ -358,7 +367,7 @@ def _ensure_run_history_sheet(wb) -> openpyxl.worksheet.worksheet.Worksheet:
         return wb[RUN_HISTORY_SHEET]
     ws = wb.create_sheet(RUN_HISTORY_SHEET)
     headers = ["run_id", "date", "version_tag", "change_description",
-               "eval_type", "pass%", "judge_model", "notes"]
+               "eval_type", "pass%", "total_tokens", "total_cost_usd", "judge_model", "notes"]
     for c, h in enumerate(headers, 1):
         cell = ws.cell(1, c, h)
         cell.fill = FILL_HEADER
@@ -367,12 +376,13 @@ def _ensure_run_history_sheet(wb) -> openpyxl.worksheet.worksheet.Worksheet:
 
 
 def _append_run_history(ws, run_id: int, tag: str, desc: str,
-                         sheet_pass_rates: dict, calibrate: bool):
+                         sheet_pass_rates: dict, sheet_costs: dict,
+                         sheet_tokens: dict, calibrate: bool):
     """
     Append one row per evaluated sheet plus an OVERALL row.
-    Format: run_id | date | version_tag | change_description | eval_type | pass% | judge_model | notes
+    Columns: run_id | date | version_tag | change_description | eval_type | pass% |
+             total_tokens | total_cost_usd | judge_model | notes
     """
-    from evals.config import JUDGE_MODEL_BEHAVIORAL, JUDGE_MODEL_CALIBRATION, JUDGE_MODEL_CLASSIFICATION
     judge_model = (
         JUDGE_MODEL_CALIBRATION if calibrate
         else f"classification: {JUDGE_MODEL_CLASSIFICATION} | behavioral+safety: {JUDGE_MODEL_BEHAVIORAL}"
@@ -380,17 +390,95 @@ def _append_run_history(ws, run_id: int, tag: str, desc: str,
     date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     for sheet, rate in sheet_pass_rates.items():
-        ws.append([run_id, date_str, tag, desc, sheet, round(rate * 100, 1), judge_model, ""])
+        tokens = sheet_tokens.get(sheet, 0)
+        cost   = sheet_costs.get(sheet, 0.0)
+        ws.append([run_id, date_str, tag, desc, sheet,
+                   round(rate * 100, 1), tokens, round(cost, 4), judge_model, ""])
 
     overall_scores = list(sheet_pass_rates.values())
-    overall = sum(overall_scores) / len(overall_scores) if overall_scores else 0.0
-    overall_row = ws.append([run_id, date_str, tag, desc, "OVERALL", round(overall * 100, 1), judge_model, ""])
-    # Bold the OVERALL row
+    overall_pass   = sum(overall_scores) / len(overall_scores) if overall_scores else 0.0
+    overall_tokens = sum(sheet_tokens.values())
+    overall_cost   = sum(sheet_costs.values())
+    ws.append([run_id, date_str, tag, desc, "OVERALL",
+               round(overall_pass * 100, 1), overall_tokens,
+               round(overall_cost, 4), judge_model, ""])
     last_row = ws.max_row
-    for c in range(1, 9):
+    for c in range(1, 11):
         ws.cell(last_row, c).font = FONT_BOLD
 
 
+
+
+# ---------------------------------------------------------------------------
+# Pre-run cost estimation
+# ---------------------------------------------------------------------------
+
+def _estimate_cost_per_call(model: str, prompt_tokens: int, completion_tokens: int) -> float:
+    """Estimate cost for a call using MODEL_PRICE_PER_TOKEN table."""
+    prices = MODEL_PRICE_PER_TOKEN.get(model)
+    if not prices:
+        return 0.0
+    return prompt_tokens * prices["input"] + completion_tokens * prices["output"]
+
+
+def _estimate_run_cost(wb, target_sheets: list, calibrate: bool) -> tuple:
+    """
+    Estimate total cost before running.
+    Returns (total_cost, breakdown) where breakdown is a list of
+    (sheet_name, n_cases, agent_cost, judge_cost, sheet_total) tuples.
+    """
+    breakdown = []
+    total = 0.0
+
+    for sheet_name in target_sheets:
+        if sheet_name not in wb.sheetnames or sheet_name not in SHEET_CALL_PROFILE:
+            continue
+        n_cases = wb[sheet_name].max_row - 1
+        profile = SHEET_CALL_PROFILE[sheet_name]
+
+        agent_cost = 0.0
+        if profile["agent"]:
+            per_call = _estimate_cost_per_call(
+                AGENT_MODEL,
+                AVG_AGENT_PROMPT_TOKENS,
+                AVG_AGENT_COMPLETION_TOKENS,
+            )
+            agent_cost = n_cases * per_call
+
+        judge_cost = 0.0
+        if profile["judge"] != "none" and profile["judge_rate"] > 0:
+            judge_model = (
+                JUDGE_MODEL_CALIBRATION if calibrate
+                else JUDGE_MODEL_CLASSIFICATION if profile["judge"] == "classification"
+                else JUDGE_MODEL_BEHAVIORAL
+            )
+            per_judge = _estimate_cost_per_call(
+                judge_model,
+                AVG_JUDGE_PROMPT_TOKENS,
+                AVG_JUDGE_COMPLETION_TOKENS,
+            )
+            judge_cost = n_cases * profile["judge_rate"] * per_judge
+
+        sheet_total = agent_cost + judge_cost
+        total += sheet_total
+        breakdown.append((sheet_name, n_cases, agent_cost, judge_cost, sheet_total))
+
+    return total, breakdown
+
+
+def _print_cost_estimate(breakdown: list, total: float) -> bool:
+    """Print the pre-run cost estimate and prompt for confirmation. Returns True to proceed."""
+    print("\n=== Pre-run cost estimate ===")
+    print(f"  {'Sheet':<25} {'Cases':>5}  {'Agent':>8}  {'Judge':>8}  {'Total':>8}")
+    print(f"  {'-'*25} {'-'*5}  {'-'*8}  {'-'*8}  {'-'*8}")
+    for sheet_name, n_cases, agent_cost, judge_cost, sheet_total in breakdown:
+        print(f"  {sheet_name:<25} {n_cases:>5}  ${agent_cost:>7.3f}  ${judge_cost:>7.3f}  ${sheet_total:>7.3f}")
+    print(f"  {'-'*25} {'-'*5}  {'-'*8}  {'-'*8}  {'-'*8}")
+    print(f"  {'TOTAL':<25} {'':>5}  {'':>8}  {'':>8}  ${total:>7.3f}")
+    print()
+    print("Note: agent costs are estimates (chars÷4 heuristic); judge costs use LiteLLM pricing.")
+    answer = input("\nProceed? [y/N] ").strip().lower()
+    return answer in ("y", "yes")
 
 
 # ---------------------------------------------------------------------------
@@ -426,9 +514,17 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool):
             "Make sure it is running with APP_ENV=test."
         )
 
-    # 3. Run each sheet
+    # 3. Pre-run cost estimate + confirmation
+    estimated_total, cost_breakdown = _estimate_run_cost(wb, target_sheets, calibrate)
+    if not _print_cost_estimate(cost_breakdown, estimated_total):
+        print("Aborted.")
+        return
+
+    # 4. Run each sheet
     all_results: dict[str, list] = {}
     sheet_pass_rates: dict[str, float] = {}
+    sheet_costs: dict[str, float] = {}    # actual costs per sheet
+    sheet_tokens: dict[str, int] = {}     # actual tokens per sheet
 
     for sheet_name in target_sheets:
         if sheet_name not in _SHEET_RUNNERS:
@@ -437,11 +533,14 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool):
 
         runner = _SHEET_RUNNERS[sheet_name]
         ws = wb[sheet_name]
-        total_rows = ws.max_row - 1  # subtract header
+        total_rows = ws.max_row - 1
         print(f"[{sheet_name}] Running {total_rows} cases...")
 
         case_results = []
         scores = []
+        sheet_agent_tokens = 0
+        sheet_agent_cost   = 0.0
+        sheet_judge_cost   = 0.0
 
         for row_idx in range(2, ws.max_row + 1):
             test_case = _row_to_dict(ws, row_idx)
@@ -451,12 +550,27 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool):
             agent_resp, judgment = await runner(test_case, calibrate)
             latency = time.time() - t0
 
+            # Accumulate agent token estimates
+            p_tok = agent_resp.get("prompt_tokens", 0)
+            c_tok = agent_resp.get("completion_tokens", 0)
+            sheet_agent_tokens += p_tok + c_tok
+            if p_tok + c_tok > 0:
+                sheet_agent_cost += _estimate_cost_per_call(
+                    AGENT_MODEL, p_tok, c_tok
+                )
+
+            # Accumulate judge cost (exact, from LiteLLM)
+            sheet_judge_cost += judgment.get("cost_usd", 0.0)
+
             verdict = judgment.get("verdict", "fail")
-            score = judgment.get("score", 0.0)
+            score   = judgment.get("score", 0.0)
             scores.append(score)
 
+            case_cost = judgment.get("cost_usd", 0.0) + _estimate_cost_per_call(
+                AGENT_MODEL, p_tok, c_tok
+            )
             verdict_label = {"pass": "PASS", "partial": "PART", "fail": "FAIL"}.get(verdict, "FAIL")
-            print(f"  {test_id}: {verdict_label}  ({latency:.1f}s)  {judgment.get('reasoning', '')[:80]}")
+            print(f"  {test_id}: {verdict_label}  ({latency:.1f}s)  ${case_cost:.4f}  {judgment.get('reasoning', '')[:70]}")
 
             case_results.append({
                 "test_id": test_id,
@@ -465,35 +579,42 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool):
                 "latency_s": latency,
             })
 
-        pass_rate = sum(scores) / len(scores) if scores else 0.0
+        pass_rate   = sum(scores) / len(scores) if scores else 0.0
+        sheet_total_cost = sheet_agent_cost + sheet_judge_cost
         sheet_pass_rates[sheet_name] = pass_rate
-        all_results[sheet_name] = case_results
-        print(f"  → Pass rate: {pass_rate * 100:.1f}%\n")
+        sheet_costs[sheet_name]      = sheet_total_cost
+        sheet_tokens[sheet_name]     = sheet_agent_tokens
+        all_results[sheet_name]      = case_results
+        print(f"  → Pass rate: {pass_rate * 100:.1f}%  |  agent: ${sheet_agent_cost:.4f}  judge: ${sheet_judge_cost:.4f}  total: ${sheet_total_cost:.4f}\n")
 
-        # Append run column to the test sheet in the workbook
-        _append_run_column(ws, tag, case_results)
+        _append_run_column(ws, tag, case_results, sheet_total_cost)
 
-    # 4. Append to Run History sheet
-    rh_ws = _ensure_run_history_sheet(wb)
-    run_id = rh_ws.max_row  # row 1 is headers; row 2+ are runs
-    _append_run_history(rh_ws, run_id, tag, desc, sheet_pass_rates, calibrate)
+    # 5. Append to Run History sheet
+    rh_ws  = _ensure_run_history_sheet(wb)
+    run_id = rh_ws.max_row
+    _append_run_history(rh_ws, run_id, tag, desc, sheet_pass_rates, sheet_costs, sheet_tokens, calibrate)
 
-    # 5. Save updated workbook (verdict + response + reasoning columns appended to each sheet)
+    # 6. Save
     wb.save(TEST_CASES_FILE)
     print(f"Updated {TEST_CASES_FILE} with results.")
 
-    # 6. Print summary
+    # 7. Print summary
     print("\n=== Run Summary ===")
-    print(f"Tag: {tag}")
+    print(f"Tag:  {tag}")
     if desc:
         print(f"Desc: {desc}")
     print()
     overall_scores = list(sheet_pass_rates.values())
     overall = sum(overall_scores) / len(overall_scores) if overall_scores else 0.0
+    total_actual_cost = sum(sheet_costs.values())
+    print(f"  {'Sheet':<25}  {'Pass%':>6}  {'Cost':>8}")
+    print(f"  {'-'*25}  {'-'*6}  {'-'*8}")
     for sheet, rate in sheet_pass_rates.items():
         bar = "█" * int(rate * 20) + "░" * (20 - int(rate * 20))
-        print(f"  {sheet:<25} {bar}  {rate * 100:.1f}%")
-    print(f"\n  {'OVERALL':<25}{'':>22}  {overall * 100:.1f}%")
+        print(f"  {sheet:<25}  {rate * 100:>5.1f}%  ${sheet_costs.get(sheet, 0):.4f}")
+    print(f"  {'-'*25}  {'-'*6}  {'-'*8}")
+    print(f"  {'OVERALL':<25}  {overall * 100:>5.1f}%  ${total_actual_cost:.4f}")
+    print(f"\n  Estimated: ${estimated_total:.4f}  |  Actual: ${total_actual_cost:.4f}")
 
 
 def main():

@@ -22,9 +22,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from evals.config import JUDGE_MODEL_CLASSIFICATION  # noqa: E402
 
 
-def _verdict(result: str, reasoning: str) -> dict:
+def _verdict(result: str, reasoning: str, cost_usd: float = 0.0) -> dict:
     scores = {"pass": 1.0, "partial": 0.5, "fail": 0.0}
-    return {"verdict": result, "score": scores.get(result, 0.0), "reasoning": reasoning}
+    return {"verdict": result, "score": scores.get(result, 0.0), "reasoning": reasoning, "cost_usd": cost_usd}
 
 
 # ---------------------------------------------------------------------------
@@ -175,11 +175,15 @@ async def judge_output_guard(test_case: dict, agent_response: dict) -> dict:
                 messages=[{"role": "user", "content": prompt}],
                 stream=False,
             )
+            try:
+                cost = litellm.completion_cost(completion_response=result)
+            except Exception:
+                cost = 0.0
             raw = result.choices[0].message.content.strip()
             parsed = json.loads(raw)
             v = parsed.get("verdict", "partial")
             r = parsed.get("reasoning", "")
-            return _verdict(v, r)
+            return _verdict(v, r, cost_usd=cost)
         except Exception:
             return _verdict("partial", f"Verdict direction matches but failure type '{actual_failure}' differs from expected '{expected_failure}'.")
 

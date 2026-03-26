@@ -18,13 +18,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from evals.config import JUDGE_MODEL_BEHAVIORAL, JUDGE_MODEL_CALIBRATION  # noqa: E402
 
 
-def _verdict(result: str, reasoning: str) -> dict:
+def _verdict(result: str, reasoning: str, cost_usd: float = 0.0) -> dict:
     scores = {"pass": 1.0, "partial": 0.5, "fail": 0.0}
-    return {"verdict": result, "score": scores.get(result, 0.0), "reasoning": reasoning}
+    return {"verdict": result, "score": scores.get(result, 0.0), "reasoning": reasoning, "cost_usd": cost_usd}
 
 
 async def _llm_judge(prompt: str, calibrate: bool = False) -> dict:
-    """Call LLM judge; return structured verdict. Returns 'partial' on any failure."""
+    """Call LLM judge; return structured verdict with actual cost. Returns 'partial' on any failure."""
     model = JUDGE_MODEL_CALIBRATION if calibrate else JUDGE_MODEL_BEHAVIORAL
     try:
         result = await litellm.acompletion(
@@ -32,8 +32,11 @@ async def _llm_judge(prompt: str, calibrate: bool = False) -> dict:
             messages=[{"role": "user", "content": prompt}],
             stream=False,
         )
+        try:
+            cost = litellm.completion_cost(completion_response=result)
+        except Exception:
+            cost = 0.0
         raw = result.choices[0].message.content.strip()
-        # Strip markdown fences if present
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
@@ -42,7 +45,7 @@ async def _llm_judge(prompt: str, calibrate: bool = False) -> dict:
         v = parsed.get("verdict", "partial")
         r = parsed.get("reasoning", "No reasoning provided.")
         scores = {"pass": 1.0, "partial": 0.5, "fail": 0.0}
-        return {"verdict": v, "score": scores.get(v, 0.5), "reasoning": r}
+        return {"verdict": v, "score": scores.get(v, 0.5), "reasoning": r, "cost_usd": cost}
     except Exception as e:
         return _verdict("partial", f"Judge call failed: {e}")
 

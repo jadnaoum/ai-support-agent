@@ -251,6 +251,10 @@ class TestChatResponse(BaseModel):
     # Output guard test mode fields
     output_guard_verdict: str = ""   # "pass" or "block"
     output_guard_failure_type: str = ""
+    # Token usage estimates for cost tracking (agent-side LLM calls)
+    # These are rough estimates (chars ÷ 4) since we can't hook into graph internals.
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
 
 @router.post("/chat/test", response_model=TestChatResponse)
@@ -360,8 +364,17 @@ async def test_chat(
     else:
         inferred_intent = "general"
 
+    response_text = final_state.get("response", "")
+
+    # Rough token estimates (chars ÷ 4) for cost tracking in the eval runner.
+    # Includes system-prompt overhead (~700 tokens) and context injected by the graph.
+    input_chars = sum(len(str(m.get("content", ""))) for m in body.messages)
+    input_chars += len(str(body.mock_context))
+    prompt_tokens = input_chars // 4 + 700
+    completion_tokens = len(response_text) // 4 + 50
+
     return TestChatResponse(
-        response=final_state.get("response", ""),
+        response=response_text,
         actions_taken=final_state.get("actions_taken") or [],
         confidence=final_state.get("confidence", 0.0),
         inferred_intent=inferred_intent,
@@ -369,4 +382,6 @@ async def test_chat(
         escalation_reason=final_state.get("escalation_reason", ""),
         input_guard_blocked=False,
         input_guard_reason="",
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
     )
