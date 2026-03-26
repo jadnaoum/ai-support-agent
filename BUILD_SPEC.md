@@ -104,12 +104,15 @@ Risk score is NOT stored. It is computed on the fly from refund history, complai
 |---|---|---|
 | id | UUID | PK |
 | name | VARCHAR | |
-| category | VARCHAR | electronics, clothing, home_goods, accessories |
+| category | VARCHAR | electronics, clothing, home_goods, accessories, gift_cards, digital, personalized, perishable, hazardous |
 | price | DECIMAL | |
 | return_window_days | INT | Product-specific return policy (e.g. 14 for electronics, 30 for clothing) |
 | warranty_months | INT | NULL if no warranty |
+| final_sale | BOOLEAN | Default FALSE. Final Sale items cannot be returned or refunded under any circumstances |
 | metadata | JSONB | Flexible: weight, dimensions, special handling notes |
 | created_at | TIMESTAMP | |
+
+Note: categories `gift_cards`, `digital`, `personalized`, `perishable`, and `hazardous` are non-returnable regardless of `final_sale` flag or return window.
 
 ### orders
 | Column | Type | Notes |
@@ -120,6 +123,7 @@ Risk score is NOT stored. It is computed on the fly from refund history, complai
 | total_amount | DECIMAL | |
 | created_at | TIMESTAMP | |
 | updated_at | TIMESTAMP | |
+| delivered_at | TIMESTAMP | NULL until delivered. Primary anchor for return window calculations; falls back to updated_at if NULL |
 
 ### order_items
 | Column | Type | Notes |
@@ -292,11 +296,19 @@ Define actions as structured config. Each tool specifies: name, description (for
 ### v1 tools (agent-callable)
 | Tool | Parameters | What it does |
 |---|---|---|
-| track_order | order_id | Returns order status and tracking info |
-| cancel_order | order_id, reason | Cancels order if status allows, logs action |
-| process_refund | order_id, amount, reason | Initiates refund, checks against customer risk score for auto-approval |
+| track_order | order_id | Returns order status and item details. Uses most recent order if order_id omitted |
+| cancel_order | order_id, reason | Cancels order if status is `placed`. Rejects shipped, delivered, cancelled, and refunded orders |
+| process_refund | order_id, amount, reason | Initiates refund for a delivered or cancelled order. Enforces final sale, non-returnable category, and return window rules. Auto-approves or flags for human review based on risk score and refund amount |
 
 **Security note:** `get_order_history`, `get_customer_context`, and `get_risk_score` are NOT agent-callable tools. Customer context and order history are loaded by the API layer and injected into agent state before the graph runs. The agent-callable tools above (track, cancel, refund) must validate that the order_id belongs to the current customer from state — reject any order that doesn't match.
+
+**`process_refund` eligibility rules (enforced in order):**
+1. **Final sale** — reject if any product in the order has `final_sale=True`
+2. **Non-returnable category** — reject if any product's category is `gift_cards`, `digital`, `personalized`, `perishable`, or `hazardous`
+3. **Return window** — reject if `(now - delivered_at) > product.return_window_days`. Bypass entirely if reason is `defective` (KB policy: defective items have no return window)
+4. **Pending review** — set refund status to `pending_review` (instead of `approved`) if `risk_score > 0.7` OR `refund_amount > 50`. Triggers escalation in the conversation agent.
+
+**`risk_score` is NOT an LLM parameter.** It is injected by `action_service` from `state["customer_context"]["risk_score"]` after null-stripping, so the LLM cannot supply or override it. This follows the same principle as `get_customer_context` — sensitive customer data is always injected by the API layer, never queried by the agent.
 
 **Implementation note:** v1 tools are mock implementations. Each tool should validate parameters, log the action to audit, and return a realistic confirmation response — but NOT connect to any external e-commerce API or build real payment/shipping integrations. The value is in the tool registry pattern, parameter validation, and audit trail, not the underlying operations. Keep the mock logic simple and deterministic (e.g., cancel_order checks order status, returns success/failure accordingly). Do not over-engineer the tools themselves.
 
