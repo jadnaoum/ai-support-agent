@@ -30,7 +30,6 @@ from evals.config import (  # noqa: E402
     AGENT_TIMEOUT,
     DEFAULT_CUSTOMER_ID,
     EVALS_DIR,
-    RESULTS_DIR,
     RUN_HISTORY_SHEET,
     SHEET_JUDGE_TYPE,
     SHEET_NAMES,
@@ -41,7 +40,6 @@ from evals.config import (  # noqa: E402
 try:
     import openpyxl
     from openpyxl.styles import PatternFill, Font
-    from openpyxl.utils import get_column_letter
 except ImportError:
     sys.exit("openpyxl is required. Run: pip install openpyxl")
 
@@ -319,22 +317,39 @@ _SHEET_RUNNERS = {
 
 def _append_run_column(ws, tag: str, row_results: list):
     """
-    Append a new column to a test sheet with PASS/PARTIAL/FAIL cells
-    color-coded by verdict. row_results is a list aligned to data rows (row 2+).
+    Append 3 columns to a test sheet for this run:
+      {tag}            — PASS / PARTIAL / FAIL  (color-coded)
+      {tag} response   — agent's response text (truncated to 500 chars)
+      {tag} reasoning  — judge's reasoning
+
+    row_results is a list aligned to data rows (row 2+).
     """
     col = ws.max_column + 1
-    header_cell = ws.cell(1, col, tag)
-    header_cell.fill = FILL_HEADER
-    header_cell.font = FONT_BOLD
-
-    fill_map = {"pass": FILL_PASS, "partial": FILL_PARTIAL, "fail": FILL_FAIL}
+    fill_map  = {"pass": FILL_PASS, "partial": FILL_PARTIAL, "fail": FILL_FAIL}
     label_map = {"pass": "PASS", "partial": "PARTIAL", "fail": "FAIL"}
 
-    for i, result in enumerate(row_results):
-        cell = ws.cell(i + 2, col)
-        verdict = result.get("verdict", "fail")
-        cell.value = label_map.get(verdict, "FAIL")
-        cell.fill = fill_map.get(verdict, FILL_FAIL)
+    # Column headers
+    for offset, title in enumerate([tag, f"{tag} response", f"{tag} reasoning"]):
+        cell = ws.cell(1, col + offset, title)
+        cell.fill = FILL_HEADER
+        cell.font = FONT_BOLD
+
+    for i, case in enumerate(row_results):
+        result     = case.get("result", {})
+        agent_resp = case.get("agent_response", {})
+        verdict    = result.get("verdict", "fail")
+        row        = i + 2
+
+        # Verdict cell — color-coded
+        verdict_cell = ws.cell(row, col, label_map.get(verdict, "FAIL"))
+        verdict_cell.fill = fill_map.get(verdict, FILL_FAIL)
+
+        # Response cell
+        response_text = str(agent_resp.get("response", "") or "")
+        ws.cell(row, col + 1, response_text[:500])
+
+        # Reasoning cell
+        ws.cell(row, col + 2, result.get("reasoning", ""))
 
 
 def _ensure_run_history_sheet(wb) -> openpyxl.worksheet.worksheet.Worksheet:
@@ -376,66 +391,6 @@ def _append_run_history(ws, run_id: int, tag: str, desc: str,
         ws.cell(last_row, c).font = FONT_BOLD
 
 
-def _write_detailed_results(tag: str, all_results: dict):
-    """
-    Write a detailed results file to evals/results/{tag}.xlsx.
-    One sheet per test sheet with full judge reasoning, plus a Regressions sheet.
-    """
-    os.makedirs(RESULTS_DIR, exist_ok=True)
-    wb = openpyxl.Workbook()
-    wb.remove(wb.active)  # remove default sheet
-
-    for sheet_name, cases in all_results.items():
-        ws = wb.create_sheet(sheet_name[:31])  # sheet name max 31 chars
-        headers = [
-            "test_id", "verdict", "score", "agent_response",
-            "actions_taken", "inferred_intent", "judge_reasoning",
-            "latency_s",
-        ]
-        for c, h in enumerate(headers, 1):
-            cell = ws.cell(1, c, h)
-            cell.fill = FILL_HEADER
-            cell.font = FONT_BOLD
-
-        for r, case in enumerate(cases, 2):
-            result = case.get("result", {})
-            agent = case.get("agent_response", {})
-            verdict = result.get("verdict", "fail")
-            fill = {"pass": FILL_PASS, "partial": FILL_PARTIAL, "fail": FILL_FAIL}.get(verdict, FILL_FAIL)
-
-            row_data = [
-                case.get("test_id", ""),
-                verdict.upper(),
-                result.get("score", 0.0),
-                str(agent.get("response", ""))[:500],
-                json.dumps(agent.get("actions_taken", []))[:300],
-                agent.get("inferred_intent", ""),
-                result.get("reasoning", ""),
-                round(case.get("latency_s", 0.0), 2),
-            ]
-            for c, v in enumerate(row_data, 1):
-                cell = ws.cell(r, c, v)
-                if c == 2:  # verdict column
-                    cell.fill = fill
-
-        # Auto-size columns
-        for col in ws.columns:
-            max_len = max((len(str(cell.value or "")) for cell in col), default=0)
-            ws.column_dimensions[get_column_letter(col[0].column)].width = min(max_len + 2, 60)
-
-    # Regressions sheet (placeholder — populated when comparing to previous run)
-    ws_reg = wb.create_sheet("Regressions")
-    reg_headers = ["test_id", "sheet", "previous_verdict", "current_verdict", "judge_reasoning"]
-    for c, h in enumerate(reg_headers, 1):
-        cell = ws_reg.cell(1, c, h)
-        cell.fill = FILL_HEADER
-        cell.font = FONT_BOLD
-    ws_reg.cell(2, 1, "No previous run to compare against — run again to see regressions.")
-
-    safe_tag = tag.replace("/", "_").replace("\\", "_")[:50]
-    out_path = os.path.join(RESULTS_DIR, f"{safe_tag}.xlsx")
-    wb.save(out_path)
-    return out_path
 
 
 # ---------------------------------------------------------------------------
@@ -523,15 +478,11 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool):
     run_id = rh_ws.max_row  # row 1 is headers; row 2+ are runs
     _append_run_history(rh_ws, run_id, tag, desc, sheet_pass_rates, calibrate)
 
-    # 5. Save updated workbook (with new run columns + run history)
+    # 5. Save updated workbook (verdict + response + reasoning columns appended to each sheet)
     wb.save(TEST_CASES_FILE)
-    print(f"Updated {TEST_CASES_FILE} with run columns.")
+    print(f"Updated {TEST_CASES_FILE} with results.")
 
-    # 6. Write detailed results file
-    results_path = _write_detailed_results(tag, all_results)
-    print(f"Detailed results: {results_path}")
-
-    # 7. Print summary
+    # 6. Print summary
     print("\n=== Run Summary ===")
     print(f"Tag: {tag}")
     if desc:
