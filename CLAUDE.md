@@ -158,6 +158,29 @@ Architecture revised from original supervisor-routing design. No separate superv
 - `SYSTEM_REFERENCE.md` generated from actual code: all API endpoints, AgentState schema, LangGraph nodes, tool registry, all 10 DB tables + 12 indexes, both guardrails, KB pipeline, config, integration points.
 - `architecture.html` generated: full visual diagram of all system zones, execution paths, and KB ingestion pipeline. Open in browser.
 
+**Post-Phase 3 policy consistency refactor (2026-03-25) — 216 tests passing:**
+
+Schema additions (migration 002):
+- `Product.final_sale` (Boolean, default False) — marks items ineligible for returns
+- `Order.delivered_at` (nullable TIMESTAMPTZ) — used as anchor for return window checks
+- Seed updated: `phone_case` and `usb_hub` marked `final_sale=True`; `delivered_at` set to `created_at + 5 days` for delivered/cancelled/refunded orders; electronics already had `return_window_days=14`
+
+`cancel_order`:
+- Shipped orders now blocked: "This order has already shipped and cannot be cancelled. You can return it for a refund once it arrives."
+- Only `placed` status is cancellable
+
+`process_refund` — five ordered checks added:
+1. Final sale rejection (any product with `final_sale=True`)
+2. Non-returnable category rejection: `gift_cards`, `digital`, `personalized`, `perishable`, `hazardous`
+3. Return window check: uses `delivered_at` (fallback `updated_at`), respects per-product `return_window_days` — **defective reason bypasses this entirely** (KB policy)
+4+5. `risk_score > 0.7` OR `refund_amount > 50` → `status="pending_review"` with review message; else `status="approved"`. Response dict always includes `status` field.
+
+`action_service`: injects `risk_score` from `state["customer_context"]["risk_score"]` into `process_refund` params after null-stripping. LLM cannot supply or override it.
+
+`conversation_agent` Pass 2: escalates with `policy_exception` when any action result has `status="pending_review"`.
+
+`docs/kb/faq.md`: fixed cancellation contradiction — now consistent with tool (only pre-shipment cancellation possible).
+
 **Next: Phase 4 — Frontend**
 - Typing indicator while agent streams
 - CSAT widget shown when conversation resolves
