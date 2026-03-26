@@ -90,6 +90,9 @@ FONT_BOLD    = Font(bold=True)
 # Helpers — parse conversation field
 # ---------------------------------------------------------------------------
 
+_ROLE_NORMALISE = {"user": "customer", "human": "customer", "assistant": "agent", "bot": "agent"}
+
+
 def _parse_conversation(raw) -> list:
     """
     The 'conversation' column can be:
@@ -97,19 +100,31 @@ def _parse_conversation(raw) -> list:
       - A JSON string encoding a list of {"role": ..., "content": ...} dicts
 
     Returns a list of {"role": ..., "content": ...} dicts always.
+    Role values are normalised to the agent's expected format:
+      user/human → customer
+      assistant/bot → agent
     """
     if raw is None:
         return []
     if isinstance(raw, list):
-        return raw
-    raw_str = str(raw).strip()
-    if raw_str.startswith("["):
-        try:
-            return json.loads(raw_str)
-        except json.JSONDecodeError:
-            pass
-    # Plain string → single customer message
-    return [{"role": "customer", "content": raw_str}]
+        msgs = raw
+    else:
+        raw_str = str(raw).strip()
+        if raw_str.startswith("["):
+            try:
+                msgs = json.loads(raw_str)
+            except json.JSONDecodeError:
+                msgs = None
+        else:
+            msgs = None
+        if msgs is None:
+            return [{"role": "customer", "content": raw_str}]
+
+    return [
+        {"role": _ROLE_NORMALISE.get(m.get("role", ""), m.get("role", "customer")),
+         "content": m.get("content", "")}
+        for m in msgs
+    ]
 
 
 def _parse_json_field(raw, default=None):
