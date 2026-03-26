@@ -342,14 +342,8 @@ def _ensure_run_history_sheet(wb) -> openpyxl.worksheet.worksheet.Worksheet:
     if RUN_HISTORY_SHEET in wb.sheetnames:
         return wb[RUN_HISTORY_SHEET]
     ws = wb.create_sheet(RUN_HISTORY_SHEET)
-    headers = [
-        "run_id", "date", "version_tag", "change_description",
-        "Input Guard %", "Intent Classifier %", "Output Guard %",
-        "KB Retrieval %", "Action Execution %", "Escalation %",
-        "Conversation Quality %", "PII & Data Leakage %",
-        "Policy Compliance %", "Graceful Failure %", "Context Retention %",
-        "overall_pass%", "judge_model", "notes",
-    ]
+    headers = ["run_id", "date", "version_tag", "change_description",
+               "eval_type", "pass%", "judge_model", "notes"]
     for c, h in enumerate(headers, 1):
         cell = ws.cell(1, c, h)
         cell.fill = FILL_HEADER
@@ -359,26 +353,24 @@ def _ensure_run_history_sheet(wb) -> openpyxl.worksheet.worksheet.Worksheet:
 
 def _append_run_history(ws, run_id: int, tag: str, desc: str,
                          sheet_pass_rates: dict, calibrate: bool):
-    """Append a summary row to the Run History sheet."""
+    """
+    Append one row per evaluated sheet plus an OVERALL row.
+    Format: run_id | date | version_tag | change_description | eval_type | pass% | judge_model | notes
+    """
     from evals.config import JUDGE_MODEL_BEHAVIORAL, JUDGE_MODEL_CALIBRATION
     judge_model = JUDGE_MODEL_CALIBRATION if calibrate else f"tiered ({JUDGE_MODEL_BEHAVIORAL})"
+    date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    overall_scores = [v for v in sheet_pass_rates.values() if v is not None]
+    for sheet, rate in sheet_pass_rates.items():
+        ws.append([run_id, date_str, tag, desc, sheet, round(rate * 100, 1), judge_model, ""])
+
+    overall_scores = list(sheet_pass_rates.values())
     overall = sum(overall_scores) / len(overall_scores) if overall_scores else 0.0
-
-    row = [
-        run_id,
-        datetime.now().strftime("%Y-%m-%d %H:%M"),
-        tag,
-        desc,
-    ]
-    for sheet in SHEET_NAMES:
-        row.append(round(sheet_pass_rates.get(sheet, 0.0) * 100, 1))
-    row.append(round(overall * 100, 1))
-    row.append(judge_model)
-    row.append("")  # notes — manual
-
-    ws.append(row)
+    overall_row = ws.append([run_id, date_str, tag, desc, "OVERALL", round(overall * 100, 1), judge_model, ""])
+    # Bold the OVERALL row
+    last_row = ws.max_row
+    for c in range(1, 9):
+        ws.cell(last_row, c).font = FONT_BOLD
 
 
 def _write_detailed_results(tag: str, all_results: dict):
