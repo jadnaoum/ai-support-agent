@@ -41,6 +41,7 @@ class Product(Base):
     price = Column(Numeric(10, 2), nullable=False)
     return_window_days = Column(Integer, nullable=False, default=30)
     warranty_months = Column(Integer, nullable=True)
+    final_sale = Column(Boolean, nullable=False, default=False)
     metadata_ = Column("metadata", JSONB, default=dict)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -56,6 +57,7 @@ class Order(Base):
     total_amount = Column(Numeric(10, 2), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    delivered_at = Column(DateTime(timezone=True), nullable=True)
 
     customer = relationship("Customer", back_populates="orders")
     items = relationship("OrderItem", back_populates="order")

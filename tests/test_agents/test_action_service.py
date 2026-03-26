@@ -3,6 +3,7 @@ Tests for the action service node.
 Uses real test DB for tool execution; no LLM calls.
 """
 import uuid
+from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -122,3 +123,89 @@ async def test_null_params_are_stripped(db, customer, placed_order):
     )
     result = await action_service_node(state, {"configurable": {"db": db}})
     assert result["action_results"][0]["success"] is True
+
+
+# ---------------------------------------------------------------------------
+# process_refund — risk_score injection
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+async def delivered_order(db: AsyncSession, customer):
+    """Delivered recently — within return window, low total to avoid high-value flag."""
+    product = Product(
+        id=str(uuid.uuid4()), name="Refund Widget", category="clothing",
+        price=30.00, return_window_days=30, final_sale=False,
+    )
+    db.add(product)
+    await db.flush()
+    now = datetime.now(timezone.utc)
+    order = Order(
+        id=str(uuid.uuid4()), customer_id=customer.id,
+        status="delivered", total_amount=30.00,
+        delivered_at=now - timedelta(days=3),
+    )
+    db.add(order)
+    await db.flush()
+    db.add(OrderItem(
+        id=str(uuid.uuid4()), order_id=order.id, product_id=product.id,
+        quantity=1, price_at_purchase=30.00,
+    ))
+    await db.commit()
+    return order
+
+
+async def test_risk_score_injected_from_customer_context(db, customer, delivered_order):
+    """action_service must inject risk_score from customer_context, not from LLM params."""
+    state = make_state(
+        "process_refund",
+        {"order_id": delivered_order.id},  # LLM provides order_id only — no risk_score
+        customer_id=customer.id,
+        customer_context={"risk_score": 0.9},  # high risk — should trigger pending_review
+    )
+    result = await action_service_node(state, {"configurable": {"db": db}})
+    tool_result = result["action_results"][0]
+    assert tool_result["success"] is True
+    assert tool_result["status"] == "pending_review"
+
+
+async def test_risk_score_cannot_be_overridden_by_llm(db, customer, delivered_order):
+    """Even if the LLM somehow provides risk_score=0.0 in params, action_service overwrites it."""
+    state = make_state(
+        "process_refund",
+        {"order_id": delivered_order.id, "risk_score": 0.0},  # LLM-provided — must be ignored
+        customer_id=customer.id,
+        customer_context={"risk_score": 0.9},  # actual risk from customer context
+    )
+    result = await action_service_node(state, {"configurable": {"db": db}})
+    tool_result = result["action_results"][0]
+    assert tool_result["success"] is True
+    # The real risk_score (0.9) must have been used — not the LLM-supplied 0.0
+    assert tool_result["status"] == "pending_review"
+
+
+async def test_low_risk_score_from_context_approves_refund(db, customer, delivered_order):
+    """Low risk_score in customer_context → approved (not pending_review)."""
+    state = make_state(
+        "process_refund",
+        {"order_id": delivered_order.id},
+        customer_id=customer.id,
+        customer_context={"risk_score": 0.1},
+    )
+    result = await action_service_node(state, {"configurable": {"db": db}})
+    tool_result = result["action_results"][0]
+    assert tool_result["success"] is True
+    assert tool_result["status"] == "approved"
+
+
+async def test_missing_customer_context_defaults_to_zero_risk(db, customer, delivered_order):
+    """No customer_context in state → risk_score defaults to 0.0 → approved."""
+    state = make_state(
+        "process_refund",
+        {"order_id": delivered_order.id},
+        customer_id=customer.id,
+        customer_context={},  # no risk_score field
+    )
+    result = await action_service_node(state, {"configurable": {"db": db}})
+    tool_result = result["action_results"][0]
+    assert tool_result["success"] is True
+    assert tool_result["status"] == "approved"

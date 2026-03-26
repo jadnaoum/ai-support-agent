@@ -116,10 +116,10 @@ async def seed_products(db: AsyncSession) -> None:
                 price=89.99, return_window_days=30, warranty_months=12,
                 metadata_={"brand": "PowerBlend", "watts": 1200}),
         Product(id=PRODUCTS["phone_case"], name="Rugged Phone Case", category="accessories",
-                price=24.99, return_window_days=30, warranty_months=None,
+                price=24.99, return_window_days=30, warranty_months=None, final_sale=True,
                 metadata_={"compatible_models": ["Galaxy Nova 5G"]}),
         Product(id=PRODUCTS["usb_hub"], name="7-Port USB-C Hub", category="accessories",
-                price=49.99, return_window_days=30, warranty_months=6,
+                price=49.99, return_window_days=30, warranty_months=6, final_sale=True,
                 metadata_={"ports": 7, "usb_c": True}),
         Product(id=PRODUCTS["desk_lamp"], name="LED Desk Lamp", category="home_goods",
                 price=59.99, return_window_days=30, warranty_months=12,
@@ -178,6 +178,11 @@ async def seed_orders(db: AsyncSession) -> list[dict]:
             created_order_ids[o["cid"]] = o["id"]
             continue
 
+        # Set delivered_at for orders that have been delivered/cancelled/refunded
+        delivered_at = None
+        if o["status"] in ("delivered", "cancelled", "refunded"):
+            delivered_at = dt(days_ago=o["days_ago"] - 5)  # arrived ~5 days after placing
+
         order = Order(
             id=o["id"],
             customer_id=o["cid"],
@@ -185,6 +190,7 @@ async def seed_orders(db: AsyncSession) -> list[dict]:
             total_amount=o["total"],
             created_at=dt(days_ago=o["days_ago"]),
             updated_at=dt(days_ago=o["days_ago"]),
+            delivered_at=delivered_at,
         )
         db.add(order)
         for product_id, qty, price in o["items"]:

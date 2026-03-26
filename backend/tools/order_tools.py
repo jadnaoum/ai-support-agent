@@ -6,10 +6,17 @@ result dict. No external API calls — the value is in the registry pattern,
 parameter validation, and audit trail.
 """
 import uuid
+from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.models import Order, OrderItem, Product, Refund
+
+# Product categories that can never be returned, regardless of window or condition.
+# These map to the non-returnable items listed in returns_and_refunds.md.
+_NON_RETURNABLE_CATEGORIES = frozenset({
+    "gift_cards", "digital", "personalized", "perishable", "hazardous",
+})
 
 
 async def track_order(
@@ -87,6 +94,14 @@ async def cancel_order(
 
     if order.status in ("cancelled", "refunded"):
         return {"success": False, "error": f"This order is already {order.status}."}
+    if order.status == "shipped":
+        return {
+            "success": False,
+            "error": (
+                "This order has already shipped and cannot be cancelled. "
+                "You can return it for a refund once it arrives."
+            ),
+        }
     if order.status == "delivered":
         return {
             "success": False,
@@ -113,6 +128,7 @@ async def process_refund(
     order_id: str = None,
     amount: float = None,
     reason: str = "other",
+    risk_score: float = 0.0,  # injected by action_service from customer_context — NOT LLM-provided
 ) -> dict:
     """Initiate a refund for an eligible order."""
     # Map free-text reason to valid DB enum values
@@ -128,6 +144,7 @@ async def process_refund(
     }
     db_reason = reason_map.get(reason.lower(), "other")
 
+    # --- Locate order ---
     if order_id:
         result = await db.execute(select(Order).where(Order.id == order_id))
         order = result.scalar_one_or_none()
@@ -154,11 +171,78 @@ async def process_refund(
             "error": f"Orders with status '{order.status}' are not eligible for a refund yet.",
         }
 
+    # --- Load products for this order ---
+    items_result = await db.execute(
+        select(Product)
+        .join(OrderItem, OrderItem.product_id == Product.id)
+        .where(OrderItem.order_id == order.id)
+    )
+    products = items_result.scalars().all()
+
+    if products:
+        # a) Final Sale check
+        if any(p.final_sale for p in products):
+            return {
+                "success": False,
+                "error": (
+                    "One or more items in this order are marked as Final Sale and are not "
+                    "eligible for returns or refunds."
+                ),
+            }
+
+        # b) Non-returnable category check
+        for p in products:
+            if p.category in _NON_RETURNABLE_CATEGORIES:
+                return {
+                    "success": False,
+                    "error": (
+                        f"This order contains a non-returnable item ({p.name}). "
+                        "Gift cards, digital products, personalized items, perishable goods, "
+                        "and hazardous materials cannot be returned."
+                    ),
+                }
+
+        # c) Return window check — bypass entirely for defective/damaged items (KB policy)
+        if db_reason not in ("defective",):
+            delivered_date = order.delivered_at or order.updated_at
+            if delivered_date:
+                # Make delivered_date timezone-aware for comparison if needed
+                if delivered_date.tzinfo is None:
+                    delivered_date = delivered_date.replace(tzinfo=timezone.utc)
+                now = datetime.now(timezone.utc)
+                days_since_delivery = (now - delivered_date).days
+                min_window = min(p.return_window_days for p in products)
+                if days_since_delivery > min_window:
+                    return {
+                        "success": False,
+                        "error": (
+                            f"The return window for this order has passed "
+                            f"({min_window} days for this item type). "
+                            "If your item is defective, please contact us — "
+                            "defective items are eligible for a refund outside the return window."
+                        ),
+                    }
+
+    # --- Calculate refund amount ---
     refund_amount = (
         min(float(amount), float(order.total_amount))
         if amount and float(amount) > 0
         else float(order.total_amount)
     )
+
+    # d+e) Determine approval status: pending_review for high-risk customers or high-value refunds
+    if risk_score > 0.7 or refund_amount > 50:
+        refund_status = "pending_review"
+        message = (
+            "Your refund request has been submitted and is under review. "
+            "A member of our team will follow up with you shortly."
+        )
+    else:
+        refund_status = "approved"
+        message = (
+            f"Refund of ${refund_amount:.2f} approved. It will appear on your original "
+            "payment method within 3–5 business days."
+        )
 
     refund = Refund(
         id=str(uuid.uuid4()),
@@ -166,7 +250,7 @@ async def process_refund(
         customer_id=customer_id,
         amount=refund_amount,
         reason=db_reason,
-        status="approved",
+        status=refund_status,
         initiated_by="agent",
     )
     db.add(refund)
@@ -178,10 +262,8 @@ async def process_refund(
         "order_id": str(order.id),
         "refund_id": str(refund.id),
         "amount": refund_amount,
-        "message": (
-            f"Refund of ${refund_amount:.2f} approved. It will appear on your original "
-            "payment method within 3–5 business days."
-        ),
+        "status": refund_status,
+        "message": message,
     }
 
 

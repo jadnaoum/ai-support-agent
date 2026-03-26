@@ -22,6 +22,13 @@ async def action_service_node(state: AgentState, config: dict) -> dict:
     # Strip null params — tools use defaults for missing values
     params = {k: v for k, v in params.items() if v is not None}
 
+    # Inject risk_score for process_refund from pre-loaded customer context.
+    # This must come AFTER null-stripping so the LLM cannot supply or override it.
+    if tool_name == "process_refund":
+        params["risk_score"] = float(
+            (state.get("customer_context") or {}).get("risk_score", 0.0) or 0.0
+        )
+
     if not tool_name or tool_name not in TOOL_REGISTRY:
         result = {"success": False, "error": f"Unknown action: '{tool_name}'."}
     else:

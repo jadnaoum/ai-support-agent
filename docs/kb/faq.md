@@ -4,7 +4,7 @@
 
 ### Can I change or cancel my order after placing it?
 
-You can modify or cancel your order **only before it ships**. Once an order is in processing or has shipped, it cannot be changed or cancelled. To request a change, contact support immediately with your order number. If the order has already shipped, you can return it once it arrives using our standard return policy.
+You can cancel your order while it has **not yet shipped**. Once an order has shipped, it cannot be cancelled — you can return it for a refund once it arrives using our standard return policy. To request a cancellation, contact support immediately with your order number.
 
 ### Can I add items to an existing order?
 

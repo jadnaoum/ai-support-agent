@@ -208,6 +208,17 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 "confidence": top_similarity,
             }
 
+    # Escalate if any process_refund result came back as pending_review.
+    # A human agent must follow up — the conversation agent should not handle this silently.
+    for action_result in state.get("action_results") or []:
+        if action_result.get("status") == "pending_review":
+            return {
+                "pending_service": "escalation",
+                "requires_escalation": True,
+                "escalation_reason": "policy_exception",
+                "confidence": retrieved[0]["similarity"] if retrieved else state.get("confidence", 1.0),
+            }
+
     # Generate the customer-facing response using service results
     response = await _generate_response(state)
     top_similarity = retrieved[0]["similarity"] if retrieved else state.get("confidence", 1.0)
