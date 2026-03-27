@@ -140,8 +140,12 @@ def _parse_json_field(raw, default=None):
 
 
 def _row_to_dict(ws, row_idx: int) -> dict:
-    """Read a worksheet row into a dict keyed by the header row."""
-    headers = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]
+    """Read a worksheet row into a dict keyed by the header row (row 2).
+
+    Row 1 is the merged group-label row added for visual grouping.
+    Row 2 is column headers. Data starts at row 3.
+    """
+    headers = [ws.cell(2, c).value for c in range(1, ws.max_column + 1)]
     return {
         h: ws.cell(row_idx, c).value
         for c, h in enumerate(headers, 1)
@@ -363,19 +367,31 @@ _SHEET_RUNNERS = {
 def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float):
     """
     Append 3 columns to a test sheet for this run:
-      "{tag} ($X.XXX)"  — PASS / PARTIAL / FAIL  (color-coded; cost in header)
-      "{tag} response"  — agent's response text (truncated to 500 chars)
-      "{tag} reasoning" — judge's reasoning
+      Row 1: merged group label showing the version tag (e.g. "v1.1_intent_fix")
+      Row 2: column headers — "{tag} ($X.XXX)", "{tag} response", "{tag} reasoning"
+      Row 3+: PASS / PARTIAL / FAIL (color-coded), response text, judge reasoning
 
-    row_results is a list aligned to data rows (row 2+).
+    Sheet layout: row 1 = group labels, row 2 = headers, row 3+ = data.
     """
+    from openpyxl.styles import Alignment
+    from openpyxl.utils import get_column_letter
+
     col = ws.max_column + 1
     fill_map  = {"pass": FILL_PASS, "partial": FILL_PARTIAL, "fail": FILL_FAIL}
     label_map = {"pass": "PASS", "partial": "PARTIAL", "fail": "FAIL"}
 
+    # Row 1: merged group label
+    end_col = get_column_letter(col + 2)
+    ws.merge_cells(f"{get_column_letter(col)}1:{end_col}1")
+    label_cell = ws.cell(1, col, tag)
+    label_cell.fill = FILL_HEADER
+    label_cell.font = FONT_BOLD
+    label_cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # Row 2: column headers
     verdict_header = f"{tag} (${sheet_cost:.3f})"
     for offset, title in enumerate([verdict_header, f"{tag} response", f"{tag} reasoning"]):
-        cell = ws.cell(1, col + offset, title)
+        cell = ws.cell(2, col + offset, title)
         cell.fill = FILL_HEADER
         cell.font = FONT_BOLD
 
@@ -383,7 +399,7 @@ def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float):
         result     = case.get("result", {})
         agent_resp = case.get("agent_response", {})
         verdict    = result.get("verdict", "fail")
-        row        = i + 2
+        row        = i + 3  # data starts at row 3
 
         verdict_cell = ws.cell(row, col, label_map.get(verdict, "FAIL"))
         verdict_cell.fill = fill_map.get(verdict, FILL_FAIL)
@@ -466,7 +482,7 @@ def _estimate_run_cost(wb, target_sheets: list, calibrate: bool) -> tuple:
     for sheet_name in target_sheets:
         if sheet_name not in wb.sheetnames or sheet_name not in SHEET_CALL_PROFILE:
             continue
-        n_cases = wb[sheet_name].max_row - 1
+        n_cases = wb[sheet_name].max_row - 2  # row 1 = labels, row 2 = headers, row 3+ = data
         profile = SHEET_CALL_PROFILE[sheet_name]
 
         agent_cost = 0.0
@@ -566,7 +582,7 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool):
 
         runner = _SHEET_RUNNERS[sheet_name]
         ws = wb[sheet_name]
-        total_rows = ws.max_row - 1
+        total_rows = ws.max_row - 2  # row 1 = labels, row 2 = headers, row 3+ = data
         print(f"[{sheet_name}] Running {total_rows} cases...")
 
         case_results = []
@@ -575,7 +591,7 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool):
         sheet_agent_cost   = 0.0
         sheet_judge_cost   = 0.0
 
-        for row_idx in range(2, ws.max_row + 1):
+        for row_idx in range(3, ws.max_row + 1):
             test_case = _row_to_dict(ws, row_idx)
             test_id = test_case.get("test_id", f"row-{row_idx}")
 
