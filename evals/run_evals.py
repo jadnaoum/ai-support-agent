@@ -204,6 +204,11 @@ async def run_input_guard(test_case: dict, calibrate: bool, test_id: str = "", v
     agent_resp = _call_agent_full(messages, {}, test_id=test_id, version_tag=version_tag)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
+    # Summarise the guard decision as the display "response" for this sheet
+    if agent_resp.get("input_guard_blocked"):
+        agent_resp["response"] = f"blocked: {agent_resp.get('input_guard_reason', 'unknown')}"
+    else:
+        agent_resp["response"] = "passed: safe"
     judgment = judge_input_guard(test_case, agent_resp)
     return agent_resp, judgment
 
@@ -213,6 +218,8 @@ async def run_intent_classifier(test_case: dict, calibrate: bool, test_id: str =
     agent_resp = _call_agent_full(messages, {}, test_id=test_id, version_tag=version_tag)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
+    # Show the classified intent as the display "response" for this sheet
+    agent_resp["response"] = agent_resp.get("inferred_intent", "unknown")
     judgment = judge_intent_classifier(test_case, agent_resp)
     return agent_resp, judgment
 
@@ -226,6 +233,10 @@ async def run_output_guard(test_case: dict, calibrate: bool, test_id: str = "", 
                                           test_id=test_id, version_tag=version_tag)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
+    # Summarise the guard decision as the display "response" for this sheet
+    verdict = agent_resp.get("output_guard_verdict", "pass")
+    failure_type = agent_resp.get("output_guard_failure_type", "none")
+    agent_resp["response"] = f"{verdict}: {failure_type}"
     judgment = await judge_output_guard(test_case, agent_resp)
     return agent_resp, judgment
 
