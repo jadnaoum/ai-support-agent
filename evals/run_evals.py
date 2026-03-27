@@ -153,12 +153,15 @@ def _row_to_dict(ws, row_idx: int) -> dict:
 # Agent call helpers
 # ---------------------------------------------------------------------------
 
-def _call_agent_full(messages: list, mock_context: dict, customer_id: str = None) -> dict:
+def _call_agent_full(messages: list, mock_context: dict, customer_id: str = None,
+                     test_id: str = "", version_tag: str = "") -> dict:
     """POST to /api/chat/test and return parsed JSON response."""
     payload = {
         "customer_id": customer_id or DEFAULT_CUSTOMER_ID,
         "messages": messages,
         "mock_context": mock_context,
+        "test_id": test_id,
+        "version_tag": version_tag,
     }
     try:
         resp = requests.post(AGENT_TEST_ENDPOINT, json=payload, timeout=AGENT_TIMEOUT)
@@ -170,13 +173,16 @@ def _call_agent_full(messages: list, mock_context: dict, customer_id: str = None
         return {"error": str(e)}
 
 
-def _call_agent_output_guard(agent_response: str, tools_called: list, known_ids: dict) -> dict:
+def _call_agent_output_guard(agent_response: str, tools_called: list, known_ids: dict,
+                              test_id: str = "", version_tag: str = "") -> dict:
     """POST to /api/chat/test in output guard mode."""
     payload = {
         "test_output_guard": True,
         "agent_response": agent_response,
         "tools_called": tools_called,
         "known_ids": known_ids,
+        "test_id": test_id,
+        "version_tag": version_tag,
     }
     try:
         resp = requests.post(AGENT_TEST_ENDPOINT, json=payload, timeout=AGENT_TIMEOUT)
@@ -192,67 +198,68 @@ def _call_agent_output_guard(agent_response: str, tools_called: list, known_ids:
 # Per-sheet run logic
 # ---------------------------------------------------------------------------
 
-async def run_input_guard(test_case: dict, calibrate: bool) -> tuple[dict, dict]:
+async def run_input_guard(test_case: dict, calibrate: bool, test_id: str = "", version_tag: str = "") -> tuple[dict, dict]:
     """Returns (agent_response, judgment)."""
     messages = [{"role": "customer", "content": test_case.get("customer_message", "")}]
-    agent_resp = _call_agent_full(messages, {})
+    agent_resp = _call_agent_full(messages, {}, test_id=test_id, version_tag=version_tag)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
     judgment = judge_input_guard(test_case, agent_resp)
     return agent_resp, judgment
 
 
-async def run_intent_classifier(test_case: dict, calibrate: bool) -> tuple[dict, dict]:
+async def run_intent_classifier(test_case: dict, calibrate: bool, test_id: str = "", version_tag: str = "") -> tuple[dict, dict]:
     messages = _parse_conversation(test_case.get("conversation"))
-    agent_resp = _call_agent_full(messages, {})
+    agent_resp = _call_agent_full(messages, {}, test_id=test_id, version_tag=version_tag)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
     judgment = judge_intent_classifier(test_case, agent_resp)
     return agent_resp, judgment
 
 
-async def run_output_guard(test_case: dict, calibrate: bool) -> tuple[dict, dict]:
+async def run_output_guard(test_case: dict, calibrate: bool, test_id: str = "", version_tag: str = "") -> tuple[dict, dict]:
     agent_response_text = str(test_case.get("agent_response", ""))
     tools_called = _parse_json_field(test_case.get("tools_called"), default=[])
     known_ids = _parse_json_field(test_case.get("known_ids"), default={})
 
-    agent_resp = _call_agent_output_guard(agent_response_text, tools_called, known_ids)
+    agent_resp = _call_agent_output_guard(agent_response_text, tools_called, known_ids,
+                                          test_id=test_id, version_tag=version_tag)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
     judgment = await judge_output_guard(test_case, agent_resp)
     return agent_resp, judgment
 
 
-async def run_kb_retrieval(test_case: dict, calibrate: bool) -> tuple[dict, dict]:
+async def run_kb_retrieval(test_case: dict, calibrate: bool, test_id: str = "", version_tag: str = "") -> tuple[dict, dict]:
     messages = _parse_conversation(test_case.get("conversation"))
-    agent_resp = _call_agent_full(messages, {})
+    agent_resp = _call_agent_full(messages, {}, test_id=test_id, version_tag=version_tag)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
     judgment = await judge_kb_retrieval(test_case, agent_resp, calibrate)
     return agent_resp, judgment
 
 
-async def run_action_execution(test_case: dict, calibrate: bool) -> tuple[dict, dict]:
+async def run_action_execution(test_case: dict, calibrate: bool, test_id: str = "", version_tag: str = "") -> tuple[dict, dict]:
     messages = _parse_conversation(test_case.get("conversation"))
     mock_context = _parse_json_field(test_case.get("mock_account_state"))
-    agent_resp = _call_agent_full(messages, mock_context)
+    agent_resp = _call_agent_full(messages, mock_context, test_id=test_id, version_tag=version_tag)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
     judgment = await judge_action_execution(test_case, agent_resp, calibrate)
     return agent_resp, judgment
 
 
-async def run_escalation(test_case: dict, calibrate: bool) -> tuple[dict, dict]:
+async def run_escalation(test_case: dict, calibrate: bool, test_id: str = "", version_tag: str = "") -> tuple[dict, dict]:
     messages = _parse_conversation(test_case.get("conversation"))
     mock_context = _parse_json_field(test_case.get("mock_account_state"))
-    agent_resp = _call_agent_full(messages, mock_context)
+    agent_resp = _call_agent_full(messages, mock_context, test_id=test_id, version_tag=version_tag)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
     judgment = await judge_escalation(test_case, agent_resp, calibrate)
     return agent_resp, judgment
 
 
-async def run_conversation_quality(test_case: dict, calibrate: bool) -> tuple[dict, dict]:
+async def run_conversation_quality(test_case: dict, calibrate: bool, test_id: str = "", version_tag: str = "") -> tuple[dict, dict]:
     """
     Conversation Quality cases use {{AGENT_RESPONSE}} as a placeholder.
     We send the preceding turns to the agent, capture the real response,
@@ -271,51 +278,51 @@ async def run_conversation_quality(test_case: dict, calibrate: bool) -> tuple[di
     if not messages:
         messages = [{"role": "customer", "content": "Hello"}]
 
-    agent_resp = _call_agent_full(messages, {})
+    agent_resp = _call_agent_full(messages, {}, test_id=test_id, version_tag=version_tag)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
     judgment = await judge_conversation_quality(test_case, agent_resp, calibrate)
     return agent_resp, judgment
 
 
-async def run_pii_leakage(test_case: dict, calibrate: bool) -> tuple[dict, dict]:
+async def run_pii_leakage(test_case: dict, calibrate: bool, test_id: str = "", version_tag: str = "") -> tuple[dict, dict]:
     messages = _parse_conversation(test_case.get("conversation"))
     mock_context = _parse_json_field(test_case.get("mock_account_state"))
-    agent_resp = _call_agent_full(messages, mock_context)
+    agent_resp = _call_agent_full(messages, mock_context, test_id=test_id, version_tag=version_tag)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
     judgment = await judge_pii_leakage(test_case, agent_resp, calibrate)
     return agent_resp, judgment
 
 
-async def run_policy_compliance(test_case: dict, calibrate: bool) -> tuple[dict, dict]:
+async def run_policy_compliance(test_case: dict, calibrate: bool, test_id: str = "", version_tag: str = "") -> tuple[dict, dict]:
     messages = _parse_conversation(test_case.get("conversation"))
     mock_context = _parse_json_field(test_case.get("mock_account_state"))
-    agent_resp = _call_agent_full(messages, mock_context)
+    agent_resp = _call_agent_full(messages, mock_context, test_id=test_id, version_tag=version_tag)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
     judgment = await judge_policy_compliance(test_case, agent_resp, calibrate)
     return agent_resp, judgment
 
 
-async def run_graceful_failure(test_case: dict, calibrate: bool) -> tuple[dict, dict]:
+async def run_graceful_failure(test_case: dict, calibrate: bool, test_id: str = "", version_tag: str = "") -> tuple[dict, dict]:
     # Note: simulated_failure is metadata for the judge — the test endpoint
     # doesn't inject failures at the tool level. The judge evaluates honesty
     # about failures that occur naturally (e.g. order not found in DB).
     messages = _parse_conversation(test_case.get("conversation"))
-    agent_resp = _call_agent_full(messages, {})
+    agent_resp = _call_agent_full(messages, {}, test_id=test_id, version_tag=version_tag)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
     judgment = await judge_graceful_failure(test_case, agent_resp, calibrate)
     return agent_resp, judgment
 
 
-async def run_context_retention(test_case: dict, calibrate: bool) -> tuple[dict, dict]:
+async def run_context_retention(test_case: dict, calibrate: bool, test_id: str = "", version_tag: str = "") -> tuple[dict, dict]:
     messages = _parse_conversation(test_case.get("conversation"))
     mock_context = _parse_json_field(test_case.get("mock_account_state"))
     # For multi-turn conversations, pass the full history; only the last message
     # is the one the agent needs to respond to.
-    agent_resp = _call_agent_full(messages, mock_context)
+    agent_resp = _call_agent_full(messages, mock_context, test_id=test_id, version_tag=version_tag)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
     judgment = await judge_context_retention(test_case, agent_resp, calibrate)
@@ -562,7 +569,8 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool):
             test_id = test_case.get("test_id", f"row-{row_idx}")
 
             t0 = time.time()
-            agent_resp, judgment = await runner(test_case, calibrate)
+            agent_resp, judgment = await runner(test_case, calibrate,
+                                                test_id=test_id, version_tag=tag)
             latency = time.time() - t0
 
             # Accumulate agent token estimates

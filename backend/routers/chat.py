@@ -227,6 +227,10 @@ class TestChatRequest(BaseModel):
         - agent_response: the response to evaluate
         - tools_called: [{"tool": "cancel_order", "args": {...}}] — tools that were called
         - known_ids: {"order_ids": [...], "customer_id": "..."} — IDs legitimately in context
+
+    Traceability (optional):
+        - test_id: eval case ID (e.g. "IG-017") — attached as LangSmith tag + metadata
+        - version_tag: eval run tag (e.g. "v1.1") — attached as LangSmith tag + metadata
     """
     customer_id: str = "test-customer"
     messages: List[dict] = Field(default_factory=list)
@@ -236,6 +240,9 @@ class TestChatRequest(BaseModel):
     agent_response: str = ""
     tools_called: List[dict] = Field(default_factory=list)
     known_ids: dict = Field(default_factory=dict)
+    # LangSmith traceability
+    test_id: str = ""
+    version_tag: str = ""
 
 
 class TestChatResponse(BaseModel):
@@ -349,8 +356,22 @@ async def test_chat(
 
     from backend.agents.graph import graph  # noqa: PLC0415
 
+    # Build LangSmith tags + metadata from traceability fields if provided
+    tags = ["eval"]
+    metadata = {}
+    if body.test_id:
+        tags.append(body.test_id)
+        metadata["test_id"] = body.test_id
+    if body.version_tag:
+        tags.append(body.version_tag)
+        metadata["version_tag"] = body.version_tag
+
     # conversation_id="" — escalation handler skips DB writes when absent
-    config = {"configurable": {"db": db, "conversation_id": ""}}
+    config = {
+        "configurable": {"db": db, "conversation_id": ""},
+        "tags": tags,
+        "metadata": metadata,
+    }
     final_state = await graph.ainvoke(initial_state, config=config)
 
     # Infer intent from which services were called
