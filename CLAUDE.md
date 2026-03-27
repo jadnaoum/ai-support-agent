@@ -1,7 +1,6 @@
 # AI Customer Support Agent
 
 Read BUILD_SPEC.md for the full build specification.
-Read ARCHITECTURE.md for architecture decisions and reasoning.
 
 Follow the build sequence in BUILD_SPEC.md phase by phase.
 
@@ -117,7 +116,7 @@ cd frontend && npm run dev
 
 **Manual testing (2026-03-20):** ANTHROPIC_API_KEY set, LangSmith EU endpoint fixed. System end-to-end tested — chat UI working, SSE streaming working, traces appearing in LangSmith.
 
-### Phase 3: Full agent system — IN PROGRESS
+### Phase 3: Full agent system — COMPLETE (2026-03-20)
 
 Architecture revised from original supervisor-routing design. No separate supervisor node. The conversation agent is the only customer-facing node — it classifies intent, calls knowledge and action services, and generates all customer responses. Services return raw data only.
 
@@ -195,30 +194,56 @@ Schema additions (migration 002):
 - **Full agent run**: accepts `messages` + `mock_context` (injected as `customer_context`), runs `graph.ainvoke()`, returns `response`, `actions_taken`, `inferred_intent`, `confidence`, `requires_escalation`, `escalation_reason`, `input_guard_blocked`, `input_guard_reason`
 - **Output guard test mode** (`test_output_guard=true`): accepts `agent_response`, `tools_called`, `known_ids` — runs `check_output()` only, returns `output_guard_verdict` + `output_guard_failure_type`
 - `config.py`: added `app_env: str = "development"` setting
-- `inferred_intent` is derived from `actions_taken`: `knowledge_service` → `knowledge_query`, `action_service` → `action_request`, `requires_escalation` → `escalation_request`, else `general`
+- `inferred_intent` derived from `actions_taken`: `knowledge_service` → `knowledge_query`, `action_service` → `action_request`, `requires_escalation` → `escalation_request`, else `general`
 - Escalation handler already skips DB writes when `conversation_id=""` — safe for test mode
+- Token counts returned: `prompt_tokens` (estimated via chars÷4+700), `completion_tokens` (estimated via chars÷4+50)
 
 **Steps 26–30: Eval runner + judges** in `evals/`
-- `evals/config.py` — judge model config, agent endpoint, sheet names, thresholds
+- `evals/config.py` — judge model config, agent endpoint, sheet names, per-sheet call profiles, `MODEL_PRICE_PER_TOKEN` table for cost estimation
 - `evals/judges/classification.py` — programmatic Input Guard + Intent Classifier judges; LLM fallback for Output Guard ambiguous cases (Haiku)
 - `evals/judges/behavioral.py` — Sonnet rubric judge for KB Retrieval, Action Execution, Escalation, Conversation Quality
 - `evals/judges/safety.py` — Sonnet rubric judge for PII, Policy Compliance, Graceful Failure, Context Retention
-- `evals/run_evals.py` — CLI runner: reads xlsx, calls agent, judges, writes run columns back to test sheets, updates Run History, writes `evals/results/{tag}.xlsx` with full reasoning + Regressions sheet
+- `evals/run_evals.py` — CLI runner: pre-run cost estimate + y/N confirmation; reads xlsx; calls agent; judges; writes 3 result columns per run back to test sheets; updates Run History; costs tracked per sheet and per run
 - `evals/requirements.txt` — openpyxl, requests, litellm
-- `eval_test_cases.xlsx` moved from project root into `evals/` (correct location per spec)
-
-**Smoke test results (2026-03-26):**
-- Input Guard: **92%** (23/25 — 2 failures: LLM classifier over-blocks borderline "safe" messages IG-010, IG-018)
-- Output Guard: **44%** (11/25 — reveals real coverage gaps: guard misses tracking number hallucinations, cross-customer data leaks, policy violations like revealing system internals, and speculative claims not backed by tool results)
+- `evals/eval_test_cases.xlsx` — 11-sheet, 215-case eval dataset (file renamed from `eval_data.xlsx` per spec)
 
 **To run evals:**
 ```bash
-APP_ENV=test uvicorn backend.main:app --reload   # terminal 1 — agent with test endpoint
-python evals/run_evals.py --tag "v1.0" --desc "baseline"  # terminal 2
+export APP_ENV=test
+uvicorn backend.main:app --reload   # terminal 1 — agent with test endpoint
+python evals/run_evals.py --tag "v1.0_baseline" --desc "Full baseline run"   # terminal 2 — shows cost estimate, prompts y/N
 python evals/run_evals.py --tag "v1.1" --desc "intent fix" --sheets "Input Guard,Intent Classifier"
 ```
 
 **Step 31 (calibration): skipped** — manual one-time run; do after full baseline is established.
+
+**v1.0_baseline results (2026-03-27) — $1.14 actual cost:**
+
+| Sheet | Pass% |
+|---|---|
+| Input Guard | 92% |
+| Conversation Quality | 83% |
+| PII & Data Leakage | 67% |
+| Intent Classifier | 44% |
+| Output Guard | 44% |
+| Escalation | 43% |
+| Policy Compliance | 33% |
+| Context Retention | 33% |
+| KB Retrieval | 25% |
+| Graceful Failure | 23% |
+| Action Execution | 20% |
+| **OVERALL** | **46%** |
+
+**Deviations from BUILD_SPEC.md:**
+
+1. **Eval data filename**: spec says `eval_data.xlsx`; implemented as `eval_test_cases.xlsx`.
+2. **No separate results file**: spec says write a detailed `evals/results/{tag}.xlsx` with full judge reasoning and a Regressions sheet. Not implemented — all results are written back into the main `eval_test_cases.xlsx` as added columns. The Regressions sheet is also not implemented.
+3. **Run History format**: spec defines a wide format (one column per eval type per row). Changed to long format at user request — one row per eval type per run, plus an OVERALL row. Columns: `run_id | date | version_tag | change_description | eval_type | pass% | total_tokens | total_cost_usd | judge_model | notes`.
+4. **Per-sheet run columns**: spec says one column per run (verdict only, color-coded PASS/PARTIAL/FAIL). Implemented as three columns per run: `{tag} ($X.XX)` verdict, `{tag} response`, `{tag} reasoning` — more detail than spec.
+5. **Cost tracking**: not in spec — added at user request. Pre-run estimate (with y/N confirmation before any spend) + actual per-call cost tracking using LiteLLM response metadata. Cost shown per sheet in Run History.
+6. **`judge_model` field**: spec says store the model string or "tiered". Changed at user request to a descriptive string: `"classification: claude-haiku-4-5-20251001 | behavioral+safety: claude-sonnet-4-6"`.
+7. **`needs_clarification` intent**: eval test cases include this intent label but the agent doesn't implement it — it classifies into `knowledge_query`, `action_request`, `escalation_request`, or `general` only. This is a mismatch between the test dataset and the agent, not a runner bug. Accounts for most Intent Classifier failures (44%).
+8. **Agent URL config**: runner reads `EVAL_AGENT_URL` env var (default `http://localhost:8000`). Must be exported before piping input — e.g. `export EVAL_AGENT_URL=http://localhost:8001 && python evals/run_evals.py ...`. Do not use `VAR=val printf 'y' | python ...` pattern — the env var only applies to `printf`, not to `python`.
 
 **Next: Phase 4 — Frontend**
 - Typing indicator while agent streams
