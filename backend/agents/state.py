@@ -16,3 +16,4 @@ class AgentState(TypedDict):
     pending_action: dict        # {"tool": "cancel_order", "params": {...}} set by conversation agent
     last_turn_was_clarification: bool  # True if the previous agent turn was a clarifying question
     context_summary: str               # Plain-text summary of customer messages at time of escalation
+    consecutive_blocks: int            # Number of consecutive input-guard blocks this conversation; resets to 0 on any unblocked turn

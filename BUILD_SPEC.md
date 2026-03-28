@@ -372,6 +372,9 @@ Create synthetic e-commerce KB documents covering:
 - Classify input for off-topic or abusive content — redirect politely
 - Pass clean input to conversation agent
 - **Audit logging**: every blocked attempt is written to `audit_logs` with `action="input_guard_blocked"`, `agent_type="input_guard"`, `input_data={"message": <original message>}`, and `output_data={"category": <prompt_injection|abusive|off_topic>, "blocked_response": <redirect message>}`. Enables post-hoc analysis of guard behavior without a separate table. Only written on the live SSE path (not the test endpoint).
+- **Consecutive block tracking**: `AgentState` carries a `consecutive_blocks` integer (initialised to 0). On each blocked turn it is incremented; on any unblocked turn it is reset to 0. Behaviour by count:
+  - Block 1 or 2: an LLM-generated redirect message is returned. The wording varies by both block count and category — off_topic gets a friendly redirect (block 2: offer to rephrase or connect to human), abusive gets a firm-but-professional response (block 2: shorter, explicit warning), prompt_injection gets a neutral redirect that never acknowledges filtering. Redirect messages are generated from tone guidelines in `prompts/production.yaml` (`redirect_prompt`), not hardcoded templates.
+  - Block 3: escalate to human with reason `repeated_blocks`.
 
 ### Output guardrails (run after agent response, before sending to customer)
 - Check for hallucinated specifics: order numbers, dates, prices that weren't in the retrieved context

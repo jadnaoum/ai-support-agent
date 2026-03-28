@@ -150,6 +150,7 @@ async def stream_response(
         "pending_action": {},
         "last_turn_was_clarification": False,
         "context_summary": "",
+        "consecutive_blocks": 0,
     }
 
     # Lazy import — avoids LangGraph compile() running at module load time,
@@ -357,6 +358,7 @@ async def test_chat(
         "pending_action": {},
         "last_turn_was_clarification": False,
         "context_summary": "",
+        "consecutive_blocks": 0,
     }
 
     from backend.agents.graph import graph  # noqa: PLC0415

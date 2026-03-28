@@ -40,6 +40,11 @@ _HANDOFF_MESSAGES = {
         "so I'm connecting you with a human agent who can ask the right questions and help you directly. "
         "Please hold on."
     ),
+    "repeated_blocks": (
+        "It looks like we've been going in circles and I haven't been able to help. "
+        "Let me connect you with a member of our support team who can assist you directly. "
+        "Please hold on."
+    ),
 }
 _HANDOFF_DEFAULT = (
     "I'm transferring you to a human agent who can better assist you. "

@@ -21,6 +21,7 @@ settings = get_settings()
 # PROMPTS — edit in prompts/production.yaml
 INTENT_PROMPT = get_prompt("intent_prompt")
 RESPONSE_PROMPT = get_prompt("response_prompt")
+REDIRECT_PROMPT = get_prompt("redirect_prompt")
 
 
 def _build_context_section(state: AgentState) -> str:
@@ -117,6 +118,25 @@ async def _generate_response(state: AgentState) -> str:
     return result.choices[0].message.content
 
 
+async def _generate_redirect(block_count: int, category: str) -> str:
+    """Generate a natural redirect message when the input guard blocks a message.
+
+    Uses block_count (1 or 2) and category (off_topic/abusive/prompt_injection)
+    to apply the correct tone per the guidelines in REDIRECT_PROMPT.
+    Falls back to a generic safe message on any LLM error.
+    """
+    system = REDIRECT_PROMPT.format(block_count=block_count, category=category)
+    try:
+        result = await litellm.acompletion(
+            model=settings.litellm_model,
+            messages=[{"role": "system", "content": system}],
+            stream=False,
+        )
+        return result.choices[0].message.content.strip()
+    except Exception:
+        return "I'm here to help with your orders and account questions. Is there something I can assist you with?"
+
+
 async def conversation_agent_node(state: AgentState, config: dict) -> dict:
     """
     Central customer-facing LangGraph node.
@@ -145,16 +165,35 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             if _db and _conv_id:
                 await log_blocked_attempt(_db, _conv_id, last_message, guard)
                 await _db.commit()
+
+            new_blocks = state.get("consecutive_blocks", 0) + 1
+
+            # 3rd consecutive block → escalate to human
+            if new_blocks >= 3:
+                return {
+                    "pending_service": "escalation",
+                    "requires_escalation": True,
+                    "escalation_reason": "repeated_blocks",
+                    "confidence": 1.0,
+                    "consecutive_blocks": new_blocks,
+                    "last_turn_was_clarification": False,
+                }
+
+            # 1st or 2nd block → LLM-generated redirect with category- and count-specific tone
+            redirect = await _generate_redirect(new_blocks, guard.get("reason", "prompt_injection"))
             return {
-                "response": guard["blocked_response"],
+                "response": redirect,
                 "pending_service": "",
                 "confidence": 1.0,
+                "consecutive_blocks": new_blocks,
+                "last_turn_was_clarification": False,
             }
 
+        # Message passed the guard — reset the consecutive block counter
         intent, confidence, action_details = await _classify_intent(state)
 
         if intent == "knowledge_query":
-            return {"pending_service": "knowledge", "confidence": confidence, "last_turn_was_clarification": False}
+            return {"pending_service": "knowledge", "confidence": confidence, "last_turn_was_clarification": False, "consecutive_blocks": 0}
 
         if intent == "action_request":
             return {
@@ -162,6 +201,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 "pending_action": action_details,
                 "confidence": confidence,
                 "last_turn_was_clarification": False,
+                "consecutive_blocks": 0,
             }
 
         if intent == "escalation_request":
@@ -171,6 +211,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 "escalation_reason": "customer_requested",
                 "confidence": confidence,
                 "last_turn_was_clarification": False,
+                "consecutive_blocks": 0,
             }
 
         if intent == "needs_clarification":
@@ -183,6 +224,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                     "escalation_reason": "unable_to_clarify",
                     "confidence": confidence,
                     "last_turn_was_clarification": False,
+                    "consecutive_blocks": 0,
                 }
             clarification_question = action_details.get(
                 "clarification_prompt",
@@ -195,6 +237,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                     "confidence": confidence,
                     "pending_service": "",
                     "last_turn_was_clarification": True,
+                    "consecutive_blocks": 0,
                 }
             # Output guard blocked the clarifying question — escalate
             return {
@@ -203,6 +246,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 "escalation_reason": "unable_to_clarify",
                 "confidence": confidence,
                 "last_turn_was_clarification": False,
+                "consecutive_blocks": 0,
             }
 
         # general — answer directly without a service call
@@ -215,8 +259,9 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 "escalation_reason": "policy_exception",
                 "confidence": confidence,
                 "last_turn_was_clarification": False,
+                "consecutive_blocks": 0,
             }
-        return {"response": response, "confidence": confidence, "pending_service": "", "last_turn_was_clarification": False}
+        return {"response": response, "confidence": confidence, "pending_service": "", "last_turn_was_clarification": False, "consecutive_blocks": 0}
 
     # Pass 2: check confidence before generating response.
     # If KB results are present but below threshold, escalate instead of guessing.
