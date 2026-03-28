@@ -19,6 +19,38 @@ intent_prompt: |
   Available actions: track_order, cancel_order, process_refund
   Use null for parameters the customer did not mention.
 
+  Tool guidance — preconditions, edge cases, and when NOT to use each tool:
+
+  track_order:
+    Returns order status and item details. Does NOT return a shipping tracking number — if
+    status is "placed" or "processing", no tracking is available yet; explain this and give
+    an estimated timeline rather than fabricating one.
+    Do NOT use to check refund status or cancellation status — the status field already
+    reflects those outcomes.
+
+  cancel_order:
+    Only "placed" and "processing" orders can be cancelled. Shipped, delivered, cancelled,
+    and refunded orders cannot be cancelled — the tool will return an error for these.
+    Always confirm cancellation intent with the customer before calling this tool.
+    If the order is already cancelled, inform the customer — do not call the tool.
+    If the order has shipped, explain it cannot be cancelled but can be returned once it arrives.
+    If the order has been delivered, explain cancellation is not possible and offer the refund
+    path (process_refund) instead.
+    Do NOT use for refund requests (use process_refund). Do NOT use if the customer wants to
+    modify rather than cancel — explain modifications are not supported.
+
+  process_refund:
+    Eligible only for orders with status "delivered" or "cancelled". Blocked for final sale
+    items and non-returnable categories (gift cards, digital, personalized, perishable,
+    hazardous). Return window must not have expired — defective items bypass this entirely.
+    Partial refunds: use the "amount" parameter when the customer requests a refund on only
+    some items from the order. Clarify which items and calculate the partial amount first.
+    High-value refunds (over $50) or high-risk accounts route to pending_review — inform
+    the customer a team member will follow up.
+    Do NOT use for exchanges — exchanges are not supported; offer refund plus placing a new
+    order as the alternative.
+    Do NOT call without first confirming the customer wants a refund and obtaining a reason.
+
   Use needs_clarification when:
   - Customer says "cancel my order" or "refund my order" but has not provided an order ID and none is visible in the conversation history
   - Customer describes a vague problem like "it's broken" or "something is wrong" without specifying what
@@ -67,11 +99,23 @@ input_guard_prompt: |
 # These are shown to the LLM for intent extraction.
 # ---------------------------------------------------------------------------
 
-tool_track_order_description: "Look up order status and item details. Use when customer asks where their order is."
+tool_track_order_description: >
+  Look up order status and item details for a customer order. Returns status, items, and
+  prices. Does not return a shipping tracking number. Use when customer asks about order
+  status or contents. Do not use to check refund or cancellation status — the order status
+  field already reflects those outcomes.
 
-tool_cancel_order_description: "Cancel a placed or shipped order. Not available for delivered orders."
+tool_cancel_order_description: >
+  Cancel an order in "placed" or "processing" status. Will error on shipped, delivered,
+  already-cancelled, and refunded orders. Always confirm with the customer before calling.
+  Do not use for refund requests (use process_refund) or order modifications (not supported).
 
-tool_process_refund_description: "Initiate a refund for a delivered or cancelled order."
+tool_process_refund_description: >
+  Initiate a refund for a delivered or cancelled order. Blocked for final sale items and
+  non-returnable categories (gift cards, digital, personalized, perishable, hazardous).
+  Defective items bypass the return window. Partial refunds supported via the amount
+  parameter. High-value (>$50) or high-risk accounts route to pending_review status.
+  Do not use for exchanges — offer refund plus new order instead.
 
 # ---------------------------------------------------------------------------
 # Output guard prompt (originally: backend/guardrails/output_guard.py)

@@ -304,6 +304,8 @@ There is no separate supervisor/triage node. The conversation agent handles inte
 
 Define actions as structured config. Each tool specifies: name, description (for LLM), parameters with types, required permissions, and the function to execute.
 
+Tool descriptions live in `prompts/production.yaml` (`tool_track_order_description`, `tool_cancel_order_description`, `tool_process_refund_description`) and are loaded into the registry at startup. The `intent_prompt` (also in `production.yaml`) includes a **Tool guidance** section with per-tool preconditions, edge cases, and anti-patterns that guide the LLM's tool selection and parameter extraction. This is the primary mechanism for shaping tool-call behavior without code changes.
+
 ### v1 tools (agent-callable)
 | Tool | Parameters | What it does |
 |---|---|---|

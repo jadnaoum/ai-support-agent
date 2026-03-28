@@ -31,12 +31,8 @@ In Phase 5 when building the admin dashboard: show the escalation summary at the
 
 ## Tool improvements
 
-### 11. Enrich tool descriptions (prompt engineering for tools)
-Tool descriptions are injected into the LLM's context — they're effectively part of the prompt. The current descriptions for `track_order`, `cancel_order`, and `process_refund` are minimal. Enrich each with: preconditions (what must be true before calling), edge cases (partial refunds, already-cancelled orders), and when NOT to use the tool (e.g., don't use `process_refund` for exchanges). This changes LLM behavior without touching any code. High leverage now that an eval suite is in place to measure the impact.
-
-File: `prompts/production.yaml` (tool description keys)
-
-**Eval action:** Add eval cases for tool edge cases: partial refund request, cancel an already-cancelled order, refund request that's actually an exchange. Rubric: FAIL if agent calls wrong tool or calls tool without checking preconditions. Before/after comparison — run these cases before and after enriching descriptions to measure impact.
+### 11. Enrich tool descriptions (prompt engineering for tools) — DONE (2026-03-28)
+Added a **Tool guidance** section to `intent_prompt` in `prompts/production.yaml` with per-tool preconditions, edge cases, and anti-patterns for `track_order`, `cancel_order`, and `process_refund`. Also updated the `tool_*_description` keys to be accurate and complete. 5 new eval cases added to the Action Execution sheet (AE-026 through AE-030): partial refund, cancel already-cancelled, exchange request, cancel delivered order, track order with no tracking yet.
 
 ### 12. Use cheap model for intent classification
 `_classify_intent` currently uses the main `litellm_model` (Sonnet), but it's a JSON classification task — same category as the guards. Either reuse `LITELLM_GUARD_MODEL` from item 1 or add a separate `LITELLM_CLASSIFIER_MODEL` setting. Same cost savings logic as the guards: Sonnet is overkill for returning `{"intent": "knowledge_query", "confidence": 0.9}`.
@@ -51,7 +47,6 @@ File: `backend/agents/conversation.py` (switch model in `_classify_intent`), `ba
 
 - Item 7 is a manual testing task, not a code change
 - Item 8 is a Phase 5 frontend task
-- Item 11 is high leverage and unblocked now that the eval suite is built
 - Item 12 switches `_classify_intent` to a cheaper model; `LITELLM_GUARD_MODEL` already exists in config
 
 ---
