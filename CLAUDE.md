@@ -4,6 +4,20 @@ Read BUILD_SPEC.md for the full build specification.
 Follow the build sequence in BUILD_SPEC.md phase by phase.
 
 After completing a task, update this file with what was implemented and note any deviations from BUILD_SPEC.md.
+
+---
+
+## Prompt engineering guidelines
+
+When modifying or adding to any LLM prompt (`prompts/production.yaml` or `prompts/eval_rubrics.yaml`):
+
+- **Persona over prohibitions.** Consolidate rules into persona descriptions — describe who the agent IS, not an ever-growing list of don'ts.
+- **Examples over rules.** Use 2–3 good/bad example exchanges rather than listing individual rules. The LLM pattern-matches off examples better than it follows prohibitions.
+- **Separate concerns.** Keep tone, tool guidance, and business rules in distinct prompt sections — don't interleave them.
+- **Check before adding.** Before adding a new rule, check if an existing persona statement or example already covers it. If so, strengthen that instead of adding a new line.
+- **Collapse related rules.** When multiple related rules exist (e.g. "no parroting", "no dramatic empathy", "be direct"), collapse them into one cohesive paragraph.
+- **Stay short.** Keep total prompt length as short as possible. Every line competes for the LLM's attention.
+
 ---
 
 ## Build progress
