@@ -34,12 +34,27 @@ In Phase 5 when building the admin dashboard: show the escalation summary at the
 ### 11. Enrich tool descriptions (prompt engineering for tools) — DONE (2026-03-28)
 Added a **Tool guidance** section to `intent_prompt` in `prompts/production.yaml` with per-tool preconditions, edge cases, and anti-patterns for `track_order`, `cancel_order`, and `process_refund`. Also updated the `tool_*_description` keys to be accurate and complete. 5 new eval cases added to the Action Execution sheet (AE-026 through AE-030): partial refund, cancel already-cancelled, exchange request, cancel delivered order, track order with no tracking yet.
 
-### 12. Use cheap model for intent classification
-`_classify_intent` currently uses the main `litellm_model` (Sonnet), but it's a JSON classification task — same category as the guards. Either reuse `LITELLM_GUARD_MODEL` from item 1 or add a separate `LITELLM_CLASSIFIER_MODEL` setting. Same cost savings logic as the guards: Sonnet is overkill for returning `{"intent": "knowledge_query", "confidence": 0.9}`.
+### 15. Migrate from manual JSON classification to native tool calling API
+The agent currently uses a manual approach: one LLM call with a system prompt (`intent_prompt`) returns a JSON blob with intent, action, and params, then code parses the JSON and calls the right tool function. The tool descriptions in `TOOL_REGISTRY` are unused — the LLM never sees them.
 
-File: `backend/agents/conversation.py` (switch model in `_classify_intent`), `backend/config.py` (new setting if separate from guard model)
+Replace with Anthropic's native tool calling via the `tools` API parameter:
+- Define tools with JSON Schema (name, description, input_schema) and pass via the `tools` parameter
+- Claude returns structured `tool_use` blocks — no manual JSON parsing
+- Schema validation is built in (can add `strict: true` for exact matching)
+- Tool descriptions live in one place (the tool definitions) instead of being written out in the system prompt
+- LiteLLM supports the `tools` parameter across providers, so portability is preserved
 
-**Eval action:** Re-run classification eval sheet with new model. Compare intent accuracy to Sonnet baseline — regression threshold: no more than 3% drop on any intent category. Pay special attention to `needs_clarification` vs `escalation_request` distinction.
+This changes the intent classification + tool selection architecture significantly:
+- `_classify_intent` may be simplified or eliminated — Claude's native tool calling handles "should I use a tool and which one?" as part of the response
+- The `intent_prompt` tool guidance section moves into the tool definitions
+- Tool execution loop changes to handle `tool_use`/`tool_result` blocks instead of parsed JSON
+- Eval cases for intent classification need to be reviewed — some may become tool selection cases instead
+
+Benefits: better tool selection accuracy (Claude is trained for this), no malformed JSON risk, access to parallel tool calls and strict mode, simpler code. Tradeoff: larger architectural change, needs careful eval comparison before and after.
+
+Priority: after baseline eval run. Measure current performance first, then compare.
+
+**Eval action:** Full regression run across all eval sheets before and after migration. Pay special attention to: tool selection accuracy (right tool called), parameter extraction accuracy, and edge cases from #11 (partial refunds, already-cancelled orders, exchanges). Add eval cases testing parallel tool scenarios if applicable.
 
 ---
 
@@ -47,7 +62,7 @@ File: `backend/agents/conversation.py` (switch model in `_classify_intent`), `ba
 
 - Item 7 is a manual testing task, not a code change
 - Item 8 is a Phase 5 frontend task
-- Item 12 switches `_classify_intent` to a cheaper model; `LITELLM_GUARD_MODEL` already exists in config
+- Item 15 is a significant architectural change — run a full baseline eval first before starting
 
 ---
 
@@ -55,6 +70,8 @@ File: `backend/agents/conversation.py` (switch model in `_classify_intent`), `ba
 
 - **Redirect message templates:** the redirect message for blocked inputs is currently LLM-generated for natural variation. Could be replaced with a random template pool (2-3 pre-written templates per category × block count combination) to eliminate the LLM call's latency and cost. Defer to cost optimization pass.
 
-- **Cheap model for guards and classifiers:** the input guard classifier (Stage 2) and `_classify_intent` both use the main Sonnet model, but they're simple JSON classification tasks. Switch both to Haiku or GPT-4o Mini via `LITELLM_GUARD_MODEL` (already in config). Eval action: re-run input guard and intent classifier eval sheets after the switch — regression thresholds are 2% on prompt injection detection and 3% on any intent category. If either regresses, revert that call only.
+- **Cheap model for guards and classifiers:** the input guard classifier (Stage 2) and `_classify_intent` both use the main Sonnet model, but they're simple JSON classification tasks. Switch both to Haiku or GPT-4o Mini via `LITELLM_GUARD_MODEL` (already in config). Eval action: re-run input guard and intent classifier eval sheets after the switch — regression thresholds are 2% on prompt injection detection and 3% on any intent category. If either regresses, revert that call only. Note: if item #15 (native tool calling) ships first, `_classify_intent` will likely change significantly — assess whether this optimization still applies at that point.
 
 - **Chat history context engineering:** the full conversation history is currently passed to every LLM call. For long conversations this inflates context unnecessarily. Options to explore: sliding window (last N turns only), summarisation (compress older turns into a running summary), or role-filtered history (strip agent reasoning turns, keep only customer messages + final responses). Should be measured against the Context Retention eval sheet — any approach that drops score there is a regression.
+
+- **Parallel guardrail execution:** The input guard and intent classification currently run in series — the customer waits for both LLM calls sequentially. Since they're independent (the guard checks the raw message, the classifier reads the same message), they can run concurrently with asyncio.gather() and the guard result checked first. If the guard blocks, discard the classification result. This cuts ~200-500ms off every message. Evaluate when latency becomes noticeable during demos or when the cheaper guard model (LITELLM_GUARD_MODEL) is in place, since the savings are most impactful when both calls hit an external API.
