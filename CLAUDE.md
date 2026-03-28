@@ -322,6 +322,14 @@ python evals/run_evals.py --tag "v1.1" --desc "intent fix" --sheets "Input Guard
 
 `escalation_handler_node` removed from the LangGraph graph. Replaced by `handle_escalation(reason, context) → str` in `backend/agents/escalation.py` — a pluggable async callable with the interface `(reason: str, context: dict) → str`. `_build_context_summary` made public as `build_context_summary`. `_do_escalate(reason, state, config)` helper added to `conversation.py` — calls `handle_escalation` inline and returns the full state update dict. All 8 escalation paths in `conversation_agent_node` now call `_do_escalate` directly and return `pending_service=""` with the handoff `response` already set. Graph has 3 nodes (conversation_agent, knowledge_service, action_service); routing has 2 branches (knowledge, action); all other paths go to END. Tests updated accordingly.
 
+### Pending change #11: enrich tool descriptions (2026-03-28) — 214 tests passing
+
+Added a **Tool guidance** section to `intent_prompt` in `prompts/production.yaml` covering preconditions, edge cases, and anti-patterns for all three tools. Key corrections: `cancel_order` previously described as usable on shipped orders (wrong — only `placed`/`processing` are cancellable); `process_refund` now documents partial refund via `amount`, pending_review threshold (>$50 or risk_score>0.7), and exchange anti-pattern. Updated `tool_*_description` keys to match actual behaviour. Note: `TOOL_REGISTRY.description` fields are not currently injected into any LLM call — all tool guidance reaches the LLM via `intent_prompt`. 5 new Action Execution eval cases added (AE-026–030): partial refund, cancel already-cancelled, exchange request, cancel delivered order, track order with no tracking yet.
+
+### Pending change #15 added to PENDING_CHANGES.md (2026-03-28)
+
+Migrate from manual JSON intent classification to native tool calling API (`tools` parameter, `tool_use`/`tool_result` blocks). Deferred until after a fresh baseline eval run. Item #12 (cheap model for `_classify_intent`) moved to Future ideas — may be moot if #15 ships first.
+
 **Next: Phase 4 — Frontend**
 - Typing indicator while agent streams
 - CSAT widget shown when conversation resolves
