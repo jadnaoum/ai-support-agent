@@ -1,9 +1,9 @@
 # AI Customer Support Agent
 
 Read BUILD_SPEC.md for the full build specification.
-
 Follow the build sequence in BUILD_SPEC.md phase by phase.
 
+After completing a task, update this file with what was implemented and note any deviations from BUILD_SPEC.md.
 ---
 
 ## Build progress
@@ -239,11 +239,66 @@ python evals/run_evals.py --tag "v1.1" --desc "intent fix" --sheets "Input Guard
 1. **Eval data filename**: spec says `eval_data.xlsx`; implemented as `eval_test_cases.xlsx`.
 2. **No separate results file**: spec says write a detailed `evals/results/{tag}.xlsx` with full judge reasoning and a Regressions sheet. Not implemented — all results are written back into the main `eval_test_cases.xlsx` as added columns. The Regressions sheet is also not implemented.
 3. **Run History format**: spec defines a wide format (one column per eval type per row). Changed to long format at user request — one row per eval type per run, plus an OVERALL row. Columns: `run_id | date | version_tag | change_description | eval_type | pass% | total_tokens | total_cost_usd | judge_model | notes`.
-4. **Per-sheet run columns**: spec says one column per run (verdict only, color-coded PASS/PARTIAL/FAIL). Implemented as three columns per run: `{tag} ($X.XX)` verdict, `{tag} response`, `{tag} reasoning` — more detail than spec.
+4. **Per-sheet run columns**: spec says one column per run (verdict only, color-coded PASS/PARTIAL/FAIL). Implemented as four columns per run: `{tag} ($X.XX)` verdict, `{tag} response`, `{tag} reasoning`, `{tag} failure_reason`.
 5. **Cost tracking**: not in spec — added at user request. Pre-run estimate (with y/N confirmation before any spend) + actual per-call cost tracking using LiteLLM response metadata. Cost shown per sheet in Run History.
 6. **`judge_model` field**: spec says store the model string or "tiered". Changed at user request to a descriptive string: `"classification: claude-haiku-4-5-20251001 | behavioral+safety: claude-sonnet-4-6"`.
-7. **`needs_clarification` intent**: eval test cases include this intent label but the agent doesn't implement it — it classifies into `knowledge_query`, `action_request`, `escalation_request`, or `general` only. This is a mismatch between the test dataset and the agent, not a runner bug. Accounts for most Intent Classifier failures (44%).
+7. **`needs_clarification` intent**: now implemented in the agent (see post-Phase 5 changes below).
 8. **Agent URL config**: runner reads `EVAL_AGENT_URL` env var (default `http://localhost:8000`). Must be exported before piping input — e.g. `export EVAL_AGENT_URL=http://localhost:8001 && python evals/run_evals.py ...`. Do not use `VAR=val printf 'y' | python ...` pattern — the env var only applies to `printf`, not to `python`.
+9. **Binary Pass/Fail scoring**: spec originally included `partial` as a third verdict. All judges now use binary Pass/Fail only — `partial` is normalised to `fail` in the runner. Spreadsheet rubrics and color coding updated accordingly.
+
+### Post-Phase 5 changes (2026-03-28) — 216 tests still passing
+
+**Eval runner and spreadsheet cleanup:**
+- `evals/run_evals.py`: fixed role normalisation bug (`user`/`human` → `customer`, `assistant`/`bot` → `agent`); added `test_id` + `version_tag` params passed to agent on every call for LangSmith traceability; fixed classification sheet response columns (Input Guard shows `"blocked: <reason>"` or `"passed: safe"`, Intent Classifier shows `inferred_intent`, Output Guard shows `"<verdict>: <failure_type>"`); updated sheet layout to row 1 = merged group label, row 2 = headers, row 3+ = data; extended run groups from 3 to 4 columns (added `failure_reason` column)
+- `eval_test_cases.xlsx`: Run History cleaned to v1.0_baseline only (removed broken runs); all 11 test sheets trimmed to latest run group; row 1 merged group labels added; judge rubrics rewritten to binary Pass/Fail with per-sheet `failure_reason` enums
+- `backend/routers/chat.py`: added `test_id` and `version_tag` to `TestChatRequest`; LangGraph `ainvoke` config now passes them as `tags` and `metadata` so every eval trace is linked to its test case and run in LangSmith
+
+**`needs_clarification` intent (items #5 and #6 from pending changes):**
+- `backend/agents/state.py`: added `last_turn_was_clarification: bool` — True when the previous agent turn was a clarifying question; reset to False on all other turns
+- `backend/agents/conversation.py`: `INTENT_PROMPT` updated with 5th intent and usage guidance (when to use / when not to); `_classify_intent` extracts `clarification_prompt` from LLM response; `conversation_agent_node` Pass 1 handler:
+  - `needs_clarification` + `last_turn_was_clarification=False` → return clarifying question directly, set flag True
+  - `needs_clarification` + `last_turn_was_clarification=True` → escalate with `"unable_to_clarify"` (never ask twice in a row)
+  - Output guard blocks the clarifying question → escalate with `"unable_to_clarify"`
+- `backend/agents/escalation.py`: added `"unable_to_clarify"` to `_HANDOFF_MESSAGES` with a specific customer-facing message
+- `backend/routers/chat.py`: both initial state dicts (SSE handler + test endpoint) initialise `last_turn_was_clarification: False`
+- `BUILD_SPEC.md` updated: `last_turn_was_clarification` added to AgentState schema; `conversation_agent` node description updated; `unable_to_clarify` added to escalations reason enum; eval framework updated with binary Pass/Fail scoring, `failure_reason` enums per sheet, updated judge JSON example, and updated per-sheet run column description
+
+### Post-Phase 5 changes continued (2026-03-28) — 216 tests still passing
+
+**`needs_clarification` fallback — escalate instead of general:**
+- `backend/agents/conversation.py`: when intent is `needs_clarification` and `last_turn_was_clarification` is already True, route to escalation with reason `"unable_to_clarify"` instead of falling through to general. Output guard blocking the clarifying question also routes to `"unable_to_clarify"`.
+- `backend/agents/escalation.py`: added `"unable_to_clarify"` entry to `_HANDOFF_MESSAGES`
+
+**KB Retrieval judge — use actual KB content as reference:**
+- `evals/judges/behavioral.py`: replaced `available_kb_articles` + `expected_article` fields in `_KB_PROMPT` with `reference_content` (actual fetched chunk text). Judge now compares agent response against real KB text instead of inferring from its own knowledge. When `reference_content` is null, judge verifies the agent didn't fabricate.
+- `evals/run_evals.py`: added `_fetch_kb_reference_content(titles)` async function — deterministic title lookup against `kb_chunks JOIN kb_documents` via `AsyncSessionLocal`; injected as `reference_content` into test case before judge call
+- `eval_test_cases.xlsx` KB Retrieval sheet: renamed `expected_article` → `reference_articles`; values converted to JSON arrays mapped to actual DB titles (e.g. `["Returns and Refunds Policy"]`); KB-008, KB-011, KB-014, KB-015, KB-018, KB-019 set to `[]` (no real article exists)
+
+**New Policy Compliance test case PC-016:**
+- `eval_test_cases.xlsx` Policy Compliance sheet: customer states delivery date and asks for specific return deadline. Agent must retrieve 30-day standard window from KB, compute March 10 + 30 days = April 9 2026, and state that specific date. Vague answer without the computed date = Fail with `incomplete_answer`.
+- `incomplete_answer` added to the `failure_reason` enum in all 15 existing Policy Compliance rubrics
+
+**Conversation Quality rubrics — both tone and substance required:**
+- `eval_test_cases.xlsx` Conversation Quality sheet: all 15 rubrics rewritten. Pass now explicitly requires correct tone AND correct behavioral substance — both required. Fail path A: substance right, tone wrong (maps to `robotic`, `dismissive`, `over_enthusiastic`, `tone_mismatch`). Fail path B: tone right, substance wrong (maps to `ignored_context`). All `Partial` language removed.
+
+**Output Guard scoring fix:**
+- `evals/judges/classification.py`: removed `partial` verdict entirely (was 0.5 credit). Judge now binary pass/fail. Wrong verdict direction → `fail` with `failure_reason: "wrong_verdict"`. Correct verdict but wrong `failure_type` → `fail` with `failure_reason: "wrong_failure_type"` (previously triggered an LLM call to decide between partial/fail — now deterministic). Input Guard wrong block reason also changed from `partial` to `fail` with `failure_reason: "wrong_block_reason"`. Removed now-unused `litellm`, `json`, and `JUDGE_MODEL_CLASSIFICATION` imports. `_verdict` now returns `failure_reason` field.
+
+**GF-005 rubric update:**
+- `eval_test_cases.xlsx` Graceful Failure sheet: GF-005 Fail criteria expanded — previously only "declares the order doesn't exist definitively"; now also covers "fabricates a reason for the lookup failure (e.g., claims invalid order ID format)" and "doesn't acknowledge the possibility of a typo"
+
+**`context_summary` surfaced for escalation evals:**
+- `backend/agents/state.py`: added `context_summary: str` field
+- `backend/agents/escalation.py`: `escalation_handler_node` now returns `context_summary` in its state update (was previously only written to DB and discarded)
+- `backend/routers/chat.py`: `TestChatResponse` now includes `context_summary: str = ""`; populated from `final_state.get("context_summary", "")`; initialized to `""` in both initial state dicts
+- `evals/judges/behavioral.py`: escalation judge prompt now receives `context_summary` and evaluates it: did the agent capture what the customer needed and why escalation was triggered in a way that's useful for the human agent?
+- `evals/run_evals.py`: added `_SHEET_EXTRA_COLS = {"Escalation": [("escalation_summary", "context_summary")]}` and generalised `_append_run_column` with `extra_cols` parameter — Escalation sheet now gets a 5th column per run (`{tag} escalation_summary`)
+
+**BUILD_SPEC.md updates:**
+- `unable_to_clarify` added to escalations reason enum
+- `last_turn_was_clarification` and `context_summary` added to AgentState schema
+- `conversation_agent` node description updated with clarification capping logic
+- Eval framework section updated: binary Pass/Fail scoring, `failure_reason` enums per sheet, updated judge JSON example, updated per-sheet run column description, KB Retrieval reference content approach documented
 
 **Next: Phase 4 — Frontend**
 - Typing indicator while agent streams

@@ -35,6 +35,11 @@ _HANDOFF_MESSAGES = {
         "This request needs a review by our support team. "
         "I'm connecting you with a specialist who can help."
     ),
+    "unable_to_clarify": (
+        "I wasn't able to get enough detail to handle this for you, "
+        "so I'm connecting you with a human agent who can ask the right questions and help you directly. "
+        "Please hold on."
+    ),
 }
 _HANDOFF_DEFAULT = (
     "I'm transferring you to a human agent who can better assist you. "
@@ -84,6 +89,7 @@ async def escalation_handler_node(state: AgentState, config: dict) -> dict:
         "response": handoff_message,
         "requires_escalation": True,
         "pending_service": "",
+        "context_summary": context_summary,
         "actions_taken": (state.get("actions_taken") or []) + [
             {
                 "service": "escalation_handler",

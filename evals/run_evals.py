@@ -154,6 +154,38 @@ def _row_to_dict(ws, row_idx: int) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# KB reference content lookup
+# ---------------------------------------------------------------------------
+
+async def _fetch_kb_reference_content(titles: list) -> str | None:
+    """
+    Fetch and concatenate KB chunk texts for the given article titles.
+    Uses a deterministic title lookup (not similarity search).
+    Returns None when titles is empty or no chunks are found.
+    """
+    if not titles:
+        return None
+    from backend.db.session import AsyncSessionLocal
+    from backend.db.models import KbDocument, KbChunk
+    from sqlalchemy import select
+
+    parts = []
+    async with AsyncSessionLocal() as session:
+        for title in titles:
+            result = await session.execute(
+                select(KbChunk.chunk_text)
+                .join(KbDocument, KbChunk.document_id == KbDocument.id)
+                .where(KbDocument.title == title)
+                .order_by(KbChunk.chunk_index)
+            )
+            rows = result.scalars().all()
+            if rows:
+                parts.append(f"=== {title} ===\n" + "\n\n".join(rows))
+
+    return "\n\n".join(parts) if parts else None
+
+
+# ---------------------------------------------------------------------------
 # Agent call helpers
 # ---------------------------------------------------------------------------
 
@@ -250,7 +282,12 @@ async def run_kb_retrieval(test_case: dict, calibrate: bool, test_id: str = "", 
     agent_resp = _call_agent_full(messages, {}, test_id=test_id, version_tag=version_tag)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
-    judgment = await judge_kb_retrieval(test_case, agent_resp, calibrate)
+    # Fetch actual KB article content by title and inject it for the judge.
+    # reference_articles is a JSON array of article titles; [] means no relevant article exists.
+    reference_titles = _parse_json_field(test_case.get("reference_articles"), default=[])
+    reference_content = await _fetch_kb_reference_content(reference_titles)
+    test_case_with_ref = {**test_case, "reference_content": reference_content}
+    judgment = await judge_kb_retrieval(test_case_with_ref, agent_resp, calibrate)
     return agent_resp, judgment
 
 
@@ -344,6 +381,12 @@ async def run_context_retention(test_case: dict, calibrate: bool, test_id: str =
     return agent_resp, judgment
 
 
+# Extra columns appended after the standard 4 for specific sheets.
+# Each entry is a list of (header_suffix, agent_resp_key) tuples.
+_SHEET_EXTRA_COLS = {
+    "Escalation": [("escalation_summary", "context_summary")],
+}
+
 # Map sheet name → runner function
 _SHEET_RUNNERS = {
     "Input Guard":          run_input_guard,
@@ -364,33 +407,47 @@ _SHEET_RUNNERS = {
 # Results writing
 # ---------------------------------------------------------------------------
 
-def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float):
+def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float,
+                       extra_cols: list = None):
     """
-    Append 4 columns to a test sheet for this run:
-      Row 1: merged group label spanning all 4 columns (version tag)
+    Append columns to a test sheet for this run.
+
+    Standard 4 columns:
+      Row 1: merged group label (version tag)
       Row 2: "{tag} ($X.XXX)", "{tag} response", "{tag} reasoning", "{tag} failure_reason"
-      Row 3+: PASS/FAIL (color-coded), response text, judge reasoning, failure_reason enum (or empty)
+      Row 3+: PASS/FAIL (color-coded), response text, judge reasoning, failure_reason
+
+    extra_cols: optional list of (header_suffix, agent_resp_key) tuples appended after
+      the standard 4. E.g. [("escalation_summary", "context_summary")] adds a 5th column
+      whose values come from agent_response["context_summary"].
 
     Sheet layout: row 1 = group labels, row 2 = headers, row 3+ = data.
     """
     from openpyxl.styles import Alignment
     from openpyxl.utils import get_column_letter
 
+    extra_cols = extra_cols or []
+    n_cols = 4 + len(extra_cols)
+
     col = ws.max_column + 1
     fill_map  = {"pass": FILL_PASS, "fail": FILL_FAIL}
     label_map = {"pass": "PASS", "fail": "FAIL"}
 
-    # Row 1: merged group label across all 4 columns
-    ws.merge_cells(f"{get_column_letter(col)}1:{get_column_letter(col + 3)}1")
+    # Row 1: merged group label across all columns
+    ws.merge_cells(f"{get_column_letter(col)}1:{get_column_letter(col + n_cols - 1)}1")
     label_cell = ws.cell(1, col, tag)
     label_cell.fill = FILL_HEADER
     label_cell.font = FONT_BOLD
     label_cell.alignment = Alignment(horizontal="center", vertical="center")
 
     # Row 2: column headers
-    verdict_header = f"{tag} (${sheet_cost:.3f})"
-    for offset, title in enumerate([verdict_header, f"{tag} response",
-                                     f"{tag} reasoning", f"{tag} failure_reason"]):
+    headers = [
+        f"{tag} (${sheet_cost:.3f})",
+        f"{tag} response",
+        f"{tag} reasoning",
+        f"{tag} failure_reason",
+    ] + [f"{tag} {suffix}" for suffix, _ in extra_cols]
+    for offset, title in enumerate(headers):
         cell = ws.cell(2, col + offset, title)
         cell.fill = FILL_HEADER
         cell.font = FONT_BOLD
@@ -411,6 +468,9 @@ def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float):
 
         failure_reason = result.get("failure_reason") if verdict == "fail" else None
         ws.cell(row, col + 3, failure_reason or "")
+
+        for j, (_, key) in enumerate(extra_cols):
+            ws.cell(row, col + 4 + j, str(agent_resp.get(key) or ""))
 
 
 def _ensure_run_history_sheet(wb) -> openpyxl.worksheet.worksheet.Worksheet:
@@ -640,7 +700,8 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool):
         all_results[sheet_name]      = case_results
         print(f"  → Pass rate: {pass_rate * 100:.1f}%  |  agent: ${sheet_agent_cost:.4f}  judge: ${sheet_judge_cost:.4f}  total: ${sheet_total_cost:.4f}\n")
 
-        _append_run_column(ws, tag, case_results, sheet_total_cost)
+        _append_run_column(ws, tag, case_results, sheet_total_cost,
+                           extra_cols=_SHEET_EXTRA_COLS.get(sheet_name))
 
     # 5. Append to Run History sheet
     rh_ws  = _ensure_run_history_sheet(wb)

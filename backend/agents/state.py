@@ -14,3 +14,5 @@ class AgentState(TypedDict):
     response: str               # final customer-facing response text
     pending_service: str        # internal routing: "knowledge"|"action"|"escalation"|"" (empty = none pending)
     pending_action: dict        # {"tool": "cancel_order", "params": {...}} set by conversation agent
+    last_turn_was_clarification: bool  # True if the previous agent turn was a clarifying question
+    context_summary: str               # Plain-text summary of customer messages at time of escalation

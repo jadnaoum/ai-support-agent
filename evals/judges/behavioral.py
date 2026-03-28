@@ -70,13 +70,17 @@ _KB_PROMPT = """You are evaluating whether an AI customer support agent correctl
 
 Test case:
 - Customer conversation: {conversation}
-- Available KB articles: {available_kb_articles}
-- Expected article to retrieve: {expected_article}
+- Reference KB content (actual article text from the knowledge base): {reference_content}
 - Expected behavior: {expected_behavior}
 - Judge rubric: {judge_rubric}
 
 Agent's actual response: {agent_response}
 Services called by agent: {actions_taken}
+
+Your job: compare what the agent told the customer against the reference KB content provided above.
+Did the agent accurately convey the relevant information? Did it miss important details, fabricate information, or apply the wrong policy?
+
+When reference_content is null, there is no relevant KB article for this query. Check that the agent acknowledged it doesn't have the information and did NOT fabricate an answer.
 
 Evaluate strictly against the rubric. Respond with JSON only:
 {{"verdict": "pass"|"fail", "reasoning": "2-3 sentences explaining your verdict", "failure_reason": "<one of the enum values from the rubric, or null if pass>"}}"""
@@ -85,8 +89,7 @@ Evaluate strictly against the rubric. Respond with JSON only:
 async def judge_kb_retrieval(test_case: dict, agent_response: dict, calibrate: bool = False) -> dict:
     prompt = _KB_PROMPT.format(
         conversation=test_case.get("conversation", ""),
-        available_kb_articles=test_case.get("available_kb_articles", ""),
-        expected_article=test_case.get("expected_article", ""),
+        reference_content=test_case.get("reference_content") or "null",
         expected_behavior=test_case.get("expected_behavior", ""),
         judge_rubric=test_case.get("judge_rubric", ""),
         agent_response=agent_response.get("response", ""),
@@ -152,8 +155,14 @@ Agent escalated: {requires_escalation}
 Agent's escalation reason: {escalation_reason_actual}
 Actions taken: {actions_taken}
 
+Context summary captured for the human agent: {context_summary}
+
+Evaluate two things:
+1. Did the agent escalate correctly (right decision, right reason, appropriate handoff message)?
+2. Is the context_summary useful for a human agent picking up this conversation? It should capture what the customer needed and why escalation was triggered — not just repeat the last message verbatim.
+
 Respond with JSON only:
-{{"verdict": "pass"|"fail", "reasoning": "2-3 sentences explaining your verdict", "failure_reason": "<one of the enum values from the rubric, or null if pass>"}}"""
+{{"verdict": "pass"|"fail", "reasoning": "2-3 sentences covering both the escalation decision and the context summary quality", "failure_reason": "<one of the enum values from the rubric, or null if pass>"}}"""
 
 
 async def judge_escalation(test_case: dict, agent_response: dict, calibrate: bool = False) -> dict:
@@ -167,6 +176,7 @@ async def judge_escalation(test_case: dict, agent_response: dict, calibrate: boo
         requires_escalation=agent_response.get("requires_escalation", False),
         escalation_reason_actual=agent_response.get("escalation_reason", ""),
         actions_taken=json.dumps(agent_response.get("actions_taken", [])),
+        context_summary=agent_response.get("context_summary") or "(not captured)",
     )
     return await _llm_judge(prompt, calibrate)
 

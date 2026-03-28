@@ -148,6 +148,8 @@ async def stream_response(
         "response": "",
         "pending_service": "",
         "pending_action": {},
+        "last_turn_was_clarification": False,
+        "context_summary": "",
     }
 
     # Lazy import — avoids LangGraph compile() running at module load time,
@@ -253,6 +255,7 @@ class TestChatResponse(BaseModel):
     inferred_intent: str = ""
     requires_escalation: bool = False
     escalation_reason: str = ""
+    context_summary: str = ""
     input_guard_blocked: bool = False
     input_guard_reason: str = ""
     # Output guard test mode fields
@@ -352,6 +355,8 @@ async def test_chat(
         "response": "",
         "pending_service": "",
         "pending_action": {},
+        "last_turn_was_clarification": False,
+        "context_summary": "",
     }
 
     from backend.agents.graph import graph  # noqa: PLC0415
@@ -401,6 +406,7 @@ async def test_chat(
         inferred_intent=inferred_intent,
         requires_escalation=final_state.get("requires_escalation", False),
         escalation_reason=final_state.get("escalation_reason", ""),
+        context_summary=final_state.get("context_summary", ""),
         input_guard_blocked=False,
         input_guard_reason="",
         prompt_tokens=prompt_tokens,

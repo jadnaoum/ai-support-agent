@@ -199,7 +199,7 @@ Note: categories `gift_cards`, `digital`, `personalized`, `perishable`, and `haz
 |---|---|---|
 | id | UUID | PK |
 | conversation_id | UUID | FK → conversations |
-| reason | VARCHAR | customer_requested, low_confidence, unknown_intent, policy_exception, repeated_failure |
+| reason | VARCHAR | customer_requested, low_confidence, unknown_intent, policy_exception, repeated_failure, unable_to_clarify |
 | agent_confidence | FLOAT | Confidence score at time of escalation |
 | context_summary | TEXT | Brief summary of what happened before escalation |
 | created_at | TIMESTAMP | |
@@ -271,10 +271,11 @@ class AgentState(TypedDict):
     requires_escalation: bool
     escalation_reason: str   # Why escalation was triggered
     actions_taken: list      # Audit trail of all service calls this turn
+    last_turn_was_clarification: bool  # True if agent asked a clarifying question on the previous turn. Reset to False on all non-clarification turns. If still True when intent is needs_clarification, escalate instead of asking again.
 ```
 
 ### Graph nodes
-1. **conversation_agent** — The only customer-facing agent. Reads the latest customer message, decides what it needs (KB lookup, action execution, or escalation), calls the appropriate service(s), and generates the final customer-facing response. Owns tone, empathy, de-escalation. All intent classification happens here — no separate supervisor.
+1. **conversation_agent** — The only customer-facing agent. Reads the latest customer message, decides what it needs (KB lookup, action execution, escalation, or clarification), calls the appropriate service(s), and generates the final customer-facing response. Owns tone, empathy, de-escalation. All intent classification happens here — no separate supervisor. When intent is `needs_clarification`, generates a targeted clarifying question (max 1 per turn, never two in a row). If the previous turn was already a clarification and intent is still `needs_clarification`, escalates with reason `unable_to_clarify` instead of asking again.
 2. **knowledge_service** — Not customer-facing. Embeds the query, searches pgvector for relevant KB chunks, returns raw chunks and metadata to the conversation agent. Does NOT generate a customer response.
 3. **action_service** — Not customer-facing. Receives a structured action request (e.g. cancel_order with order_id), validates parameters, executes via tool registry, returns the result to the conversation agent. Does NOT generate a customer response.
 4. **escalation_handler** — Triggered by the conversation agent when it decides to escalate (customer request, low confidence, policy exception). Logs escalation reason, preserves conversation context, returns handoff message. The conversation agent delivers the handoff message to the customer.
@@ -457,7 +458,19 @@ Standalone evaluation suite that tests the agent end-to-end via its API. Lives a
 
 ### Test case structure
 
-Every test case includes a `judge_rubric` field (behavioral/safety evals) or an `expected_label` field (classification evals) that defines pass/partial/fail criteria. The rubric is injected into the judge prompt along with the agent's actual response. The judge returns a structured verdict.
+Every test case includes a `judge_rubric` field (behavioral/safety evals) or an `expected_label` field (classification evals) that defines pass/fail criteria. All behavioral and safety sheets use binary Pass/Fail scoring. The rubric is injected into the judge prompt along with the agent's actual response.
+
+Each `judge_rubric` includes a set of `failure_reason` enum values specific to the sheet. When the judge scores Fail, it must also return a `failure_reason` from this enum. This enables grouping and filtering failures by category without complicating the Pass/Fail decision.
+
+Failure reason enums by sheet:
+- KB Retrieval: `escalated_without_attempt | wrong_article | incomplete_answer | fabricated | off_topic_response`
+- Action Execution: `wrong_tool | wrong_args | fabricated_result | no_confirmation | missed_constraint`
+- Escalation: `failed_to_escalate | escalated_without_context | wrong_escalation_reason | tried_to_resolve`
+- Conversation Quality: `dismissive | robotic | over_enthusiastic | ignored_context | tone_mismatch`
+- PII & Data Leakage: `leaked_pii | cross_customer_access | system_disclosure | escalated_unnecessarily | refused_own_data | overshared`
+- Policy Compliance: `wrong_policy_applied | fabricated_reason | processed_outside_policy | missed_exception | no_policy_check`
+- Graceful Failure: `fabricated_status | no_transparency | no_alternatives_offered | excessive_retry`
+- Context Retention: `forgot_context | conflated_items | wrong_reference | asked_again`
 
 Multi-turn conversations are stored as JSON arrays in the `conversation` column. Mock account state, tool results, and known IDs are JSON objects in their respective columns. The runner parses these and injects them into the test harness.
 
@@ -476,17 +489,17 @@ JUDGE_MODEL_CALIBRATION = env("EVAL_JUDGE_CALIBRATION", "claude-opus-4-20250115"
 
 **Classification judge (Haiku)** — Used for sheets 1-3. Simple task: compare the agent's output label against the expected label. The judge prompt is minimal — it just needs to extract the label from the agent's response and compare. Where exact string matching is possible (input guard, intent classifier), skip the LLM call entirely and compare programmatically. Only use the LLM judge for output guard cases where the verdict requires reasoning about tools called vs. claims made.
 
-**Behavioral/safety judge (Sonnet)** — Used for sheets 4-11. The judge receives: the test case context, the agent's actual response, the expected behavior description, and the pass/partial/fail rubric. It returns a structured JSON verdict:
+**Behavioral/safety judge (Sonnet)** — Used for sheets 4-11. The judge receives: the test case context, the agent's actual response, the expected behavior description, and the pass/fail rubric. It returns a structured JSON verdict:
 
 ```json
 {
   "verdict": "pass",
-  "reasoning": "Agent correctly retrieved the returns policy, identified the order was within the 30-day window, and asked about item condition before proceeding.",
-  "score": 1.0
+  "failure_reason": null,
+  "reasoning": "Agent correctly retrieved the returns policy, identified the order was within the 30-day window, and asked about item condition before proceeding."
 }
 ```
 
-Scores: `pass` = 1.0, `partial` = 0.5, `fail` = 0.0. Aggregate pass rates per sheet are computed from these scores.
+Scores: `pass` = 1.0, `fail` = 0.0. Aggregate pass rates per sheet are computed from these scores.
 
 **Calibration judge (Opus)** — Used for one-off calibration runs to validate that Sonnet's judgments are reliable. Run once when the eval suite is first built, and again when large batches of new test cases are added. The workflow:
 
@@ -520,16 +533,19 @@ python evals/run_evals.py --tag "v1.2_intent_prompt" --desc "Items 5,6: clarifyi
 **What the runner does on each run:**
 
 1. Reads `evals/eval_data.xlsx`, loads test cases from all sheets (or `--sheets` filter)
-2. Starts the agent (or connects to a running instance via the API endpoint in `evals/config.py`)
-3. For each test case:
-   - Sends the customer message(s) to `POST /api/chat` with the mock context
+2. **Cost estimate with confirmation:** Before executing any test cases, calculates the projected cost based on case count per sheet, average tokens per call type (agent + judge), and configured model prices. Prints the estimate and asks for confirmation. If the user declines, exits without running.
+3. Starts the agent (or connects to a running instance via the API endpoint in `evals/config.py`)
+4. For each test case:
+   - Sends the customer message(s) to `POST /api/chat/test` with the mock context. Passes the `test_id` (e.g. `OG-017`) and `version_tag` as metadata so they appear as tags in LangSmith traces — this lets you search LangSmith by test_id to find the exact trace for any eval case.
    - Captures the agent's full response
    - Sends the response + rubric to the appropriate judge (Haiku for classification, Sonnet for behavioral/safety, or Opus if `--calibrate`)
    - Records: `actual_output`, `judge_verdict` (pass/partial/fail), `judge_reasoning`, `score`
-4. After all cases complete:
+   - Logs token usage (prompt + completion) and cost from LiteLLM response metadata for every call (agent + judge)
+5. After all cases complete:
    - Appends a new column to each test sheet in `eval_data.xlsx` with the version tag as header. Each cell contains `PASS`, `PARTIAL`, or `FAIL`, color-coded (green/orange/red). This gives a visual regression tracker directly in the test case spreadsheet.
-   - Appends a summary row to the **Run History** sheet with: `run_id`, `date`, `version_tag`, `change_description`, per-sheet pass rates, `overall_pass%`, and `notes`.
+   - Appends a summary row to the **Run History** sheet with: `run_id`, `date`, `version_tag`, `change_description`, per-sheet pass rates, `overall_pass%`, `total_tokens`, `total_cost_usd`, and `notes`.
    - Writes a detailed results file to `evals/results/{version_tag}.xlsx` containing: full judge reasoning for every case, the agent's raw response, latency per case, and a **Regressions** sheet listing any cases that passed in the previous run but failed in this one.
+   - Prints a full cost summary — broken down by sheet and by call type (agent vs. judge).
 
 ### Run History sheet
 
@@ -553,21 +569,39 @@ Added to `eval_data.xlsx` as the 12th sheet. Populated automatically by the runn
 | graceful_failure_pass% | FLOAT | |
 | context_retention_pass% | FLOAT | |
 | overall_pass% | FLOAT | Weighted average across all sheets |
+| total_tokens | INT | Total tokens consumed (agent + judge, prompt + completion) |
+| total_cost_usd | FLOAT | Total cost of the run in USD (from LiteLLM response metadata) |
 | judge_model | VARCHAR | Which judge model was used (or "tiered" for standard runs) |
 | notes | TEXT | Manual notes, added after the run if needed |
 
 ### Per-sheet run columns
 
-Each of the 11 test case sheets gets a new column appended per run. The column header is the version tag (e.g. `v1.1_haiku_guard`). Cells below contain `PASS`, `PARTIAL`, or `FAIL` with color coding:
+Each of the 11 test case sheets gets a new column group appended per run. Cells below contain `PASS` or `FAIL` with color coding:
 - **PASS**: green background (`#E6F4EA`)
-- **PARTIAL**: orange background (`#FFF3E0`)
 - **FAIL**: red background (`#FCE4EC`)
+
+Each run also gets a `failure_reason` column (e.g., `v1.1 failure_reason`) containing the failure category enum value for failed cases, or empty for passes. This enables filtering and grouping failures by type.
 
 This means you can open any test case sheet and see the full history of that case across all runs, reading left to right. If test IG-013 passed in v1.0, passed in v1.1, and failed in v1.2, you see green → green → red in the row. No cross-referencing needed.
 
 ### Regressions sheet (in detailed results file)
 
 Each detailed results file (`evals/results/{version_tag}.xlsx`) includes a Regressions sheet. This compares the current run against the immediately previous run and lists any test case where the verdict worsened (pass → partial, pass → fail, partial → fail). Columns: `test_id`, `sheet`, `previous_verdict`, `current_verdict`, `judge_reasoning`. This is the most actionable view after any run — you don't care about the 210 cases that still pass, you care about the 5 that broke.
+
+### Cost tracking
+
+Two features to control and monitor eval spend:
+
+**Cost estimate before running:** Before executing any test cases, the runner calculates the projected cost based on case count per sheet, average tokens per call type (agent calls vs. judge calls), and the configured model prices. Prints the estimate and asks for user confirmation before proceeding. If the user declines, exits without running. This prevents accidental expensive runs.
+
+**Actual cost tracking per run:** During execution, the runner logs token usage (prompt + completion) and cost from LiteLLM response metadata for every LLM call — both agent calls and judge calls. After the run:
+- `total_tokens` and `total_cost_usd` are written to the Run History sheet for the overall run.
+- Each of the 11 test sheets includes the per-sheet cost for that run in the column header or a summary row, so you can see which eval categories are expensive.
+- A full cost summary is printed at the end of each run, broken down by sheet and by call type (agent vs. judge).
+
+### LangSmith traceability
+
+When the runner calls the test endpoint, it passes the `test_id` (e.g. `OG-017`) and the `version_tag` (e.g. `v1.1_haiku_guard`) as metadata on the agent call. These appear as tags in LangSmith traces. This means: you see a failure in the spreadsheet, search LangSmith by the test_id, and you're looking at the exact trace — which nodes fired, what the LLM saw, what tools returned. No timestamp matching or guesswork.
 
 ### Mock context injection
 
@@ -616,7 +650,14 @@ Build in this order. Each phase should be working and testable before moving to 
 18. CSAT widget at conversation end
 19. Build and serve from FastAPI as static files
 
-### Phase 5: Eval framework
+### Phase 5: Admin + polish
+20. Admin dashboard: conversation logs with filters
+21. Basic metrics endpoint (escalation rate, CSAT avg)
+22. Audit log viewer
+23. LangSmith tracing integration
+24. Railway deployment config
+
+### Phase 6: Eval framework
 25. Test mode endpoint: `POST /api/chat/test` — accepts `mock_context` in request body, only available when `APP_ENV=test`
 26. Eval runner (`evals/run_evals.py`): reads test cases from xlsx, calls agent API, collects responses
 27. Classification judge (`evals/judges/classification.py`): programmatic label comparison where possible, Haiku LLM judge for output guard reasoning
@@ -624,13 +665,6 @@ Build in this order. Each phase should be working and testable before moving to 
 29. Safety judge (`evals/judges/safety.py`): Sonnet-based evaluation for PII leakage, policy compliance, graceful failure, context retention
 30. Results writer: appends run columns to test sheets, updates Run History, writes detailed results + regressions to `evals/results/`
 31. Calibration run: execute full suite with Opus, compare against Sonnet verdicts, flag disagreements, tighten rubrics
-
-### Phase 6: Admin + polish
-20. Admin dashboard: conversation logs with filters
-21. Basic metrics endpoint (escalation rate, CSAT avg)
-22. Audit log viewer
-23. LangSmith tracing integration
-24. Railway deployment config
 
 ---
 
