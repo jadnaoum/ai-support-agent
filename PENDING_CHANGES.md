@@ -4,15 +4,6 @@ Last updated: 2026-03-28
 
 ---
 
-## Input guard improvements
-
-### 1. Use a cheaper model for the input guard classifier
-The AI classifier (Stage 2) currently uses Sonnet for every message, but it's just picking one of four categories (safe / prompt_injection / abusive / off_topic). Switch to Haiku or GPT-4o Mini — cuts that call's cost by 80-90%. `LITELLM_GUARD_MODEL` already exists in config (added for the output guard) — point the input guard at it.
-
-**Eval action:** Re-run input guard eval sheet (sheet 1) with new model. Compare pass rates to Sonnet baseline — regression threshold: no more than 2% drop on prompt injection detection. If it regresses, stay on Sonnet for guards.
-
----
-
 ## Output guard improvements
 
 *(No open items — #9, #10, #14 complete.)*
@@ -62,10 +53,10 @@ File: `backend/agents/conversation.py` (switch model in `_classify_intent`), `ba
 
 ## Implementation notes
 
-- Items 1 and 12 both involve switching LLM calls to cheaper models — implement together; `LITELLM_GUARD_MODEL` already exists in config
 - Item 7 is a manual testing task, not a code change
 - Item 8 is a Phase 5 frontend task
 - Item 11 is high leverage and unblocked now that the eval suite is built
+- Item 12 switches `_classify_intent` to a cheaper model; `LITELLM_GUARD_MODEL` already exists in config
 - Item 13 is a refactor — no new functionality, just simpler graph structure
 
 ---
@@ -73,3 +64,7 @@ File: `backend/agents/conversation.py` (switch model in `_classify_intent`), `ba
 ## Future ideas
 
 - **Redirect message templates:** the redirect message for blocked inputs is currently LLM-generated for natural variation. Could be replaced with a random template pool (2-3 pre-written templates per category × block count combination) to eliminate the LLM call's latency and cost. Defer to cost optimization pass.
+
+- **Cheap model for guards and classifiers:** the input guard classifier (Stage 2) and `_classify_intent` both use the main Sonnet model, but they're simple JSON classification tasks. Switch both to Haiku or GPT-4o Mini via `LITELLM_GUARD_MODEL` (already in config). Eval action: re-run input guard and intent classifier eval sheets after the switch — regression thresholds are 2% on prompt injection detection and 3% on any intent category. If either regresses, revert that call only.
+
+- **Chat history context engineering:** the full conversation history is currently passed to every LLM call. For long conversations this inflates context unnecessarily. Options to explore: sliding window (last N turns only), summarisation (compress older turns into a running summary), or role-filtered history (strip agent reasoning turns, keep only customer messages + final responses). Should be measured against the Context Retention eval sheet — any approach that drops score there is a regression.
