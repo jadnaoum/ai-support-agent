@@ -12,6 +12,7 @@ from backend.tools.order_tools import (
     cancel_order,
     process_refund,
 )
+from prompts.loader import get_prompt
 
 
 @dataclass
@@ -22,10 +23,11 @@ class ToolDefinition:
     handler: Callable         # async (db, customer_id, **params) -> dict
 
 
+# DESCRIPTIONS — edit in prompts/production.yaml
 TOOL_REGISTRY: dict[str, ToolDefinition] = {
     "track_order": ToolDefinition(
         name="track_order",
-        description="Look up order status and item details. Use when customer asks where their order is.",
+        description=get_prompt("tool_track_order_description"),
         parameters={
             "order_id": {"type": "str", "required": False, "description": "Order ID to look up. Omit to use most recent order."},
         },
@@ -33,7 +35,7 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
     ),
     "cancel_order": ToolDefinition(
         name="cancel_order",
-        description="Cancel a placed or shipped order. Not available for delivered orders.",
+        description=get_prompt("tool_cancel_order_description"),
         parameters={
             "order_id": {"type": "str", "required": False, "description": "Order ID to cancel. Omit to cancel most recent order."},
             "reason": {"type": "str", "required": False, "description": "Cancellation reason."},
@@ -42,7 +44,7 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
     ),
     "process_refund": ToolDefinition(
         name="process_refund",
-        description="Initiate a refund for a delivered or cancelled order.",
+        description=get_prompt("tool_process_refund_description"),
         parameters={
             "order_id": {"type": "str", "required": False, "description": "Order ID to refund. Omit to refund most recent order."},
             "amount": {"type": "float", "required": False, "description": "Partial refund amount. Omit for full refund."},

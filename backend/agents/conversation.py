@@ -14,47 +14,13 @@ from backend.config import get_settings
 from backend.agents.state import AgentState
 from backend.guardrails.input_guard import check_input
 from backend.guardrails.output_guard import check_output
+from prompts.loader import get_prompt
 
 settings = get_settings()
 
-# PROMPTS — edit here to tune agent behavior
-
-INTENT_PROMPT = """You are an intent classifier for a customer support system.
-Classify the customer's latest message into exactly one category:
-- knowledge_query: asking about policies, shipping, returns, products, warranties, or account info
-- action_request: wants to track an order, cancel an order, or request a refund
-- escalation_request: explicitly asking to speak to a human agent or supervisor
-- needs_clarification: the request is too vague to act on — no order ID when required, ambiguous issue, or multiple possible interpretations
-- general: greeting, thank you, or a simple message that needs no information lookup
-
-For action_request, also extract the action and any parameters mentioned.
-Available actions: track_order, cancel_order, process_refund
-Use null for parameters the customer did not mention.
-
-Use needs_clarification when:
-- Customer says "cancel my order" or "refund my order" but has not provided an order ID and none is visible in the conversation history
-- Customer describes a vague problem like "it's broken" or "something is wrong" without specifying what
-- The request could match multiple very different actions and asking would save a wrong action
-
-Do NOT use needs_clarification when:
-- The customer has already provided an order ID earlier in the conversation
-- The intent is clear even without an order ID (e.g. "what is your return policy")
-- The customer is just being brief — if you can reasonably infer what they want, classify accordingly
-
-Respond with valid JSON only, no markdown.
-Examples:
-{"intent": "knowledge_query", "confidence": 0.9}
-{"intent": "action_request", "confidence": 0.95, "action": "cancel_order", "params": {"order_id": "12345", "reason": "changed_mind"}}
-{"intent": "action_request", "confidence": 0.9, "action": "track_order", "params": {"order_id": null}}
-{"intent": "escalation_request", "confidence": 0.95}
-{"intent": "needs_clarification", "confidence": 0.85, "clarification_prompt": "Could you share your order number so I can look into that for you?"}
-{"intent": "general", "confidence": 0.99}"""
-
-RESPONSE_PROMPT = """You are a helpful, empathetic customer support agent for an e-commerce store.
-You handle questions about orders, returns, shipping, payments, and product policies.
-Be concise, warm, and specific. Never make up order numbers, dates, or prices.
-If you are not sure about something, say so honestly and offer to connect the customer with a specialist.
-{context_section}"""
+# PROMPTS — edit in prompts/production.yaml
+INTENT_PROMPT = get_prompt("intent_prompt")
+RESPONSE_PROMPT = get_prompt("response_prompt")
 
 
 def _build_context_section(state: AgentState) -> str:

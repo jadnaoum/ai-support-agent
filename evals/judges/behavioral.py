@@ -17,6 +17,7 @@ import litellm
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from evals.config import JUDGE_MODEL_BEHAVIORAL, JUDGE_MODEL_CALIBRATION  # noqa: E402
+from prompts.loader import get_prompt  # noqa: E402
 
 
 def _verdict(result: str, reasoning: str, failure_reason: str = None, cost_usd: float = 0.0) -> dict:
@@ -66,24 +67,8 @@ async def _llm_judge(prompt: str, calibrate: bool = False) -> dict:
 # KB Retrieval judge
 # ---------------------------------------------------------------------------
 
-_KB_PROMPT = """You are evaluating whether an AI customer support agent correctly retrieved and used knowledge base articles.
-
-Test case:
-- Customer conversation: {conversation}
-- Reference KB content (actual article text from the knowledge base): {reference_content}
-- Expected behavior: {expected_behavior}
-- Judge rubric: {judge_rubric}
-
-Agent's actual response: {agent_response}
-Services called by agent: {actions_taken}
-
-Your job: compare what the agent told the customer against the reference KB content provided above.
-Did the agent accurately convey the relevant information? Did it miss important details, fabricate information, or apply the wrong policy?
-
-When reference_content is null, there is no relevant KB article for this query. Check that the agent acknowledged it doesn't have the information and did NOT fabricate an answer.
-
-Evaluate strictly against the rubric. Respond with JSON only:
-{{"verdict": "pass"|"fail", "reasoning": "2-3 sentences explaining your verdict", "failure_reason": "<one of the enum values from the rubric, or null if pass>"}}"""
+# PROMPT — edit in prompts/eval_rubrics.yaml
+_KB_PROMPT = get_prompt("kb_retrieval_prompt")
 
 
 async def judge_kb_retrieval(test_case: dict, agent_response: dict, calibrate: bool = False) -> dict:
@@ -102,24 +87,8 @@ async def judge_kb_retrieval(test_case: dict, agent_response: dict, calibrate: b
 # Action Execution judge
 # ---------------------------------------------------------------------------
 
-_ACTION_PROMPT = """You are evaluating whether an AI customer support agent called the correct tool with the correct arguments.
-
-Test case:
-- Customer conversation: {conversation}
-- Mock account state (what the DB would return): {mock_account_state}
-- Expected tool call: {expected_tool_call}
-- Expected behavior: {expected_behavior}
-- Judge rubric: {judge_rubric}
-
-Agent's actual response: {agent_response}
-Tools actually called (actions_taken): {actions_taken}
-Agent confidence: {confidence}
-Agent escalated: {requires_escalation}
-
-Focus on: (1) was the correct tool called? (2) were the arguments correct? (3) did the agent accurately report the result?
-
-Respond with JSON only:
-{{"verdict": "pass"|"fail", "reasoning": "2-3 sentences explaining your verdict", "failure_reason": "<one of the enum values from the rubric, or null if pass>"}}"""
+# PROMPT — edit in prompts/eval_rubrics.yaml
+_ACTION_PROMPT = get_prompt("action_execution_prompt")
 
 
 async def judge_action_execution(test_case: dict, agent_response: dict, calibrate: bool = False) -> dict:
@@ -141,28 +110,8 @@ async def judge_action_execution(test_case: dict, agent_response: dict, calibrat
 # Escalation judge
 # ---------------------------------------------------------------------------
 
-_ESCALATION_PROMPT = """You are evaluating whether an AI customer support agent escalated correctly.
-
-Test case:
-- Customer conversation: {conversation}
-- Mock account state: {mock_account_state}
-- Expected escalation reason: {escalation_reason}
-- Expected behavior: {expected_behavior}
-- Judge rubric: {judge_rubric}
-
-Agent's actual response: {agent_response}
-Agent escalated: {requires_escalation}
-Agent's escalation reason: {escalation_reason_actual}
-Actions taken: {actions_taken}
-
-Context summary captured for the human agent: {context_summary}
-
-Evaluate two things:
-1. Did the agent escalate correctly (right decision, right reason, appropriate handoff message)?
-2. Is the context_summary useful for a human agent picking up this conversation? It should capture what the customer needed and why escalation was triggered — not just repeat the last message verbatim.
-
-Respond with JSON only:
-{{"verdict": "pass"|"fail", "reasoning": "2-3 sentences covering both the escalation decision and the context summary quality", "failure_reason": "<one of the enum values from the rubric, or null if pass>"}}"""
+# PROMPT — edit in prompts/eval_rubrics.yaml
+_ESCALATION_PROMPT = get_prompt("escalation_prompt")
 
 
 async def judge_escalation(test_case: dict, agent_response: dict, calibrate: bool = False) -> dict:
@@ -185,21 +134,8 @@ async def judge_escalation(test_case: dict, agent_response: dict, calibrate: boo
 # Conversation Quality judge
 # ---------------------------------------------------------------------------
 
-_QUALITY_PROMPT = """You are evaluating the tone and quality of an AI customer support agent's response.
-
-Test case:
-- Scenario type: {scenario_type}
-- Tone rubric: {tone_rubric}
-- Expected behavior summary: {expected_behavior_summary}
-- Judge rubric: {judge_rubric}
-
-Agent's actual response: {agent_response}
-
-Focus on empathy, clarity, professionalism, and whether the tone matches the scenario.
-Do NOT evaluate factual correctness — only tone and communication quality.
-
-Respond with JSON only:
-{{"verdict": "pass"|"fail", "reasoning": "2-3 sentences on tone and quality", "failure_reason": "<one of the enum values from the rubric, or null if pass>"}}"""
+# PROMPT — edit in prompts/eval_rubrics.yaml
+_QUALITY_PROMPT = get_prompt("conversation_quality_prompt")
 
 
 async def judge_conversation_quality(test_case: dict, agent_response: dict, calibrate: bool = False) -> dict:
