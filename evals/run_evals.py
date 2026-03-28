@@ -452,11 +452,19 @@ def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float,
         cell.fill = FILL_HEADER
         cell.font = FONT_BOLD
 
+    FILL_SKIP = PatternFill("solid", fgColor="F5F5F5")  # light grey for skipped rows
+
     for i, case in enumerate(row_results):
+        row = i + 3  # data starts at row 3
+
+        if case.get("skipped"):
+            verdict_cell = ws.cell(row, col, "SKIP")
+            verdict_cell.fill = FILL_SKIP
+            continue
+
         result     = case.get("result", {})
         agent_resp = case.get("agent_response", {})
         verdict    = result.get("verdict", "fail")
-        row        = i + 3  # data starts at row 3
 
         verdict_cell = ws.cell(row, col, label_map.get(verdict, "FAIL"))
         verdict_cell.fill = fill_map.get(verdict, FILL_FAIL)
@@ -513,12 +521,20 @@ def _build_analysis_sheet(wb):
     # ── 2. For each eval sheet, map tag → (verdict_col_letter, fr_col_letter) ──
     # Verdict column headers look like  "v1.0_baseline ($0.041)"
     # Failure_reason column is always verdict_col + 3.
-    sheet_cols: dict = {}   # {sheet_name: {tag: (verdict_letter, fr_letter)}}
+    # Also detect the skip column letter (header == "skip") if present.
+    sheet_cols: dict = {}        # {sheet_name: {tag: (verdict_letter, fr_letter)}}
+    sheet_skip_col: dict = {}    # {sheet_name: skip_col_letter | None}
     for sheet_name in SHEET_NAMES:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
         sheet_cols[sheet_name] = {}
+        sheet_skip_col[sheet_name] = None
+        for c in range(1, ws.max_column + 1):
+            v = ws.cell(2, c).value
+            if v == "skip":
+                sheet_skip_col[sheet_name] = get_column_letter(c)
+                break
         for tag in tags:
             for c in range(1, ws.max_column + 1):
                 v = ws.cell(2, c).value
@@ -580,12 +596,22 @@ def _build_analysis_sheet(wb):
                 continue
             verdict_col, _ = tag_map[tag]
             sn = sheet_name.replace("'", "''")   # escape single quotes in sheet names
-            formula = (
-                f"=IFERROR("
-                f"COUNTIF('{sn}'!{verdict_col}3:{verdict_col}{ROW_LIMIT},\"PASS\")"
-                f"/COUNTA('{sn}'!A3:A{ROW_LIMIT})"
-                f",0)"
-            )
+            skip_col = sheet_skip_col.get(sheet_name)
+            if skip_col:
+                formula = (
+                    f"=IFERROR("
+                    f"COUNTIF('{sn}'!{verdict_col}3:{verdict_col}{ROW_LIMIT},\"PASS\")"
+                    f"/(COUNTA('{sn}'!A3:A{ROW_LIMIT})"
+                    f"-COUNTIF('{sn}'!{skip_col}3:{skip_col}{ROW_LIMIT},\"TRUE\"))"
+                    f",0)"
+                )
+            else:
+                formula = (
+                    f"=IFERROR("
+                    f"COUNTIF('{sn}'!{verdict_col}3:{verdict_col}{ROW_LIMIT},\"PASS\")"
+                    f"/COUNTA('{sn}'!A3:A{ROW_LIMIT})"
+                    f",0)"
+                )
             cell = ws_a.cell(i, j, formula)
             cell.number_format = "0%"
             cell.alignment = CENTER_MID
@@ -837,7 +863,16 @@ def _estimate_run_cost(wb, target_sheets: list, calibrate: bool) -> tuple:
     for sheet_name in target_sheets:
         if sheet_name not in wb.sheetnames or sheet_name not in SHEET_CALL_PROFILE:
             continue
-        n_cases = wb[sheet_name].max_row - 2  # row 1 = labels, row 2 = headers, row 3+ = data
+        _ws = wb[sheet_name]
+        _hdrs = [_ws.cell(2, c).value for c in range(1, _ws.max_column + 1)]
+        _skip_col = next((i + 1 for i, h in enumerate(_hdrs) if h == "skip"), None)
+        n_cases = 0
+        for _r in range(3, _ws.max_row + 1):
+            if _skip_col:
+                _val = str(_ws.cell(_r, _skip_col).value or "").strip().upper()
+                if _val in ("TRUE", "1", "YES"):
+                    continue
+            n_cases += 1
         profile = SHEET_CALL_PROFILE[sheet_name]
 
         agent_cost = 0.0
@@ -949,6 +984,11 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool):
         for row_idx in range(3, ws.max_row + 1):
             test_case = _row_to_dict(ws, row_idx)
             test_id = test_case.get("test_id", f"row-{row_idx}")
+
+            if str(test_case.get("skip", "")).strip().upper() in ("TRUE", "1", "YES"):
+                print(f"  [{test_id}] SKIP")
+                case_results.append({"test_id": test_id, "skipped": True})
+                continue
 
             t0 = time.time()
             agent_resp, judgment = await runner(test_case, calibrate,

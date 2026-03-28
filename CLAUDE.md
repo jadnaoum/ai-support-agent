@@ -344,6 +344,35 @@ Added a **Tool guidance** section to `intent_prompt` in `prompts/production.yaml
 
 Migrate from manual JSON intent classification to native tool calling API (`tools` parameter, `tool_use`/`tool_result` blocks). Deferred until after a fresh baseline eval run. Item #12 (cheap model for `_classify_intent`) moved to Future ideas — may be moot if #15 ships first.
 
+### Eval skip support + test case audit (2026-03-28) — 214 tests passing
+
+**Skip column support (`evals/run_evals.py` + `eval_test_cases.xlsx`):**
+- `evals/run_evals.py`: main eval loop now checks `test_case.get("skip")` — if `TRUE`/`1`/`YES` (case-insensitive), prints `[test_id] SKIP`, appends `{"test_id": ..., "skipped": True}` to results, and skips agent call, judge call, and result write.
+- `_append_run_column`: skipped rows write `"SKIP"` (light grey fill) to the verdict cell only; other columns left blank.
+- `_estimate_run_cost`: replaced `ws.max_row - 2` with a counted loop that excludes skipped rows — cost estimate reflects actual cases that will run.
+- `_build_analysis_sheet`: pass-rate formula denominator changed to `COUNTA(A3:A300) - COUNTIF(skip_col3:skip_col300,"TRUE")` — uses the static `skip` column directly (not the verdict cell). Sheets without a `skip` column use the original `COUNTA` denominator.
+- `eval_test_cases.xlsx` Output Guard sheet: `skip` column added (col 9, between `rationale` and first run group). OG-007, OG-012, OG-015, OG-025 marked `TRUE` — these depend on the guard seeing KB content, which it doesn't today.
+
+**`hallucinated_data` failure type (`evals/judges/classification.py`):**
+- Added `"hallucinated_data": {"hallucinated_data"}` to `_OG_FAILURE_ALIASES`. New type covers cases where the agent fabricated data (card numbers, order counts, case numbers, timestamps, unsupported options) that wasn't present in tool output — distinct from `hallucinated_action` (claiming an action completed) and `leaked_id` (exposing real IDs from another context).
+
+**Intent Classifier test case corrections (`eval_test_cases.xlsx`):**
+- IC-009: `knowledge_query` → `action_request` (track comes first in dual-intent message)
+- IC-010: `escalation_request` → `needs_clarification` (high emotion but issue unclear; clarify before escalating)
+- IC-017: `knowledge_query` → `needs_clarification` (no product specified; ask before KB lookup)
+- IC-020: `knowledge_query` → `needs_clarification` (no product specified; clarify before warranty lookup)
+- IC-023: `action_request` → `knowledge_query` (shipping question comes first; consistent with IC-009 dual-intent rule)
+- IC-025: `escalation_request` → `action_request` (customer wants a refund; duplicate-refund enforcement is downstream tool logic)
+
+**Output Guard test case corrections (`eval_test_cases.xlsx`):**
+- OG-005: `leaked_id` → `hallucinated_data` (fabricated partial card number, not a real leak)
+- OG-006: `hallucinated_action` → `hallucinated_data` (refund action was real; fabricated order count and "exception" framing)
+- OG-007: `pass/none` → `block/policy_violation` (agent deflected to "contact our support team" — circular, it IS the support team)
+- OG-015: `pass/none` → `block/hallucinated_data` (agent suggested "refuse delivery" — not in KB or any policy)
+- OG-016: `hallucinated_action` → `hallucinated_data`; `tools_called` updated to include `escalation_handler` (escalation was valid; fabricated case number, timeline, and email)
+- OG-017: `hallucinated_action` → `hallucinated_data` (track_order called and real; fabricated warehouse details, driver, timestamp)
+- OG-024: `hallucinated_action` → `hallucinated_data` (real ETA from tool; "might arrive a day early" is speculation)
+
 **Next: Phase 4 — Frontend**
 - Typing indicator while agent streams
 - CSAT widget shown when conversation resolves
