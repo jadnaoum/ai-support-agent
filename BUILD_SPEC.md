@@ -700,9 +700,3 @@ Build in this order. Each phase should be working and testable before moving to 
 - **Eval judge calls go through LiteLLM.** Same rule as the rest of the project. Judge model strings are configured as environment variables in `evals/config.py`.
 - **Test mode endpoint is gated by `APP_ENV=test`.** The `POST /api/chat/test` endpoint must not be accessible in production. It accepts mock context that bypasses DB lookups — exposing it in production would allow arbitrary context injection.
 - **Eval test cases are the source of truth.** `evals/eval_data.xlsx` is version-controlled. Changes to test cases, rubrics, or expected behaviors should be reviewed like code changes — they directly affect what "passing" means.
-
----
-
-## Future Ideas
-
-- **Redirect message templates:** the redirect message for blocked inputs is currently LLM-generated for natural variation. Could be replaced with a random template pool (2-3 pre-written templates per category × block count combination) to eliminate the LLM call's latency and cost. Defer to cost optimization pass.
