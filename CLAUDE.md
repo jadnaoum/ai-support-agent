@@ -140,7 +140,7 @@ Architecture revised from original supervisor-routing design. No separate superv
 3. `backend/agents/action_service.py` + `backend/tools/registry.py`, `backend/tools/order_tools.py`, `backend/tools/customer_tools.py` — tool registry (`ToolDefinition` dataclass + `TOOL_REGISTRY` dict) with `track_order`, `cancel_order`, `process_refund`. Action service strips null params before dispatch. Tests: `test_action_service.py` (10 tests), `test_order_tools.py` (16 tests).
    **Security refactor (2026-03-20):** `get_order_history` and `get_customer_context` removed from `TOOL_REGISTRY` — they are NOT agent-callable. Customer context and order history are loaded by `chat.py` before the graph runs and injected as read-only state. Keeping them out of the registry prevents prompt injection attacks from tricking the agent into querying arbitrary customer data. Functions remain in `order_tools.py` / `customer_tools.py` for API-layer use only.
 
-4. `backend/agents/escalation.py` — escalation handler node. Logs to `escalations` table, marks conversation `"escalated"`, returns template handoff message keyed by reason (`customer_requested`, `low_confidence`, `repeated_failure`, `policy_exception`). Reads `conversation_id` from `config["configurable"]`; safe when absent. Tests: `test_escalation.py` (10 tests).
+4. `backend/agents/escalation.py` — pluggable async callable `handle_escalation(reason, context) → str`. Logs to `escalations` table, marks conversation `"escalated"`, builds `context_summary`, returns handoff message keyed by reason. Called directly from `conversation_agent_node` via `_do_escalate` helper — not a separate graph node. Tests: `test_escalation.py` (9 tests).
 
 5. Customer context loading — `backend/tools/customer_tools.py`: `get_customer_context` (customer profile + up to 5 recent orders + risk score) and `get_risk_score` (0.0–1.0 based on refund frequency, refund ratio, escalated conversation count). Context loaded in `chat.py` before graph invocation (best-effort, never blocks on failure). `conversation.py` `_build_context_section` now includes customer name, risk score, and 3 most recent orders in the LLM prompt. Tests: `test_customer_tools.py` (13 tests).
 
@@ -317,6 +317,10 @@ python evals/run_evals.py --tag "v1.1" --desc "intent fix" --sheets "Input Guard
 - Failure reasons collected by scanning all failure_reason columns across all runs at build time; sorted alphabetically; sheets with no recorded reasons show `(no failure reasons recorded)`.
 - Column widths: col A = 32, data columns = 18. Zoom 125%.
 - Fixed pre-existing Python 3.9 incompatibility: `str | None` return annotation on `_fetch_kb_reference_content` changed to `"str | None"` (string form).
+
+### Pending change #13: escalation handler refactor (2026-03-28) — 214 tests passing
+
+`escalation_handler_node` removed from the LangGraph graph. Replaced by `handle_escalation(reason, context) → str` in `backend/agents/escalation.py` — a pluggable async callable with the interface `(reason: str, context: dict) → str`. `_build_context_summary` made public as `build_context_summary`. `_do_escalate(reason, state, config)` helper added to `conversation.py` — calls `handle_escalation` inline and returns the full state update dict. All 8 escalation paths in `conversation_agent_node` now call `_do_escalate` directly and return `pending_service=""` with the handoff `response` already set. Graph has 3 nodes (conversation_agent, knowledge_service, action_service); routing has 2 branches (knowledge, action); all other paths go to END. Tests updated accordingly.
 
 **Next: Phase 4 — Frontend**
 - Typing indicator while agent streams

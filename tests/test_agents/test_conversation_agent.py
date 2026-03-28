@@ -77,7 +77,8 @@ async def test_escalation_request_sets_requires_escalation(mock_complete):
     result = await conversation_agent_node(state, {})
     assert result["requires_escalation"] is True
     assert result["escalation_reason"] == "customer_requested"
-    assert result["pending_service"] == "escalation"
+    assert result["pending_service"] == ""
+    assert isinstance(result["response"], str) and len(result["response"]) > 0
 
 
 @patch("backend.agents.conversation.check_output", new_callable=AsyncMock, return_value={"safe": True})
@@ -189,7 +190,8 @@ async def test_low_confidence_kb_result_triggers_escalation(mock_complete):
         actions_taken=FAKE_KB_ACTION,
     )
     result = await conversation_agent_node(state, {})
-    assert result["pending_service"] == "escalation"
+    assert result["pending_service"] == ""
     assert result["requires_escalation"] is True
     assert result["escalation_reason"] == "low_confidence"
+    assert isinstance(result["response"], str) and len(result["response"]) > 0
     mock_complete.assert_not_called()

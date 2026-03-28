@@ -272,27 +272,27 @@ class AgentState(TypedDict):
     escalation_reason: str   # Why escalation was triggered
     actions_taken: list      # Audit trail of all service calls this turn
     last_turn_was_clarification: bool  # True if agent asked a clarifying question last turn. If True and intent is still needs_clarification, escalate with reason unable_to_clarify instead of asking again.
-    context_summary: str     # Escalation context summary. Built by escalation_handler, surfaced to eval judge via TestChatResponse.
+    context_summary: str     # Escalation context summary. Built by handle_escalation, surfaced to eval judge via TestChatResponse.
 ```
 
 ### Graph nodes
-1. **conversation_agent** — The only customer-facing agent. Reads the latest customer message, decides what it needs (KB lookup, action execution, escalation, or clarification), calls the appropriate service(s), and generates the final customer-facing response. Owns tone, empathy, de-escalation. All intent classification happens here — no separate supervisor. Intent classification uses five intents: `knowledge_query`, `action_request`, `escalation_request`, `needs_clarification`, and `general`. When intent is `needs_clarification`, generates a targeted clarifying question (max 1 per turn, never two in a row). If the previous turn was already a clarification and intent is still `needs_clarification`, escalates with reason `unable_to_clarify` instead of asking again.
+1. **conversation_agent** — The only customer-facing agent. Reads the latest customer message, decides what it needs (KB lookup, action execution, escalation, or clarification), calls the appropriate service(s), and generates the final customer-facing response. Owns tone, empathy, de-escalation. All intent classification happens here — no separate supervisor. Intent classification uses five intents: `knowledge_query`, `action_request`, `escalation_request`, `needs_clarification`, and `general`. When intent is `needs_clarification`, generates a targeted clarifying question (max 1 per turn, never two in a row). If the previous turn was already a clarification and intent is still `needs_clarification`, escalates with reason `unable_to_clarify` instead of asking again. When escalating, calls the escalation handler inline and sets the handoff response directly — escalation is not a separate graph node.
 2. **knowledge_service** — Not customer-facing. Embeds the query, searches pgvector for relevant KB chunks, returns raw chunks and metadata to the conversation agent. Does NOT generate a customer response.
 3. **action_service** — Not customer-facing. Receives a structured action request (e.g. cancel_order with order_id), validates parameters, executes via tool registry, returns the result to the conversation agent. Does NOT generate a customer response.
-4. **escalation_handler** — Triggered by the conversation agent when it decides to escalate (customer request, low confidence, policy exception, unable to clarify). Logs escalation reason, preserves conversation context, returns handoff message. Builds a `context_summary` for the human agent, writes it to DB, and returns it in state so it is available to the eval framework via `TestChatResponse`. The conversation agent delivers the handoff message to the customer.
+
+### Escalation handler
+`handle_escalation(reason: str, context: dict) → str` in `backend/agents/escalation.py`. Pluggable async callable — the default implementation logs to the `escalations` table, marks the conversation as `escalated`, builds a `context_summary` for the human agent, and returns the appropriate handoff message. Called directly by the conversation agent node; not a graph node. Swap the implementation by replacing the callable — the interface is `(reason, context) → str` where `context` carries `db`, `conversation_id`, `confidence`, and `messages`.
 
 ### Graph flow
-The conversation agent is the central node. It can invoke services as needed within a single turn — including multiple services (e.g. look up KB for refund policy, then execute the refund action).
+The conversation agent is the central node. It can invoke services as needed within a single turn — including multiple services (e.g. look up KB for refund policy, then execute the refund action). Escalation is handled inline — the conversation agent calls `handle_escalation` directly and routes to END.
 
 ```
 START → conversation_agent
 conversation_agent → knowledge_service  (if needs KB lookup)
 conversation_agent → action_service     (if needs to execute an action)
-conversation_agent → escalation_handler (if decides to escalate)
 knowledge_service → conversation_agent  (returns retrieved chunks)
 action_service → conversation_agent     (returns action result)
-escalation_handler → END
-conversation_agent → END               (after composing final response)
+conversation_agent → END               (after composing final response, or after inline escalation)
 ```
 
 ### Key difference from previous design

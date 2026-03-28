@@ -24,12 +24,8 @@ In Phase 5 when building the admin dashboard: show the escalation summary at the
 
 **Eval action:** None — frontend/UI task, no agent behavior change.
 
-### 13. Collapse escalation_handler into a pluggable async function
-The escalation handler is currently a separate LangGraph node. Collapse it into a pluggable async function called directly from `conversation_agent_node`. Define a simple interface: `async callable(reason, context) → handoff_message`. Default implementation logs to DB + returns template message. Graph routes straight to END after escalation. This is a simplification + pluggability improvement, not a latency win.
-
-Files: `backend/agents/graph.py` (remove node, update edges), `backend/agents/conversation.py` (call escalation function directly), `backend/agents/escalation.py` (refactor to async callable)
-
-**Eval action:** Regression-only — re-run all escalation eval cases after refactor. No new cases needed since behavior is unchanged. FAIL if any escalation case that previously passed now breaks.
+### 13. Collapse escalation_handler into a pluggable async function — DONE (2026-03-28)
+`handle_escalation(reason, context) → str` in `backend/agents/escalation.py`. Called directly from `conversation_agent_node` via `_do_escalate` helper. Graph no longer has an escalation node or edge. All 6 escalation reasons work identically. 214 tests passing.
 
 ---
 
@@ -57,7 +53,6 @@ File: `backend/agents/conversation.py` (switch model in `_classify_intent`), `ba
 - Item 8 is a Phase 5 frontend task
 - Item 11 is high leverage and unblocked now that the eval suite is built
 - Item 12 switches `_classify_intent` to a cheaper model; `LITELLM_GUARD_MODEL` already exists in config
-- Item 13 is a refactor — no new functionality, just simpler graph structure
 
 ---
 

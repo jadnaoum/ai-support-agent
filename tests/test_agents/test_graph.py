@@ -49,11 +49,6 @@ def test_route_returns_action_service_when_pending():
     assert _route_after_conversation(state) == "action_service"
 
 
-def test_route_returns_escalation_handler_when_pending():
-    state = make_state(pending_service="escalation")
-    assert _route_after_conversation(state) == "escalation_handler"
-
-
 def test_route_returns_end_when_no_pending():
     state = make_state(pending_service="")
     assert _route_after_conversation(state) == END
@@ -79,7 +74,7 @@ def test_graph_has_expected_nodes():
     assert "conversation_agent" in g.nodes
     assert "knowledge_service" in g.nodes
     assert "action_service" in g.nodes
-    assert "escalation_handler" in g.nodes
+    assert "escalation_handler" not in g.nodes
 
 
 # ---------------------------------------------------------------------------

@@ -1,18 +1,19 @@
 """
-Escalation handler — triggered by the conversation agent when it decides to escalate.
+Escalation handler — called directly by the conversation agent when it decides to escalate.
 
-Responsibilities:
-- Log the escalation reason and context to the escalations table
-- Mark the conversation status as "escalated"
-- Set a friendly handoff response message
+Pluggable interface: async callable(reason: str, context: dict) -> str
+Default implementation: handle_escalation
 
-Routes directly to END. The response is delivered by the SSE endpoint.
+context keys used by the default implementation:
+    db:              AsyncSession | None — if None, DB writes are skipped
+    conversation_id: str — if empty, DB writes are skipped
+    confidence:      float — stored in the escalation record
+    messages:        list[dict] — used to build the context summary
 """
 import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.agents.state import AgentState
 from backend.db.models import Escalation, Conversation
 
 # HANDOFF MESSAGES — one per escalation reason; edit here to tune tone
@@ -52,24 +53,28 @@ _HANDOFF_DEFAULT = (
 )
 
 
-def _build_context_summary(messages: list[dict]) -> str:
+def build_context_summary(messages: list[dict]) -> str:
     """Summarise the last few customer messages as plain text for the escalation log."""
     customer_msgs = [m["content"] for m in messages if m.get("role") == "customer"]
     recent = customer_msgs[-3:]
     return " | ".join(recent) if recent else "No messages recorded."
 
 
-async def escalation_handler_node(state: AgentState, config: dict) -> dict:
-    """LangGraph node: log escalation → set handoff response → END."""
-    db: AsyncSession = config["configurable"]["db"]
-    conversation_id: str = config["configurable"].get("conversation_id", "")
+async def handle_escalation(reason: str, context: dict) -> str:
+    """
+    Default escalation implementation.
 
-    reason = state.get("escalation_reason") or "customer_requested"
-    confidence = state.get("confidence", 0.0)
-    context_summary = _build_context_summary(state.get("messages") or [])
+    Logs to the escalations table, marks the conversation as escalated,
+    and returns the appropriate handoff message.
+    """
+    db: AsyncSession | None = context.get("db")
+    conversation_id: str = context.get("conversation_id", "")
+    confidence: float = context.get("confidence", 0.0)
+    messages: list = context.get("messages") or []
 
-    if conversation_id:
-        # Write escalation record
+    context_summary = build_context_summary(messages)
+
+    if db and conversation_id:
         db.add(Escalation(
             id=str(uuid.uuid4()),
             conversation_id=conversation_id,
@@ -77,29 +82,12 @@ async def escalation_handler_node(state: AgentState, config: dict) -> dict:
             agent_confidence=confidence,
             context_summary=context_summary,
         ))
-
-        # Mark conversation as escalated
         result = await db.execute(
             select(Conversation).where(Conversation.id == conversation_id)
         )
         conversation = result.scalar_one_or_none()
         if conversation:
             conversation.status = "escalated"
-
         await db.commit()
 
-    handoff_message = _HANDOFF_MESSAGES.get(reason, _HANDOFF_DEFAULT)
-
-    return {
-        "response": handoff_message,
-        "requires_escalation": True,
-        "pending_service": "",
-        "context_summary": context_summary,
-        "actions_taken": (state.get("actions_taken") or []) + [
-            {
-                "service": "escalation_handler",
-                "action": "escalate",
-                "reason": reason,
-            }
-        ],
-    }
+    return _HANDOFF_MESSAGES.get(reason, _HANDOFF_DEFAULT)

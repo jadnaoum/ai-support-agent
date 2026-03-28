@@ -12,6 +12,7 @@ import litellm
 
 from backend.config import get_settings
 from backend.agents.state import AgentState
+from backend.agents.escalation import handle_escalation, build_context_summary
 from backend.guardrails.input_guard import check_input, log_blocked_attempt
 from backend.guardrails.output_guard import check_output, log_output_guard_blocked
 from prompts.loader import get_prompt
@@ -137,6 +138,35 @@ async def _generate_redirect(block_count: int, category: str) -> str:
         return "I'm here to help with your orders and account questions. Is there something I can assist you with?"
 
 
+async def _do_escalate(reason: str, state: AgentState, config: dict) -> dict:
+    """
+    Call the escalation handler inline and return the full state update.
+
+    Callers may spread extra fields (e.g. confidence, consecutive_blocks) over
+    the returned dict to supply turn-specific values.
+    """
+    _db = config.get("configurable", {}).get("db")
+    _conv_id = config.get("configurable", {}).get("conversation_id", "")
+    context = {
+        "db": _db,
+        "conversation_id": _conv_id,
+        "confidence": state.get("confidence", 0.0),
+        "messages": state.get("messages") or [],
+    }
+    handoff = await handle_escalation(reason, context)
+    return {
+        "response": handoff,
+        "requires_escalation": True,
+        "pending_service": "",
+        "escalation_reason": reason,
+        "last_turn_was_clarification": False,
+        "context_summary": build_context_summary(state.get("messages") or []),
+        "actions_taken": (state.get("actions_taken") or []) + [
+            {"service": "escalation_handler", "action": "escalate", "reason": reason}
+        ],
+    }
+
+
 async def conversation_agent_node(state: AgentState, config: dict) -> dict:
     """
     Central customer-facing LangGraph node.
@@ -171,12 +201,9 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             # 3rd consecutive block → escalate to human
             if new_blocks >= 3:
                 return {
-                    "pending_service": "escalation",
-                    "requires_escalation": True,
-                    "escalation_reason": "repeated_blocks",
+                    **await _do_escalate("repeated_blocks", state, config),
                     "confidence": 1.0,
                     "consecutive_blocks": new_blocks,
-                    "last_turn_was_clarification": False,
                 }
 
             # 1st or 2nd block → LLM-generated redirect with category- and count-specific tone
@@ -206,11 +233,8 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
 
         if intent == "escalation_request":
             return {
-                "pending_service": "escalation",  # escalation_handler added in Phase 3 step 4
-                "requires_escalation": True,
-                "escalation_reason": "customer_requested",
+                **await _do_escalate("customer_requested", state, config),
                 "confidence": confidence,
-                "last_turn_was_clarification": False,
                 "consecutive_blocks": 0,
             }
 
@@ -219,11 +243,8 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             # of asking again — the customer's response is still ambiguous after one attempt.
             if state.get("last_turn_was_clarification", False):
                 return {
-                    "pending_service": "escalation",
-                    "requires_escalation": True,
-                    "escalation_reason": "unable_to_clarify",
+                    **await _do_escalate("unable_to_clarify", state, config),
                     "confidence": confidence,
-                    "last_turn_was_clarification": False,
                     "consecutive_blocks": 0,
                 }
             clarification_question = action_details.get(
@@ -246,11 +267,8 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 await log_output_guard_blocked(_db, _conv_id, clarification_question, out_guard["reason"])
                 await _db.commit()
             return {
-                "pending_service": "escalation",
-                "requires_escalation": True,
-                "escalation_reason": "unable_to_clarify",
+                **await _do_escalate("unable_to_clarify", state, config),
                 "confidence": confidence,
-                "last_turn_was_clarification": False,
                 "consecutive_blocks": 0,
             }
 
@@ -264,11 +282,8 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 await log_output_guard_blocked(_db, _conv_id, response, out_guard["reason"])
                 await _db.commit()
             return {
-                "pending_service": "escalation",
-                "requires_escalation": True,
-                "escalation_reason": "policy_exception",
+                **await _do_escalate("policy_exception", state, config),
                 "confidence": confidence,
-                "last_turn_was_clarification": False,
                 "consecutive_blocks": 0,
             }
         return {"response": response, "confidence": confidence, "pending_service": "", "last_turn_was_clarification": False, "consecutive_blocks": 0}
@@ -280,11 +295,8 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
         top_similarity = retrieved[0]["similarity"]
         if top_similarity < settings.confidence_threshold:
             return {
-                "pending_service": "escalation",
-                "requires_escalation": True,
-                "escalation_reason": "low_confidence",
+                **await _do_escalate("low_confidence", state, config),
                 "confidence": top_similarity,
-                "last_turn_was_clarification": False,
             }
 
     # Escalate if any process_refund result came back as pending_review.
@@ -292,11 +304,8 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
     for action_result in state.get("action_results") or []:
         if action_result.get("status") == "pending_review":
             return {
-                "pending_service": "escalation",
-                "requires_escalation": True,
-                "escalation_reason": "policy_exception",
+                **await _do_escalate("policy_exception", state, config),
                 "confidence": retrieved[0]["similarity"] if retrieved else state.get("confidence", 1.0),
-                "last_turn_was_clarification": False,
             }
 
     # Generate the customer-facing response using service results
@@ -311,11 +320,8 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             await log_output_guard_blocked(_db, _conv_id, response, out_guard["reason"])
             await _db.commit()
         return {
-            "pending_service": "escalation",
-            "requires_escalation": True,
-            "escalation_reason": "policy_exception",
+            **await _do_escalate("policy_exception", state, config),
             "confidence": top_similarity,
-            "last_turn_was_clarification": False,
         }
 
     return {"response": response, "confidence": top_similarity, "pending_service": "", "last_turn_was_clarification": False}
