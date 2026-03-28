@@ -65,7 +65,7 @@ File: `backend/guardrails/output_guard.py`
 
 **Eval action:** Re-run output guard eval sheet. Expect major improvement from 44% baseline. Key cases: fabricated tracking numbers, cross-customer data leaks, system prompt disclosure, speculative claims. Also run regression on cases the rule-based guard already catches — no regressions allowed.
 
-### 10. Log output guardrail triggers
+### 10. Log output guardrail triggers ✓ DONE 2026-03-28 (implemented as part of #9)
 When the output guard blocks a response, write an audit log entry with `action: "output_guard_blocked"`, `input_data` containing what the agent tried to say, and `output_data` containing what was wrong (which check failed, what was missing). Use the existing audit_logs table — same pattern as #2.
 
 After 100+ conversations, query "all audit logs where action = output_guard_blocked, grouped by reason" to see patterns. This feeds directly into prompt improvement: if the agent keeps hallucinating cancellations, you know which part of the prompt to fix and can write targeted eval cases.
