@@ -13,6 +13,7 @@ Returns a dict:
 """
 import json
 import re
+import uuid
 import litellm
 
 from backend.config import get_settings
@@ -116,3 +117,30 @@ async def check_input(message: str) -> dict:
             "I'm not able to help with that. Is there something else I can assist you with?",
         ),
     }
+
+
+async def log_blocked_attempt(db, conversation_id: str, message: str, guard_result: dict) -> None:
+    """Write an audit_logs entry for a blocked input guard attempt.
+
+    Only called when the guard returns safe=False AND a real conversation_id is
+    present (i.e. the live SSE path, not the test endpoint).
+
+    Args:
+        db: AsyncSession — the active DB session for the current request.
+        conversation_id: UUID string of the conversation.
+        message: the original customer message that was blocked.
+        guard_result: the dict returned by check_input() (must have safe=False).
+    """
+    from backend.db.models import AuditLog  # local import avoids circular deps at module load
+
+    db.add(AuditLog(
+        id=str(uuid.uuid4()),
+        conversation_id=conversation_id,
+        agent_type="input_guard",
+        action="input_guard_blocked",
+        input_data={"message": message},
+        output_data={
+            "category": guard_result.get("reason", "unknown"),
+            "blocked_response": guard_result.get("blocked_response", ""),
+        },
+    ))

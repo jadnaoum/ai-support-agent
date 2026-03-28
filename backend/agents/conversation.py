@@ -12,7 +12,7 @@ import litellm
 
 from backend.config import get_settings
 from backend.agents.state import AgentState
-from backend.guardrails.input_guard import check_input
+from backend.guardrails.input_guard import check_input, log_blocked_attempt
 from backend.guardrails.output_guard import check_output
 from prompts.loader import get_prompt
 
@@ -139,6 +139,12 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
         )
         guard = await check_input(last_message)
         if not guard["safe"]:
+            # Persist audit log for blocked attempts (skip in test mode where conversation_id is "")
+            _db = config.get("configurable", {}).get("db")
+            _conv_id = config.get("configurable", {}).get("conversation_id", "")
+            if _db and _conv_id:
+                await log_blocked_attempt(_db, _conv_id, last_message, guard)
+                await _db.commit()
             return {
                 "response": guard["blocked_response"],
                 "pending_service": "",

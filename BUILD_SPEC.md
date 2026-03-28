@@ -371,6 +371,7 @@ Create synthetic e-commerce KB documents covering:
 - Classify input for prompt injection attempts — reject with safe message
 - Classify input for off-topic or abusive content — redirect politely
 - Pass clean input to conversation agent
+- **Audit logging**: every blocked attempt is written to `audit_logs` with `action="input_guard_blocked"`, `agent_type="input_guard"`, `input_data={"message": <original message>}`, and `output_data={"category": <prompt_injection|abusive|off_topic>, "blocked_response": <redirect message>}`. Enables post-hoc analysis of guard behavior without a separate table. Only written on the live SSE path (not the test endpoint).
 
 ### Output guardrails (run after agent response, before sending to customer)
 - Check for hallucinated specifics: order numbers, dates, prices that weren't in the retrieved context
