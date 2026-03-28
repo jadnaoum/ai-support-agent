@@ -407,7 +407,11 @@ def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float):
         response_text = str(agent_resp.get("response", "") or "")
         ws.cell(row, col + 1, response_text[:500])
 
-        ws.cell(row, col + 2, result.get("reasoning", ""))
+        reasoning = result.get("reasoning", "")
+        failure_reason = result.get("failure_reason")
+        if failure_reason:
+            reasoning = f"[{failure_reason}] {reasoning}"
+        ws.cell(row, col + 2, reasoning)
 
 
 def _ensure_run_history_sheet(wb) -> openpyxl.worksheet.worksheet.Worksheet:

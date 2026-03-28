@@ -6,7 +6,8 @@ Uses LLM-as-judge with per-sheet rubrics. Sonnet by default; Opus when --calibra
 All calls go through LiteLLM.
 
 All async functions return:
-    {"verdict": "pass"|"partial"|"fail", "score": 1.0|0.5|0.0, "reasoning": str}
+    {"verdict": "pass"|"fail", "score": 1.0|0.0, "reasoning": str,
+     "failure_reason": str|None, "cost_usd": float}
 """
 import json
 import os
@@ -18,13 +19,19 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from evals.config import JUDGE_MODEL_BEHAVIORAL, JUDGE_MODEL_CALIBRATION  # noqa: E402
 
 
-def _verdict(result: str, reasoning: str, cost_usd: float = 0.0) -> dict:
-    scores = {"pass": 1.0, "partial": 0.5, "fail": 0.0}
-    return {"verdict": result, "score": scores.get(result, 0.0), "reasoning": reasoning, "cost_usd": cost_usd}
+def _verdict(result: str, reasoning: str, failure_reason: str = None, cost_usd: float = 0.0) -> dict:
+    scores = {"pass": 1.0, "fail": 0.0}
+    return {
+        "verdict": result,
+        "score": scores.get(result, 0.0),
+        "reasoning": reasoning,
+        "failure_reason": failure_reason,
+        "cost_usd": cost_usd,
+    }
 
 
 async def _llm_judge(prompt: str, calibrate: bool = False) -> dict:
-    """Call LLM judge; return structured verdict with actual cost. Returns 'partial' on any failure."""
+    """Call LLM judge; return structured verdict with actual cost. Returns 'fail' on any error."""
     model = JUDGE_MODEL_CALIBRATION if calibrate else JUDGE_MODEL_BEHAVIORAL
     try:
         result = await litellm.acompletion(
@@ -42,12 +49,17 @@ async def _llm_judge(prompt: str, calibrate: bool = False) -> dict:
             if raw.startswith("json"):
                 raw = raw[4:]
         parsed = json.loads(raw.strip())
-        v = parsed.get("verdict", "partial")
+        v = parsed.get("verdict", "fail")
+        # Normalise partial → fail
+        if v == "partial":
+            v = "fail"
         r = parsed.get("reasoning", "No reasoning provided.")
-        scores = {"pass": 1.0, "partial": 0.5, "fail": 0.0}
-        return {"verdict": v, "score": scores.get(v, 0.5), "reasoning": r, "cost_usd": cost}
+        fr = parsed.get("failure_reason") if v == "fail" else None
+        scores = {"pass": 1.0, "fail": 0.0}
+        return {"verdict": v, "score": scores.get(v, 0.0), "reasoning": r,
+                "failure_reason": fr, "cost_usd": cost}
     except Exception as e:
-        return _verdict("partial", f"Judge call failed: {e}")
+        return _verdict("fail", f"Judge call failed: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +79,7 @@ Agent's actual response: {agent_response}
 Services called by agent: {actions_taken}
 
 Evaluate strictly against the rubric. Respond with JSON only:
-{{"verdict": "pass"|"partial"|"fail", "reasoning": "2-3 sentences explaining your verdict"}}"""
+{{"verdict": "pass"|"fail", "reasoning": "2-3 sentences explaining your verdict", "failure_reason": "<one of the enum values from the rubric, or null if pass>"}}"""
 
 
 async def judge_kb_retrieval(test_case: dict, agent_response: dict, calibrate: bool = False) -> dict:
@@ -104,7 +116,7 @@ Agent escalated: {requires_escalation}
 Focus on: (1) was the correct tool called? (2) were the arguments correct? (3) did the agent accurately report the result?
 
 Respond with JSON only:
-{{"verdict": "pass"|"partial"|"fail", "reasoning": "2-3 sentences explaining your verdict"}}"""
+{{"verdict": "pass"|"fail", "reasoning": "2-3 sentences explaining your verdict", "failure_reason": "<one of the enum values from the rubric, or null if pass>"}}"""
 
 
 async def judge_action_execution(test_case: dict, agent_response: dict, calibrate: bool = False) -> dict:
@@ -141,7 +153,7 @@ Agent's escalation reason: {escalation_reason_actual}
 Actions taken: {actions_taken}
 
 Respond with JSON only:
-{{"verdict": "pass"|"partial"|"fail", "reasoning": "2-3 sentences explaining your verdict"}}"""
+{{"verdict": "pass"|"fail", "reasoning": "2-3 sentences explaining your verdict", "failure_reason": "<one of the enum values from the rubric, or null if pass>"}}"""
 
 
 async def judge_escalation(test_case: dict, agent_response: dict, calibrate: bool = False) -> dict:
@@ -177,7 +189,7 @@ Focus on empathy, clarity, professionalism, and whether the tone matches the sce
 Do NOT evaluate factual correctness — only tone and communication quality.
 
 Respond with JSON only:
-{{"verdict": "pass"|"partial"|"fail", "reasoning": "2-3 sentences on tone and quality"}}"""
+{{"verdict": "pass"|"fail", "reasoning": "2-3 sentences on tone and quality", "failure_reason": "<one of the enum values from the rubric, or null if pass>"}}"""
 
 
 async def judge_conversation_quality(test_case: dict, agent_response: dict, calibrate: bool = False) -> dict:
