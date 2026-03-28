@@ -157,7 +157,7 @@ def _row_to_dict(ws, row_idx: int) -> dict:
 # KB reference content lookup
 # ---------------------------------------------------------------------------
 
-async def _fetch_kb_reference_content(titles: list) -> str | None:
+async def _fetch_kb_reference_content(titles: list) -> "str | None":
     """
     Fetch and concatenate KB chunk texts for the given article titles.
     Uses a deterministic title lookup (not similarity search).
@@ -473,6 +473,298 @@ def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float,
             ws.cell(row, col + 4 + j, str(agent_resp.get(key) or ""))
 
 
+# ---------------------------------------------------------------------------
+# Analysis sheet
+# ---------------------------------------------------------------------------
+
+def _build_analysis_sheet(wb):
+    """
+    Build (or rebuild) the Analysis sheet as the first sheet in the workbook.
+
+    Table 1  — pass rate per eval sheet × version_tag (COUNTIF/COUNTA formulas).
+    Tables 2-12 — failure reason count + % per eval sheet × version_tag.
+
+    All values are Excel formulas so they update when test data changes.
+    The sheet is recreated from scratch on every run so it always reflects
+    the current set of version_tags and failure reasons.
+    """
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter, column_index_from_string
+    from openpyxl.formatting.rule import CellIsRule
+
+    ROW_LIMIT = 300   # upper bound for COUNTIF ranges — covers 215+ cases
+
+    # ── 1. Collect version tags from Run History (chronological, deduplicated) ──
+    tags = []
+    if RUN_HISTORY_SHEET in wb.sheetnames:
+        rh = wb[RUN_HISTORY_SHEET]
+        vt_col = next(
+            (c for c in range(1, rh.max_column + 1) if rh.cell(1, c).value == "version_tag"),
+            None,
+        )
+        if vt_col:
+            seen: set = set()
+            for row in range(2, rh.max_row + 1):
+                tag = rh.cell(row, vt_col).value
+                if tag and tag not in seen:
+                    seen.add(tag)
+                    tags.append(str(tag))
+
+    # ── 2. For each eval sheet, map tag → (verdict_col_letter, fr_col_letter) ──
+    # Verdict column headers look like  "v1.0_baseline ($0.041)"
+    # Failure_reason column is always verdict_col + 3.
+    sheet_cols: dict = {}   # {sheet_name: {tag: (verdict_letter, fr_letter)}}
+    for sheet_name in SHEET_NAMES:
+        if sheet_name not in wb.sheetnames:
+            continue
+        ws = wb[sheet_name]
+        sheet_cols[sheet_name] = {}
+        for tag in tags:
+            for c in range(1, ws.max_column + 1):
+                v = ws.cell(2, c).value
+                if v and str(v).startswith(f"{tag} ($"):
+                    sheet_cols[sheet_name][tag] = (
+                        get_column_letter(c),
+                        get_column_letter(c + 3),
+                    )
+                    break
+
+    # ── 3. Collect distinct failure reasons per sheet (across all runs) ──
+    sheet_reasons: dict = {}  # {sheet_name: [sorted reason strings]}
+    for sheet_name, tag_map in sheet_cols.items():
+        ws = wb[sheet_name]
+        reasons: set = set()
+        for _, fr_col in tag_map.values():
+            fr_idx = column_index_from_string(fr_col)
+            for row in range(3, ws.max_row + 1):
+                v = ws.cell(row, fr_idx).value
+                if v and str(v).strip():
+                    reasons.add(str(v).strip())
+        sheet_reasons[sheet_name] = sorted(reasons)
+
+    # ── 4. Create / replace Analysis sheet at position 0 ──────────────────────
+    if "Analysis" in wb.sheetnames:
+        del wb["Analysis"]
+    ws_a = wb.create_sheet("Analysis", 0)
+
+    # Local style objects (don't collide with module-level fills)
+    HDR_FILL   = PatternFill("solid", fgColor="E8EAF6")   # same as FILL_HEADER
+    SEC_FILL   = PatternFill("solid", fgColor="EDE7F6")   # slightly darker for section labels
+    CF_GREEN   = PatternFill("solid", fgColor="E6F4EA")   # matches FILL_PASS
+    CF_AMBER   = PatternFill("solid", fgColor="FFF3E0")   # matches FILL_PARTIAL
+    CF_RED     = PatternFill("solid", fgColor="FCE4EC")   # matches FILL_FAIL
+    BOLD       = Font(bold=True)
+    WRAP_TOP   = Alignment(wrap_text=True,  vertical="top")
+    CENTER_MID = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    n_tags     = len(tags)
+    last_col   = max(2, 1 + n_tags)   # rightmost column used
+
+    # ── 5. Table 1 — Pass rate by eval sheet ──────────────────────────────────
+
+    # Row 1: column headers
+    h = ws_a.cell(1, 1, "Eval sheet")
+    h.font = BOLD; h.fill = HDR_FILL; h.alignment = CENTER_MID
+
+    for j, tag in enumerate(tags, start=2):
+        c = ws_a.cell(1, j, tag)
+        c.font = BOLD; c.fill = HDR_FILL; c.alignment = CENTER_MID
+
+    # Rows 2-12: one per eval sheet
+    for i, sheet_name in enumerate(SHEET_NAMES, start=2):
+        ws_a.cell(i, 1, sheet_name).font = BOLD
+
+        tag_map = sheet_cols.get(sheet_name, {})
+        for j, tag in enumerate(tags, start=2):
+            if tag not in tag_map:
+                continue
+            verdict_col, _ = tag_map[tag]
+            sn = sheet_name.replace("'", "''")   # escape single quotes in sheet names
+            formula = (
+                f"=IFERROR("
+                f"COUNTIF('{sn}'!{verdict_col}3:{verdict_col}{ROW_LIMIT},\"PASS\")"
+                f"/COUNTA('{sn}'!A3:A{ROW_LIMIT})"
+                f",0)"
+            )
+            cell = ws_a.cell(i, j, formula)
+            cell.number_format = "0%"
+            cell.alignment = CENTER_MID
+
+    # Conditional formatting on the pass-rate data block (B2:last_col × 12)
+    if n_tags > 0:
+        cf_range = f"B2:{get_column_letter(last_col)}{1 + len(SHEET_NAMES)}"
+        ws_a.conditional_formatting.add(
+            cf_range,
+            CellIsRule(operator="greaterThanOrEqual", formula=["0.9"], fill=CF_GREEN),
+        )
+        ws_a.conditional_formatting.add(
+            cf_range,
+            CellIsRule(operator="between", formula=["0.7", "0.8999"], fill=CF_AMBER),
+        )
+        ws_a.conditional_formatting.add(
+            cf_range,
+            CellIsRule(operator="lessThan", formula=["0.7"], fill=CF_RED),
+        )
+
+    # ── 6. Tables 2-12 — Failure reason breakdowns ────────────────────────────
+
+    current_row = 1 + len(SHEET_NAMES) + 2   # blank row after Table 1
+
+    for sheet_name in SHEET_NAMES:
+        reasons = sheet_reasons.get(sheet_name, [])
+        tag_map  = sheet_cols.get(sheet_name, {})
+        sn       = sheet_name.replace("'", "''")
+
+        # Section label (merged across all columns)
+        ws_a.merge_cells(
+            start_row=current_row, start_column=1,
+            end_row=current_row,   end_column=last_col,
+        )
+        lbl = ws_a.cell(current_row, 1, f"Failure reasons: {sheet_name}")
+        lbl.font = BOLD; lbl.fill = SEC_FILL; lbl.alignment = CENTER_MID
+        current_row += 1
+
+        # Sub-header row
+        ws_a.cell(current_row, 1, "failure_reason").font = BOLD
+        ws_a.cell(current_row, 1).fill = HDR_FILL
+        for j, tag in enumerate(tags, start=2):
+            c = ws_a.cell(current_row, j, tag)
+            c.font = BOLD; c.fill = HDR_FILL; c.alignment = CENTER_MID
+        current_row += 1
+
+        if not reasons:
+            ws_a.cell(current_row, 1, "(no failure reasons recorded)")
+            current_row += 2   # data row + blank separator
+            continue
+
+        for reason in reasons:
+            ws_a.cell(current_row, 1, reason).alignment = WRAP_TOP
+            for j, tag in enumerate(tags, start=2):
+                if tag not in tag_map:
+                    continue
+                _, fr_col = tag_map[tag]
+                cnt = f"COUNTIF('{sn}'!{fr_col}3:{fr_col}{ROW_LIMIT},\"{reason}\")"
+                tot = f"COUNTA('{sn}'!A3:A{ROW_LIMIT})"
+                formula = f'=IFERROR({cnt}&" ("&TEXT({cnt}/{tot},"0%")&")","0 (0%)")'
+                ws_a.cell(current_row, j, formula).alignment = CENTER_MID
+            current_row += 1
+
+        current_row += 1   # blank row between tables
+
+    # ── 7. Column widths + zoom ────────────────────────────────────────────────
+    ws_a.column_dimensions["A"].width = 32
+    for j in range(2, last_col + 1):
+        ws_a.column_dimensions[get_column_letter(j)].width = 18
+
+    ws_a.sheet_view.zoomScale = 125
+
+
+# ---------------------------------------------------------------------------
+# Formatting helpers
+# ---------------------------------------------------------------------------
+
+# Width of the extra (non-standard) columns appended by _SHEET_EXTRA_COLS
+_EXTRA_COL_WIDTH = 50
+
+# Run History column widths keyed by header string
+_RH_COL_WIDTHS = {
+    "run_id": 12, "date": 18, "version_tag": 16, "change_description": 45,
+    "eval_type": 16, "pass%": 10, "total_tokens": 14, "total_cost_usd": 16,
+    "judge_model": 20, "notes": 45,
+}
+
+# Repeating 4-column pattern for result groups on test sheets
+_RESULT_COL_WIDTHS = [18, 55, 50, 30]  # score, response, reasoning, failure_reason
+
+
+def _format_test_sheet(ws):
+    """
+    Apply aesthetic formatting to a test case sheet (all sheets except Run History).
+
+    - Freeze panes at (row 3, first result column) so header rows and static
+      test-case columns stay fixed while scrolling.
+    - Result columns: wrap_text=True, vertical='top', widths follow the
+      repeating 4-column pattern [score=18, response=55, reasoning=50,
+      failure_reason=30]. Extra (5th+) columns per group use _EXTRA_COL_WIDTH.
+    - Zoom set to 125%.
+
+    The first result column is detected by scanning row-2 headers for the
+    pattern " ($" which the runner always writes into verdict-column headers
+    (e.g. "v1.0_baseline ($0.041)").
+    """
+    from openpyxl.styles import Alignment
+    from openpyxl.utils import get_column_letter
+
+    # Detect first result column
+    first_result_col = None
+    for c in range(1, ws.max_column + 1):
+        v = ws.cell(2, c).value
+        if v and " ($" in str(v):
+            first_result_col = c
+            break
+
+    if first_result_col is None:
+        # No run columns yet — just set zoom
+        ws.sheet_view.zoomScale = 125
+        return
+
+    # Freeze panes: rows 1-2 + all static columns stay fixed
+    ws.freeze_panes = ws.cell(3, first_result_col)
+
+    # Width + alignment for every result column
+    wrap_top = Alignment(wrap_text=True, vertical="top")
+    for c in range(first_result_col, ws.max_column + 1):
+        offset = c - first_result_col
+        # Each run group = 4 standard columns + any extra columns for this sheet.
+        # Within a group: positions 0-3 use _RESULT_COL_WIDTHS; position 4+
+        # (extra columns like escalation_summary) use _EXTRA_COL_WIDTH.
+        n_extra = len(_SHEET_EXTRA_COLS.get(ws.title, []))
+        group_width = 4 + n_extra
+        pos_in_group = offset % group_width
+        width = _RESULT_COL_WIDTHS[pos_in_group] if pos_in_group < 4 else _EXTRA_COL_WIDTH
+        ws.column_dimensions[get_column_letter(c)].width = width
+
+        for row in range(3, ws.max_row + 1):
+            ws.cell(row, c).alignment = wrap_top
+
+    ws.sheet_view.zoomScale = 125
+
+
+def _format_run_history_sheet(ws):
+    """
+    Apply aesthetic formatting to the Run History sheet.
+
+    - Column widths from _RH_COL_WIDTHS.
+    - judge_model column: wrap_text=False (clipped — only readable when selected).
+    - All other columns: wrap_text=True, vertical='top'.
+    - Zoom set to 125%.
+    """
+    from openpyxl.styles import Alignment
+    from openpyxl.utils import get_column_letter
+
+    # Find judge_model column index
+    judge_model_col = None
+    for c in range(1, ws.max_column + 1):
+        if ws.cell(1, c).value == "judge_model":
+            judge_model_col = c
+            break
+
+    # Column widths (keyed by row-1 header)
+    for c in range(1, ws.max_column + 1):
+        header = ws.cell(1, c).value
+        if header in _RH_COL_WIDTHS:
+            ws.column_dimensions[get_column_letter(c)].width = _RH_COL_WIDTHS[header]
+
+    # Cell alignment for data rows
+    wrap_top  = Alignment(wrap_text=True,  vertical="top")
+    clip_top  = Alignment(wrap_text=False, vertical="top")
+    for row in range(2, ws.max_row + 1):
+        for c in range(1, ws.max_column + 1):
+            ws.cell(row, c).alignment = clip_top if c == judge_model_col else wrap_top
+
+    ws.sheet_view.zoomScale = 125
+
+
 def _ensure_run_history_sheet(wb) -> openpyxl.worksheet.worksheet.Worksheet:
     """Create or return the Run History sheet."""
     if RUN_HISTORY_SHEET in wb.sheetnames:
@@ -708,7 +1000,14 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool):
     run_id = rh_ws.max_row
     _append_run_history(rh_ws, run_id, tag, desc, sheet_pass_rates, sheet_costs, sheet_tokens, calibrate)
 
-    # 6. Save
+    # 6. Rebuild Analysis sheet, apply formatting, then save
+    _build_analysis_sheet(wb)
+    for sheet_name in SHEET_NAMES:
+        if sheet_name in wb.sheetnames:
+            _format_test_sheet(wb[sheet_name])
+    if RUN_HISTORY_SHEET in wb.sheetnames:
+        _format_run_history_sheet(wb[RUN_HISTORY_SHEET])
+
     wb.save(TEST_CASES_FILE)
     print(f"Updated {TEST_CASES_FILE} with results.")
 

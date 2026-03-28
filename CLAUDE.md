@@ -300,6 +300,24 @@ python evals/run_evals.py --tag "v1.1" --desc "intent fix" --sheets "Input Guard
 - `conversation_agent` node description updated with clarification capping logic
 - Eval framework section updated: binary Pass/Fail scoring, `failure_reason` enums per sheet, updated judge JSON example, updated per-sheet run column description, KB Retrieval reference content approach documented
 
+### Post-Phase 5 changes continued (2026-03-28) — eval framework formatting + Analysis sheet
+
+**Excel formatting applied on every run (`evals/run_evals.py`):**
+- `_format_test_sheet(ws)` — called for all 11 eval sheets after each run: freeze panes at (row 3, first result column); result columns get `wrap_text=True`, `vertical='top'`; column widths follow repeating 4-col pattern `[score=18, response=55, reasoning=50, failure_reason=30]`; extra columns (e.g. Escalation's `escalation_summary`) use width 50; zoom set to 125%. First result column detected by scanning row-2 headers for the `" ($"` pattern always present in verdict column headers.
+- `_format_run_history_sheet(ws)` — called for Run History after each run: named column widths (`run_id=12`, `date=18`, `version_tag=16`, `change_description=45`, `eval_type=16`, `pass%=10`, `total_tokens=14`, `total_cost_usd=16`, `judge_model=20`, `notes=45`); `judge_model` column gets `wrap_text=False` (clipped — readable only when selected); all other columns `wrap_text=True`, `vertical='top'`; zoom 125%.
+- Both formatters applied to all sheets (even unrun ones) on every save, so formatting is always consistent.
+- `_RESULT_COL_WIDTHS`, `_RH_COL_WIDTHS`, `_EXTRA_COL_WIDTH` constants defined at module level.
+- Group width for extra-column sheets: `group_width = 4 + len(_SHEET_EXTRA_COLS.get(ws.title, []))` so pattern cycling is correct for Escalation's 5-column groups.
+
+**Analysis sheet (`evals/run_evals.py` — `_build_analysis_sheet(wb)`):**
+- Rebuilt from scratch on every run; always positioned as the first (leftmost) sheet.
+- **Table 1 — Pass rate by eval sheet**: row 1 = `"Eval sheet"` + one column per version_tag (from Run History, chronological). Rows 2–12 = one per eval sheet. Each cell = `=IFERROR(COUNTIF(sheet!verdict_col...,"PASS")/COUNTA(sheet!A...),0)` formatted as `0%`. Conditional formatting on the data block: green (≥90%) / amber (70–89%) / red (<70%) using existing palette fills (`E6F4EA` / `FFF3E0` / `FCE4EC`).
+- **Tables 2–12 — Failure reason breakdowns**: one per eval sheet, separated by blank rows. Each has a merged section label, sub-header row (`failure_reason` + version tags), then one row per distinct failure_reason value found across all runs. Cell formula: `=IFERROR(COUNTIF(...)&" ("&TEXT(COUNTIF(...)/COUNTA(...),"0%")&")","0 (0%)")` so empty sheets show `0 (0%)` instead of an error.
+- Version tags and per-sheet column indices are detected dynamically (not hardcoded): tags from Run History `version_tag` column; verdict column found by scanning row-2 headers for `"{tag} ($"` pattern; failure_reason column = verdict_col + 3.
+- Failure reasons collected by scanning all failure_reason columns across all runs at build time; sorted alphabetically; sheets with no recorded reasons show `(no failure reasons recorded)`.
+- Column widths: col A = 32, data columns = 18. Zoom 125%.
+- Fixed pre-existing Python 3.9 incompatibility: `str | None` return annotation on `_fetch_kb_reference_content` changed to `"str | None"` (string form).
+
 **Next: Phase 4 — Frontend**
 - Typing indicator while agent streams
 - CSAT widget shown when conversation resolves
