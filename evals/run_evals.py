@@ -366,10 +366,10 @@ _SHEET_RUNNERS = {
 
 def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float):
     """
-    Append 3 columns to a test sheet for this run:
-      Row 1: merged group label showing the version tag (e.g. "v1.1_intent_fix")
-      Row 2: column headers — "{tag} ($X.XXX)", "{tag} response", "{tag} reasoning"
-      Row 3+: PASS / PARTIAL / FAIL (color-coded), response text, judge reasoning
+    Append 4 columns to a test sheet for this run:
+      Row 1: merged group label spanning all 4 columns (version tag)
+      Row 2: "{tag} ($X.XXX)", "{tag} response", "{tag} reasoning", "{tag} failure_reason"
+      Row 3+: PASS/FAIL (color-coded), response text, judge reasoning, failure_reason enum (or empty)
 
     Sheet layout: row 1 = group labels, row 2 = headers, row 3+ = data.
     """
@@ -377,12 +377,11 @@ def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float):
     from openpyxl.utils import get_column_letter
 
     col = ws.max_column + 1
-    fill_map  = {"pass": FILL_PASS, "partial": FILL_PARTIAL, "fail": FILL_FAIL}
-    label_map = {"pass": "PASS", "partial": "PARTIAL", "fail": "FAIL"}
+    fill_map  = {"pass": FILL_PASS, "fail": FILL_FAIL}
+    label_map = {"pass": "PASS", "fail": "FAIL"}
 
-    # Row 1: merged group label
-    end_col = get_column_letter(col + 2)
-    ws.merge_cells(f"{get_column_letter(col)}1:{end_col}1")
+    # Row 1: merged group label across all 4 columns
+    ws.merge_cells(f"{get_column_letter(col)}1:{get_column_letter(col + 3)}1")
     label_cell = ws.cell(1, col, tag)
     label_cell.fill = FILL_HEADER
     label_cell.font = FONT_BOLD
@@ -390,7 +389,8 @@ def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float):
 
     # Row 2: column headers
     verdict_header = f"{tag} (${sheet_cost:.3f})"
-    for offset, title in enumerate([verdict_header, f"{tag} response", f"{tag} reasoning"]):
+    for offset, title in enumerate([verdict_header, f"{tag} response",
+                                     f"{tag} reasoning", f"{tag} failure_reason"]):
         cell = ws.cell(2, col + offset, title)
         cell.fill = FILL_HEADER
         cell.font = FONT_BOLD
@@ -407,11 +407,10 @@ def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float):
         response_text = str(agent_resp.get("response", "") or "")
         ws.cell(row, col + 1, response_text[:500])
 
-        reasoning = result.get("reasoning", "")
-        failure_reason = result.get("failure_reason")
-        if failure_reason:
-            reasoning = f"[{failure_reason}] {reasoning}"
-        ws.cell(row, col + 2, reasoning)
+        ws.cell(row, col + 2, result.get("reasoning", ""))
+
+        failure_reason = result.get("failure_reason") if verdict == "fail" else None
+        ws.cell(row, col + 3, failure_reason or "")
 
 
 def _ensure_run_history_sheet(wb) -> openpyxl.worksheet.worksheet.Worksheet:
