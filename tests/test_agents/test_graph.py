@@ -86,9 +86,10 @@ def test_graph_has_expected_nodes():
 # Full graph invoke (mocked LLM + embedding)
 # ---------------------------------------------------------------------------
 
+@patch("backend.agents.conversation.check_output", new_callable=AsyncMock, return_value={"safe": True})
 @patch("backend.agents.knowledge_service.litellm.aembedding", new_callable=AsyncMock)
 @patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
-async def test_graph_invoke_knowledge_query_returns_response(mock_complete, mock_embed, db):
+async def test_graph_invoke_knowledge_query_returns_response(mock_complete, mock_embed, mock_guard, db):
     mock_embed.return_value = {"data": [{"embedding": [0.1] * 1536}]}
 
     # Dispatch by system prompt content to avoid side_effect list exhaustion on Python 3.9
@@ -110,8 +111,9 @@ async def test_graph_invoke_knowledge_query_returns_response(mock_complete, mock
     assert result["actions_taken"][0]["service"] == "knowledge_service"
 
 
+@patch("backend.agents.conversation.check_output", new_callable=AsyncMock, return_value={"safe": True})
 @patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
-async def test_graph_invoke_general_query_skips_knowledge_service(mock_complete, db):
+async def test_graph_invoke_general_query_skips_knowledge_service(mock_complete, mock_guard, db):
     async def dispatch(*args, **kwargs):
         messages = kwargs.get("messages", [])
         system = messages[0]["content"] if messages else ""

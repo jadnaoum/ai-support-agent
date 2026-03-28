@@ -2,62 +2,37 @@
 Output guardrail — runs after the conversation agent generates a response,
 before the response is sent to the customer.
 
-Rule-based checks (no LLM call — fast and deterministic):
-
-1. Impossible promise detection
-   Catches past-tense action claims ("I've cancelled your order", "I've processed
-   your refund") when the matching tool was NOT actually called this turn.
-   These would be hallucinations — the agent made up that it performed an action.
-
-2. Order ID hallucination detection
-   Catches UUID-format strings in the response that did not appear in any of the
-   agent's source material (retrieved KB chunks, action results, customer context).
+LLM-based check using LITELLM_GUARD_MODEL (Sonnet by default):
+Detects hallucinations, impossible promises, and policy violations that
+regex patterns cannot catch reliably. Checks for:
+  1. impossible_promise  — claims an action was done when the tool wasn't called
+  2. hallucinated_id     — fabricated order ID / tracking number / UUID
+  3. hallucinated_policy — invented policy details not in the KB
+  4. system_disclosure   — leaking system prompt or internal instructions
+  5. cross_customer_leak — mentioning another customer's data
+  6. speculative_claim   — presenting uncertain outcomes as guarantees
 
 Returns a dict:
   {"safe": True}
   {"safe": False, "reason": str}
+
+Fails closed on any LLM or parse error — blocks the response rather than
+letting unvalidated content through to the customer.
 """
+import json
 import re
-from typing import Optional
+import uuid as uuid_mod
+
+import litellm
 
 from backend.agents.state import AgentState
+from backend.config import get_settings
+from prompts.loader import get_prompt
 
-# ---------------------------------------------------------------------------
-# Impossible promise detection
-# ---------------------------------------------------------------------------
+settings = get_settings()
 
-# Maps action keywords in the response → tool name that must appear in actions_taken
-_PROMISE_PATTERNS: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"\b(i'?ve|i have)\s+(cancelled|canceled)\b", re.IGNORECASE), "cancel_order"),
-    (re.compile(r"\b(i'?ve|i have)\s+(processed|initiated|submitted)\s+.{0,30}refund", re.IGNORECASE), "process_refund"),
-    (re.compile(r"\byour (order|refund) (has been|have been)\s+(cancelled|canceled|processed|initiated)", re.IGNORECASE), "cancel_order"),
-    (re.compile(r"\brefund has been (processed|initiated|approved)", re.IGNORECASE), "process_refund"),
-]
-
-
-def _tools_used(state: AgentState) -> set[str]:
-    """Return the set of tool names that were actually called this turn."""
-    return {
-        a.get("action", "")
-        for a in (state.get("actions_taken") or [])
-    }
-
-
-def _check_impossible_promises(response: str, state: AgentState) -> Optional[dict]:
-    """Return a failed guard result if the response makes an impossible promise."""
-    used = _tools_used(state)
-    for pattern, required_tool in _PROMISE_PATTERNS:
-        if pattern.search(response) and required_tool not in used:
-            return {
-                "safe": False,
-                "reason": "impossible_promise",
-            }
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Order ID hallucination detection
-# ---------------------------------------------------------------------------
+# PROMPT — edit in prompts/production.yaml
+OUTPUT_GUARD_PROMPT = get_prompt("output_guard_prompt")
 
 _UUID_RE = re.compile(
     r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
@@ -65,70 +40,111 @@ _UUID_RE = re.compile(
 )
 
 
-def _known_ids(state: AgentState) -> set[str]:
-    """Collect all UUIDs/IDs that were legitimately present in the agent's context."""
-    ids: set[str] = set()
+def _build_guard_context(response: str, state: AgentState) -> str:
+    """Assemble the filled OUTPUT_GUARD_PROMPT string from state."""
+    # Recent customer messages (last 6)
+    customer_msgs = [
+        m["content"] for m in (state.get("messages") or [])
+        if m.get("role") == "customer"
+    ]
+    conversation = "\n".join(f"- {m}" for m in customer_msgs[-6:]) or "(none)"
 
-    # Customer context: recent order IDs
+    # Tools called this turn + their results
+    actions = state.get("actions_taken") or []
+    action_results = state.get("action_results") or []
+    tools_payload = {
+        "tools_called": [
+            {"tool": a.get("action", ""), "service": a.get("service", "")}
+            for a in actions
+        ],
+        "results": action_results,
+    }
+    tools_called = json.dumps(tools_payload, indent=2)
+
+    # IDs legitimately present in this conversation's context
+    ids: set[str] = set()
     ctx = state.get("customer_context") or {}
     for order in ctx.get("recent_orders") or []:
         oid = order.get("order_id", "")
         if oid:
-            ids.add(oid.lower())
-
-    # Action results (tool outputs contain order IDs, refund IDs, etc.)
-    for result in state.get("action_results") or []:
+            ids.add(oid)
+    for result in action_results:
         if isinstance(result, dict):
             for v in result.values():
                 if isinstance(v, str) and _UUID_RE.match(v):
-                    ids.add(v.lower())
-
-    # Retrieved KB chunks — unlikely to contain UUIDs but scan anyway
+                    ids.add(v)
     for chunk in state.get("retrieved_context") or []:
-        text = chunk.get("chunk_text", "")
-        for match in _UUID_RE.finditer(text):
-            ids.add(match.group().lower())
-
-    # Customer message history — agent may legitimately echo back an ID the
-    # customer mentioned
+        for match in _UUID_RE.finditer(chunk.get("chunk_text", "")):
+            ids.add(match.group())
     for msg in state.get("messages") or []:
         if msg.get("role") == "customer":
             for match in _UUID_RE.finditer(msg.get("content", "")):
-                ids.add(match.group().lower())
+                ids.add(match.group())
+    known_ids = ", ".join(sorted(ids)) if ids else "(none)"
 
-    return ids
+    # KB content retrieved this turn (cap at ~2000 chars to keep prompt size bounded)
+    chunks = state.get("retrieved_context") or []
+    kb_parts = [c.get("chunk_text", "") for c in chunks]
+    kb_content = ("\n\n---\n\n".join(kb_parts))[:2000] or "(none)"
+
+    return OUTPUT_GUARD_PROMPT.format(
+        response=response,
+        conversation=conversation,
+        tools_called=tools_called,
+        known_ids=known_ids,
+        kb_content=kb_content,
+    )
 
 
-def _check_id_hallucination(response: str, state: AgentState) -> Optional[dict]:
-    """Return a failed guard result if the response contains a UUID not in the context."""
-    known = _known_ids(state)
-    for match in _UUID_RE.finditer(response):
-        if match.group().lower() not in known:
-            return {
-                "safe": False,
-                "reason": "hallucinated_id",
-            }
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-def check_output(response: str, state: AgentState) -> dict:
+async def check_output(response: str, state: AgentState) -> dict:
     """
-    Check the agent's response before it is sent to the customer.
+    Check the agent's draft response before it reaches the customer.
 
     Returns:
         {"safe": True} if the response passes all checks.
-        {"safe": False, "reason": str} if any check fails.
+        {"safe": False, "reason": str} if the response should be blocked.
+
+    Fails closed on any LLM error or parse failure.
     """
-    result = _check_impossible_promises(response, state)
-    if result:
-        return result
+    prompt = _build_guard_context(response, state)
+    try:
+        result = await litellm.acompletion(
+            model=settings.litellm_guard_model,
+            messages=[{"role": "user", "content": prompt}],
+            stream=False,
+        )
+        raw = result.choices[0].message.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        parsed = json.loads(raw.strip())
+        if parsed.get("verdict") == "pass":
+            return {"safe": True}
+        return {
+            "safe": False,
+            "reason": parsed.get("failure_type") or "unknown",
+        }
+    except Exception:
+        # Fail closed — never let unvalidated content through on guard error
+        return {"safe": False, "reason": "guard_error"}
 
-    result = _check_id_hallucination(response, state)
-    if result:
-        return result
 
-    return {"safe": True}
+async def log_output_guard_blocked(
+    db, conversation_id: str, draft_response: str, reason: str
+) -> None:
+    """Write an audit_logs entry when the output guard blocks a response.
+
+    Only called on the live SSE path (conversation_id non-empty).
+    The DB add is unflushed — caller is responsible for committing.
+    """
+    from backend.db.models import AuditLog  # local import avoids circular deps at module load
+
+    db.add(AuditLog(
+        id=str(uuid_mod.uuid4()),
+        conversation_id=conversation_id,
+        agent_type="output_guard",
+        action="output_guard_blocked",
+        input_data={"draft_response": draft_response},
+        output_data={"failure_reason": reason},
+    ))

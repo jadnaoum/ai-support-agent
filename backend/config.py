@@ -9,6 +9,7 @@ class Settings(BaseSettings):
 
     # LLM (via LiteLLM)
     litellm_model: str = "claude-sonnet-4-6"
+    litellm_guard_model: str = "claude-sonnet-4-6"  # model for input/output guard LLM calls; swap to a cheaper model once validated
     litellm_embedding_model: str = "text-embedding-3-small"
     anthropic_api_key: str = ""
     openai_api_key: str = ""

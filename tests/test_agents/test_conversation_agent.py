@@ -80,8 +80,9 @@ async def test_escalation_request_sets_requires_escalation(mock_complete):
     assert result["pending_service"] == "escalation"
 
 
+@patch("backend.agents.conversation.check_output", new_callable=AsyncMock, return_value={"safe": True})
 @patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
-async def test_general_intent_responds_directly(mock_complete):
+async def test_general_intent_responds_directly(mock_complete, mock_guard):
     async def dispatch(*args, **kwargs):
         messages = kwargs.get("messages", [])
         system = messages[0]["content"] if messages else ""
@@ -96,8 +97,9 @@ async def test_general_intent_responds_directly(mock_complete):
     assert result["pending_service"] == ""
 
 
+@patch("backend.agents.conversation.check_output", new_callable=AsyncMock, return_value={"safe": True})
 @patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
-async def test_malformed_intent_json_falls_back_to_general(mock_complete):
+async def test_malformed_intent_json_falls_back_to_general(mock_complete, mock_guard):
     async def dispatch(*args, **kwargs):
         messages = kwargs.get("messages", [])
         system = messages[0]["content"] if messages else ""
@@ -119,8 +121,9 @@ async def test_malformed_intent_json_falls_back_to_general(mock_complete):
 FAKE_KB_ACTION = [{"service": "knowledge_service", "action": "search_kb", "chunks_retrieved": 1}]
 
 
+@patch("backend.agents.conversation.check_output", new_callable=AsyncMock, return_value={"safe": True})
 @patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
-async def test_generates_response_with_kb_context(mock_complete):
+async def test_generates_response_with_kb_context(mock_complete, mock_guard):
     mock_complete.return_value = make_completion_response(
         "Your return window is 30 days for most items."
     )
@@ -153,8 +156,9 @@ async def test_response_pass_uses_top_chunk_similarity_as_confidence(mock_comple
     assert abs(result["confidence"] - 0.87) < 0.01
 
 
+@patch("backend.agents.conversation.check_output", new_callable=AsyncMock, return_value={"safe": True})
 @patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
-async def test_system_prompt_includes_kb_context(mock_complete):
+async def test_system_prompt_includes_kb_context(mock_complete, mock_guard):
     mock_complete.return_value = make_completion_response("Answer.")
     state = make_state(
         retrieved_context=[

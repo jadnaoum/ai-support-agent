@@ -13,7 +13,7 @@ import litellm
 from backend.config import get_settings
 from backend.agents.state import AgentState
 from backend.guardrails.input_guard import check_input, log_blocked_attempt
-from backend.guardrails.output_guard import check_output
+from backend.guardrails.output_guard import check_output, log_output_guard_blocked
 from prompts.loader import get_prompt
 
 settings = get_settings()
@@ -230,7 +230,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 "clarification_prompt",
                 "Could you provide a bit more detail so I can help you?",
             )
-            out_guard = check_output(clarification_question, state)
+            out_guard = await check_output(clarification_question, state)
             if out_guard["safe"]:
                 return {
                     "response": clarification_question,
@@ -239,7 +239,12 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                     "last_turn_was_clarification": True,
                     "consecutive_blocks": 0,
                 }
-            # Output guard blocked the clarifying question — escalate
+            # Output guard blocked the clarifying question — log and escalate
+            _db = config.get("configurable", {}).get("db")
+            _conv_id = config.get("configurable", {}).get("conversation_id", "")
+            if _db and _conv_id:
+                await log_output_guard_blocked(_db, _conv_id, clarification_question, out_guard["reason"])
+                await _db.commit()
             return {
                 "pending_service": "escalation",
                 "requires_escalation": True,
@@ -251,8 +256,13 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
 
         # general — answer directly without a service call
         response = await _generate_response(state)
-        out_guard = check_output(response, state)
+        out_guard = await check_output(response, state)
         if not out_guard["safe"]:
+            _db = config.get("configurable", {}).get("db")
+            _conv_id = config.get("configurable", {}).get("conversation_id", "")
+            if _db and _conv_id:
+                await log_output_guard_blocked(_db, _conv_id, response, out_guard["reason"])
+                await _db.commit()
             return {
                 "pending_service": "escalation",
                 "requires_escalation": True,
@@ -293,8 +303,13 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
     response = await _generate_response(state)
     top_similarity = retrieved[0]["similarity"] if retrieved else state.get("confidence", 1.0)
 
-    out_guard = check_output(response, state)
+    out_guard = await check_output(response, state)
     if not out_guard["safe"]:
+        _db = config.get("configurable", {}).get("db")
+        _conv_id = config.get("configurable", {}).get("conversation_id", "")
+        if _db and _conv_id:
+            await log_output_guard_blocked(_db, _conv_id, response, out_guard["reason"])
+            await _db.commit()
         return {
             "pending_service": "escalation",
             "requires_escalation": True,

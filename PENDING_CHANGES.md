@@ -58,7 +58,7 @@ Files: `backend/agents/conversation.py` — edit `INTENT_PROMPT` (add new intent
 
 ## Output guard improvements
 
-### 9. Replace rule-based output guard with cheap LLM check
+### 9. Replace rule-based output guard with cheap LLM check ✓ DONE 2026-03-28
 The current regex-based output guard is brittle — it only catches exact phrasings and misses creative wordings. Replace with a cheap LLM call (same `LITELLM_GUARD_MODEL` as #1) that checks: "Does the response claim any action that wasn't in the tools list? Does it contain any IDs not in the known set?" Catches every phrasing, every language. Cost: pennies per call on Haiku. Latency: 200-500ms, barely noticeable since the customer has been watching the response stream in.
 
 File: `backend/guardrails/output_guard.py`
@@ -72,7 +72,7 @@ After 100+ conversations, query "all audit logs where action = output_guard_bloc
 
 **Eval action:** None — infrastructure/logging only. But the logged data becomes input for writing new eval cases over time (production feedback loop).
 
-### 14. Output guard: add impossible_promise detection
+### 14. Output guard: add impossible_promise detection ✓ DONE 2026-03-28 (superseded by #9)
 The rule-based output guard (44% baseline pass rate) misses several failure categories: fabricated tracking numbers, cross-customer data leaks, system prompt disclosure, and speculative claims ("might arrive a day early"). These are all `impossible_promise` variants that regex can't catch reliably. This is a stop-gap — item #9 (LLM-based output guard) replaces the approach entirely, but documenting the specific gaps here feeds the eval cases and the LLM guard prompt when #9 is built.
 
 File: `backend/guardrails/output_guard.py`

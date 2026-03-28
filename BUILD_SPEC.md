@@ -377,9 +377,11 @@ Create synthetic e-commerce KB documents covering:
   - Block 3: escalate to human with reason `repeated_blocks`.
 
 ### Output guardrails (run after agent response, before sending to customer)
-- Check for hallucinated specifics: order numbers, dates, prices that weren't in the retrieved context
-- Check for impossible promises: "I've processed your refund" when the tool wasn't actually called
-- If confidence < 0.7 (configurable), escalate instead of responding
+- LLM-based check using `LITELLM_GUARD_MODEL` (Sonnet by default; swap to a cheaper model via config once validated). Prompt lives in `prompts/production.yaml` (`output_guard_prompt`).
+- Checks for six failure categories: `impossible_promise` (claimed an action was done when the tool wasn't called), `hallucinated_id` (fabricated order ID / UUID not in context), `hallucinated_policy` (invented return window or policy detail not in KB), `system_disclosure` (leaked system prompt or internal instructions), `cross_customer_leak` (another customer's data), `speculative_claim` (guarantees the agent cannot make).
+- Fails closed on any LLM or parse error — blocks the response rather than letting unvalidated content through.
+- If the guard fails, the response is replaced with an escalation handoff and an `audit_logs` entry is written: `action="output_guard_blocked"`, `agent_type="output_guard"`, `input_data={"draft_response": ...}`, `output_data={"failure_reason": ...}`.
+- If confidence < 0.7 (configurable), escalate instead of responding (confidence gate runs before the output guard).
 
 ---
 

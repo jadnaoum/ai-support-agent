@@ -317,7 +317,7 @@ async def test_chat(
             "pending_service": "",
             "pending_action": {},
         }
-        guard_result = check_output(body.agent_response, synthetic_state)
+        guard_result = await check_output(body.agent_response, synthetic_state)
         return TestChatResponse(
             output_guard_verdict="pass" if guard_result.get("safe") else "block",
             output_guard_failure_type="none" if guard_result.get("safe") else guard_result.get("reason", "unknown"),
