@@ -102,12 +102,16 @@ async def check_input(message: str) -> dict:
         raw = result.choices[0].message.content.strip()
         parsed = json.loads(raw)
         category = parsed.get("category", "safe")
+        emotion = parsed.get("emotion", "") if category == "safe" else ""
     except Exception:
         # On any failure, fail open — let the message through
         return {"safe": True}
 
     if category == "safe":
-        return {"safe": True}
+        result: dict = {"safe": True}
+        if emotion:
+            result["emotion"] = emotion
+        return result
 
     return {
         "safe": False,

@@ -148,7 +148,7 @@ async def stream_response(
         "response": "",
         "pending_service": "",
         "pending_action": {},
-        "last_turn_was_clarification": False,
+        "last_clarification_source": "",
         "context_summary": "",
         "consecutive_blocks": 0,
     }
@@ -356,7 +356,7 @@ async def test_chat(
         "response": "",
         "pending_service": "",
         "pending_action": {},
-        "last_turn_was_clarification": False,
+        "last_clarification_source": "",
         "context_summary": "",
         "consecutive_blocks": 0,
     }

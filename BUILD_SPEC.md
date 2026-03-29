@@ -199,7 +199,7 @@ Note: categories `gift_cards`, `digital`, `personalized`, `perishable`, and `haz
 |---|---|---|
 | id | UUID | PK |
 | conversation_id | UUID | FK → conversations |
-| reason | VARCHAR | customer_requested, low_confidence, unknown_intent, policy_exception, repeated_failure, unable_to_clarify |
+| reason | VARCHAR | customer_requested, low_confidence, unknown_intent, policy_exception, repeated_failure, unable_to_clarify, repeated_blocks, abusive_input |
 | agent_confidence | FLOAT | Confidence score at time of escalation |
 | context_summary | TEXT | Brief summary of what happened before escalation |
 | created_at | TIMESTAMP | |
@@ -271,7 +271,7 @@ class AgentState(TypedDict):
     requires_escalation: bool
     escalation_reason: str   # Why escalation was triggered
     actions_taken: list      # Audit trail of all service calls this turn
-    last_turn_was_clarification: bool  # True if agent asked a clarifying question last turn. If True and intent is still needs_clarification, escalate with reason unable_to_clarify instead of asking again.
+    last_clarification_source: str   # Source of the last clarifying question asked: "intent" (needs_clarification intent path), "emotion" (high-negative-emotion path), or "" (none asked). Enforces the one-question cap for both paths — if non-empty and intent is still needs_clarification, escalate with unable_to_clarify instead of asking again.
     context_summary: str     # Escalation context summary. Built by handle_escalation, surfaced to eval judge via TestChatResponse.
 ```
 
@@ -370,13 +370,19 @@ Create synthetic e-commerce KB documents covering:
 ## Guardrails
 
 ### Input guardrails (run before conversation agent)
-- Classify input for prompt injection attempts — reject with safe message
-- Classify input for off-topic or abusive content — redirect politely
+- Classify input into one of four categories: `safe`, `prompt_injection`, `abusive`, `off_topic`
+- For `safe` messages: may also return an `emotion: "high_negative"` metadata field when frustration, anger, or distress is detected (not positive excitement). The message still passes through — the field is informational only. See emotion handling below.
 - Pass clean input to conversation agent
+- **Abusive inputs**: immediately escalate to a human agent with reason `abusive_input`. Abusive messages bypass the redirect/block path entirely and do not increment `consecutive_blocks`.
 - **Audit logging**: every blocked attempt is written to `audit_logs` with `action="input_guard_blocked"`, `agent_type="input_guard"`, `input_data={"message": <original message>}`, and `output_data={"category": <prompt_injection|abusive|off_topic>, "blocked_response": <redirect message>}`. Enables post-hoc analysis of guard behavior without a separate table. Only written on the live SSE path (not the test endpoint).
-- **Consecutive block tracking**: `AgentState` carries a `consecutive_blocks` integer (initialised to 0). On each blocked turn it is incremented; on any unblocked turn it is reset to 0. Behaviour by count:
-  - Block 1 or 2: an LLM-generated redirect message is returned. The wording varies by both block count and category — off_topic gets a friendly redirect (block 2: offer to rephrase or connect to human), abusive gets a firm-but-professional response (block 2: shorter, explicit warning), prompt_injection gets a neutral redirect that never acknowledges filtering. Redirect messages are generated from tone guidelines in `prompts/production.yaml` (`redirect_prompt`), not hardcoded templates.
+- **Consecutive block tracking** (applies to `off_topic` and `prompt_injection` only): `AgentState` carries a `consecutive_blocks` integer (initialised to 0). On each blocked turn it is incremented; on any unblocked turn it is reset to 0. Behaviour by count:
+  - Block 1 or 2: an LLM-generated redirect message is returned. The wording varies by both block count and category — off_topic gets a friendly redirect (block 2: offer to rephrase or connect to human), prompt_injection gets a neutral redirect that never acknowledges filtering. Redirect messages are generated from tone guidelines in `prompts/production.yaml` (`redirect_prompt`), not hardcoded templates.
   - Block 3: escalate to human with reason `repeated_blocks`.
+- **High negative emotion handling**: when the guard returns `emotion: "high_negative"` on a safe message, the conversation agent checks the classified intent:
+  - Intent is `needs_clarification` AND no clarifying question asked yet this conversation (`last_clarification_source == ""`): ask one empathetic clarifying question (LLM-generated via `response_prompt` with the clarification hint and a warmth note). Sets `last_clarification_source: "emotion"`. If the output guard blocks the question, escalate with `unable_to_clarify`.
+  - Follow-up turn (`last_clarification_source == "emotion"`) and intent is still `needs_clarification`: escalate with `unable_to_clarify`.
+  - Follow-up turn and intent is actionable: proceed normally, clear `last_clarification_source`.
+  - Intent is already actionable on the first emotional turn: proceed normally — emotion flag only influences tone via the `response_prompt` warmth instruction, no special path.
 
 ### Output guardrails (run after agent response, before sending to customer)
 - LLM-based check using `LITELLM_GUARD_MODEL` (Sonnet by default; swap to a cheaper model via config once validated). Prompt lives in `prompts/production.yaml` (`output_guard_prompt`).
@@ -443,7 +449,7 @@ Standalone evaluation suite that tests the agent end-to-end via its API. Lives a
 
 | Sheet | What it tests | Input | Expected output |
 |---|---|---|---|
-| Input Guard | Is the message safe, injection, abusive, or off-topic? | Single customer message | Label: safe / prompt_injection / abusive / off_topic |
+| Input Guard | Is the message safe, injection, abusive, or off-topic? And does the agent escalate when expected? | Single customer message | Label: safe / prompt_injection / abusive / off_topic. For abusive cases: also checks `expected_escalation_reason` column — guard must classify as `abusive` AND agent must have `requires_escalation=True` with matching `escalation_reason`. |
 | Intent Classifier | What does the customer want? | Customer message (sometimes with conversation history) | Intent: knowledge_query / action_request / escalation_request / general / needs_clarification + confidence |
 | Output Guard | Is the agent's response truthful and safe? | Agent response + tools called + known IDs | Verdict: pass / block + failure type: hallucinated_action / leaked_id / policy_violation / none |
 
@@ -478,7 +484,7 @@ Failure reason enums by sheet:
 - Policy Compliance: `wrong_policy_applied | fabricated_reason | processed_outside_policy | missed_exception | no_policy_check | incomplete_answer`
 - Graceful Failure: `fabricated_status | no_transparency | no_alternatives_offered | excessive_retry`
 - Context Retention: `forgot_context | conflated_items | wrong_reference | asked_again`
-- Input Guard (programmatic): `wrong_block_reason`
+- Input Guard (programmatic): `wrong_block_reason | wrong_escalation`
 - Output Guard (programmatic): `wrong_verdict | wrong_failure_type`
 
 Conversation Quality rubrics require both correct tone AND correct substance for a Pass. If tone is right but substance is wrong (e.g., empathetic but takes no action), that's a Fail. If substance is right but tone is wrong (e.g., takes action but robotic), that's also a Fail. The failure_reason distinguishes the two.

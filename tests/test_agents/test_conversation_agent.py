@@ -81,6 +81,86 @@ async def test_escalation_request_sets_requires_escalation(mock_complete):
     assert isinstance(result["response"], str) and len(result["response"]) > 0
 
 
+@patch("backend.agents.conversation.check_input", new_callable=AsyncMock)
+async def test_abusive_input_escalates_immediately(mock_guard):
+    """Abusive messages bypass the block counter and escalate directly."""
+    mock_guard.return_value = {"safe": False, "reason": "abusive", "blocked_response": "..."}
+    state = make_state(messages=[{"role": "customer", "content": "You idiots ruined my order"}])
+    result = await conversation_agent_node(state, {})
+    assert result["requires_escalation"] is True
+    assert result["escalation_reason"] == "abusive_input"
+    assert result["pending_service"] == ""
+    assert isinstance(result["response"], str) and len(result["response"]) > 0
+
+
+@patch("backend.agents.conversation.check_input", new_callable=AsyncMock)
+async def test_abusive_input_does_not_increment_block_counter(mock_guard):
+    """Abusive escalation leaves consecutive_blocks unchanged."""
+    mock_guard.return_value = {"safe": False, "reason": "abusive", "blocked_response": "..."}
+    state = make_state(
+        messages=[{"role": "customer", "content": "Useless trash company"}],
+        consecutive_blocks=1,
+    )
+    result = await conversation_agent_node(state, {})
+    assert result["requires_escalation"] is True
+    assert result.get("consecutive_blocks", 1) == 1  # unchanged
+
+
+@patch("backend.agents.conversation.check_output", new_callable=AsyncMock, return_value={"safe": True})
+@patch("backend.agents.conversation.check_input", new_callable=AsyncMock)
+@patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
+async def test_high_emotion_with_unclear_intent_asks_clarifying_question(mock_llm, mock_guard, mock_out_guard):
+    """High negative emotion + needs_clarification intent → empathetic clarifying question."""
+    mock_guard.return_value = {"safe": True, "emotion": "high_negative"}
+    mock_llm.side_effect = [
+        make_completion_response('{"intent": "needs_clarification", "confidence": 0.8, "clarification_prompt": "What specifically went wrong?"}'),
+        make_completion_response("I can hear this is frustrating — what specifically went wrong with your order?"),
+    ]
+    state = make_state(
+        messages=[{"role": "customer", "content": "This is completely unacceptable!!"}],
+        last_clarification_source="",
+    )
+    result = await conversation_agent_node(state, {})
+    assert result["last_clarification_source"] == "emotion"
+    assert result["pending_service"] == ""
+    assert isinstance(result["response"], str) and len(result["response"]) > 0
+
+
+@patch("backend.agents.conversation.check_input", new_callable=AsyncMock)
+@patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
+async def test_high_emotion_with_actionable_intent_proceeds_normally(mock_llm, mock_guard):
+    """High negative emotion + actionable intent → route normally, no clarifying question."""
+    mock_guard.return_value = {"safe": True, "emotion": "high_negative"}
+    mock_llm.return_value = make_completion_response(
+        '{"intent": "action_request", "confidence": 0.9, "action": "track_order", "params": {"order_id": "abc123"}}'
+    )
+    state = make_state(
+        messages=[{"role": "customer", "content": "I'm furious, where is order abc123!"}],
+        last_clarification_source="",
+    )
+    result = await conversation_agent_node(state, {})
+    assert result["pending_service"] == "action"
+    assert result["last_clarification_source"] == ""
+
+
+@patch("backend.agents.conversation.check_input", new_callable=AsyncMock)
+@patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
+async def test_emotion_clarification_already_asked_escalates(mock_llm, mock_guard):
+    """If emotion clarification was already asked (last_clarification_source='emotion') and
+    intent is still needs_clarification, escalate."""
+    mock_guard.return_value = {"safe": True, "emotion": "high_negative"}
+    mock_llm.return_value = make_completion_response(
+        '{"intent": "needs_clarification", "confidence": 0.8, "clarification_prompt": "What went wrong?"}'
+    )
+    state = make_state(
+        messages=[{"role": "customer", "content": "I don't know, everything is wrong"}],
+        last_clarification_source="emotion",
+    )
+    result = await conversation_agent_node(state, {})
+    assert result["requires_escalation"] is True
+    assert result["escalation_reason"] == "unable_to_clarify"
+
+
 @patch("backend.agents.conversation.check_output", new_callable=AsyncMock, return_value={"safe": True})
 @patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
 async def test_general_intent_responds_directly(mock_complete, mock_guard):

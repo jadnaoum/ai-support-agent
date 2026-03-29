@@ -23,6 +23,9 @@ def make_state(**overrides) -> AgentState:
         "response": "",
         "pending_service": "",
         "pending_action": {},
+        "last_clarification_source": "",
+        "consecutive_blocks": 0,
+        "context_summary": "",
     }
     base.update(overrides)
     return base

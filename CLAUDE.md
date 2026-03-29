@@ -373,6 +373,31 @@ Migrate from manual JSON intent classification to native tool calling API (`tool
 - OG-017: `hallucinated_action` → `hallucinated_data` (track_order called and real; fabricated warehouse details, driver, timestamp)
 - OG-024: `hallucinated_action` → `hallucinated_data` (real ETA from tool; "might arrive a day early" is speculation)
 
+### Abusive input escalation + high-negative-emotion clarification path (2026-03-29) — 219 tests passing
+
+**Change 1: Abusive inputs → immediate escalation**
+- `backend/agents/escalation.py`: added `"abusive_input"` to `_HANDOFF_MESSAGES`
+- `backend/agents/conversation.py`: in the `not guard["safe"]` branch, abusive is now detected first and routes immediately to `_do_escalate("abusive_input", ...)`. Bypasses `consecutive_blocks` entirely (counter not incremented). `off_topic` and `prompt_injection` continue through the existing 1-2 redirect / 3rd-escalate path.
+- `prompts/production.yaml` (`redirect_prompt`): removed abusive block 1 and block 2 tone rows — redirect wording now only covers `off_topic` and `prompt_injection`.
+
+**Change 2: High negative emotion → empathetic clarifying question**
+- `prompts/production.yaml` (`input_guard_prompt`): guard now returns an optional `emotion: "high_negative"` field on safe messages (frustration, anger, distress — not enthusiasm). Message still passes through.
+- `backend/guardrails/input_guard.py`: parses `emotion` from LLM response when `category == "safe"`; returns `{"safe": True, "emotion": "high_negative"}` when detected, `{"safe": True}` otherwise.
+- `backend/agents/conversation.py`: added `_generate_emotion_clarification(state, hint)` helper — calls `_generate_response`-style LLM call using `response_prompt` with an empathy + clarification hint in the context section. After intent classification, emotion path fires when `emotion == "high_negative"` AND `intent == "needs_clarification"` AND `last_clarification_source == ""`. If intent is already actionable, emotion flag only affects tone via the existing `response_prompt` warmth instruction — no extra step.
+- Follow-up logic: if `last_clarification_source == "emotion"` and follow-up intent is still `needs_clarification` → escalate with `"unable_to_clarify"`. If follow-up intent is actionable → proceed normally, clear `last_clarification_source`.
+
+**State rename: `last_turn_was_clarification` → `last_clarification_source`**
+- `backend/agents/state.py`: replaced `last_turn_was_clarification: bool` with `last_clarification_source: str` — values `"intent"` (needs_clarification intent path), `"emotion"` (emotion path), or `""` (none). Single field tracks both clarification paths; one-question cap enforced by checking `!= ""` regardless of source.
+- All return paths in `conversation.py`, both state initializations in `chat.py`, and `_do_escalate` updated accordingly.
+
+**Eval updates:**
+- `evals/eval_test_cases.xlsx` Input Guard sheet: `expected_escalation_reason` column added (col 6, after `rationale`). IG-007 and IG-023 set to `abusive_input`; IG-023 rationale updated to clarify guard classifies as abusive, agent escalates immediately.
+- `evals/judges/classification.py` (`judge_input_guard`): extended to check `expected_escalation_reason` when set — verifies `requires_escalation == True` and `escalation_reason` matches. New `"wrong_escalation"` failure reason. Non-escalation cases unchanged.
+
+**Tests:** 5 new tests in `test_conversation_agent.py`: abusive → immediate escalation, abusive doesn't increment block counter, high emotion + unclear → clarifying question, high emotion + actionable → proceed normally, emotion clarification already asked → escalate. `test_graph.py` `make_state` updated with `last_clarification_source` and other new fields.
+
+**BUILD_SPEC.md updated:** Input guardrails section rewritten for abusive escalation and emotion handling; state schema updated; escalations reason enum updated (added `abusive_input`, `repeated_blocks`); eval Input Guard table row and failure reason enum updated.
+
 **Next: Phase 4 — Frontend**
 - Typing indicator while agent streams
 - CSAT widget shown when conversation resolves

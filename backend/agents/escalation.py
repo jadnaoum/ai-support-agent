@@ -46,6 +46,10 @@ _HANDOFF_MESSAGES = {
         "Let me connect you with a member of our support team who can assist you directly. "
         "Please hold on."
     ),
+    "abusive_input": (
+        "I'm going to connect you with a member of our support team who can help you directly. "
+        "Please hold on."
+    ),
 }
 _HANDOFF_DEFAULT = (
     "I'm transferring you to a human agent who can better assist you. "

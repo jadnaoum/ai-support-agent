@@ -138,6 +138,30 @@ async def _generate_redirect(block_count: int, category: str) -> str:
         return "I'm here to help with your orders and account questions. Is there something I can assist you with?"
 
 
+async def _generate_emotion_clarification(state: AgentState, clarification_hint: str) -> str:
+    """Generate an empathetic clarifying question when the customer is frustrated.
+
+    Uses the standard response prompt so warmth instructions apply, with the
+    clarification hint injected into the context section.
+    """
+    context_section = (
+        f"\nNote: The customer appears frustrated or distressed. "
+        f"Briefly acknowledge their frustration, then ask: {clarification_hint}"
+    )
+    system_content = RESPONSE_PROMPT.format(context_section=context_section)
+    messages_for_llm = [{"role": "system", "content": system_content}]
+    role_map = {"customer": "user", "agent": "assistant"}
+    for msg in state["messages"][-settings.max_context_messages:]:
+        if msg["role"] in role_map:
+            messages_for_llm.append({"role": role_map[msg["role"]], "content": msg["content"]})
+    result = await litellm.acompletion(
+        model=settings.litellm_model,
+        messages=messages_for_llm,
+        stream=False,
+    )
+    return result.choices[0].message.content
+
+
 async def _do_escalate(reason: str, state: AgentState, config: dict) -> dict:
     """
     Call the escalation handler inline and return the full state update.
@@ -159,7 +183,7 @@ async def _do_escalate(reason: str, state: AgentState, config: dict) -> dict:
         "requires_escalation": True,
         "pending_service": "",
         "escalation_reason": reason,
-        "last_turn_was_clarification": False,
+        "last_clarification_source": "",
         "context_summary": build_context_summary(state.get("messages") or []),
         "actions_taken": (state.get("actions_taken") or []) + [
             {"service": "escalation_handler", "action": "escalate", "reason": reason}
@@ -196,6 +220,14 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 await log_blocked_attempt(_db, _conv_id, last_message, guard)
                 await _db.commit()
 
+            # Abusive → immediate escalation, bypasses the block counter entirely
+            if guard.get("reason") == "abusive":
+                return {
+                    **await _do_escalate("abusive_input", state, config),
+                    "confidence": 1.0,
+                    "consecutive_blocks": state.get("consecutive_blocks", 0),
+                }
+
             new_blocks = state.get("consecutive_blocks", 0) + 1
 
             # 3rd consecutive block → escalate to human
@@ -213,21 +245,57 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 "pending_service": "",
                 "confidence": 1.0,
                 "consecutive_blocks": new_blocks,
-                "last_turn_was_clarification": False,
+                "last_clarification_source": "",
             }
 
         # Message passed the guard — reset the consecutive block counter
+        emotion = guard.get("emotion", "")
         intent, confidence, action_details = await _classify_intent(state)
 
+        # --- Emotion path ---
+        # High negative emotion + unclear intent + no clarifying question asked yet this
+        # conversation → ask one empathetic clarifying question.
+        # If intent is already actionable, the emotion flag only adjusts tone via the
+        # response prompt — no extra step needed.
+        if (
+            emotion == "high_negative"
+            and intent == "needs_clarification"
+            and not state.get("last_clarification_source", "")
+        ):
+            clarification_hint = action_details.get(
+                "clarification_prompt",
+                "Could you tell me more about what happened?",
+            )
+            question = await _generate_emotion_clarification(state, clarification_hint)
+            out_guard = await check_output(question, state)
+            if out_guard["safe"]:
+                return {
+                    "response": question,
+                    "confidence": confidence,
+                    "pending_service": "",
+                    "last_clarification_source": "emotion",
+                    "consecutive_blocks": 0,
+                }
+            _db = config.get("configurable", {}).get("db")
+            _conv_id = config.get("configurable", {}).get("conversation_id", "")
+            if _db and _conv_id:
+                await log_output_guard_blocked(_db, _conv_id, question, out_guard["reason"])
+                await _db.commit()
+            return {
+                **await _do_escalate("unable_to_clarify", state, config),
+                "confidence": confidence,
+                "consecutive_blocks": 0,
+            }
+
         if intent == "knowledge_query":
-            return {"pending_service": "knowledge", "confidence": confidence, "last_turn_was_clarification": False, "consecutive_blocks": 0}
+            return {"pending_service": "knowledge", "confidence": confidence, "last_clarification_source": "", "consecutive_blocks": 0}
 
         if intent == "action_request":
             return {
                 "pending_service": "action",
                 "pending_action": action_details,
                 "confidence": confidence,
-                "last_turn_was_clarification": False,
+                "last_clarification_source": "",
                 "consecutive_blocks": 0,
             }
 
@@ -239,9 +307,9 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             }
 
         if intent == "needs_clarification":
-            # Cap: if we already asked a clarifying question last turn, escalate instead
-            # of asking again — the customer's response is still ambiguous after one attempt.
-            if state.get("last_turn_was_clarification", False):
+            # Cap: if we already asked a clarifying question this conversation (any source),
+            # escalate instead of asking again.
+            if state.get("last_clarification_source", ""):
                 return {
                     **await _do_escalate("unable_to_clarify", state, config),
                     "confidence": confidence,
@@ -257,7 +325,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                     "response": clarification_question,
                     "confidence": confidence,
                     "pending_service": "",
-                    "last_turn_was_clarification": True,
+                    "last_clarification_source": "intent",
                     "consecutive_blocks": 0,
                 }
             # Output guard blocked the clarifying question — log and escalate
@@ -286,7 +354,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 "confidence": confidence,
                 "consecutive_blocks": 0,
             }
-        return {"response": response, "confidence": confidence, "pending_service": "", "last_turn_was_clarification": False, "consecutive_blocks": 0}
+        return {"response": response, "confidence": confidence, "pending_service": "", "last_clarification_source": "", "consecutive_blocks": 0}
 
     # Pass 2: check confidence before generating response.
     # If KB results are present but below threshold, escalate instead of guessing.
@@ -324,4 +392,4 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             "confidence": top_similarity,
         }
 
-    return {"response": response, "confidence": top_similarity, "pending_service": "", "last_turn_was_clarification": False}
+    return {"response": response, "confidence": top_similarity, "pending_service": "", "last_clarification_source": ""}
