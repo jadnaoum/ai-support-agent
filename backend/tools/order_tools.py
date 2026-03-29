@@ -7,7 +7,7 @@ parameter validation, and audit trail.
 """
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.models import Order, OrderItem, Product, Refund
@@ -186,7 +186,7 @@ async def process_refund(
             return {"success": False, "error": "No orders found for this account."}
 
     if order.status == "refunded":
-        return {"success": False, "error": "This order has already been refunded."}
+        return {"success": False, "error": "This order has already been fully refunded."}
     if order.status == "delivered":
         return {
             "success": False,
@@ -259,11 +259,25 @@ async def process_refund(
                         ),
                     }
 
-    # --- Calculate refund amount ---
+    # --- Compute remaining refundable balance ---
+    # Sum refunds that have been approved, are under review, or already processed.
+    # Excludes "rejected" refunds so a rejected attempt doesn't block future ones.
+    already_refunded_result = await db.execute(
+        select(func.coalesce(func.sum(Refund.amount), 0))
+        .where(Refund.order_id == order.id)
+        .where(Refund.status.in_(("approved", "pending_review", "processed")))
+    )
+    already_refunded = float(already_refunded_result.scalar())
+    remaining = round(float(order.total_amount) - already_refunded, 2)
+
+    if remaining <= 0:
+        return {"success": False, "error": "This order has already been fully refunded."}
+
+    # Cap requested amount at the remaining balance; default to full remaining.
     refund_amount = (
-        min(float(amount), float(order.total_amount))
+        min(float(amount), remaining)
         if amount and float(amount) > 0
-        else float(order.total_amount)
+        else remaining
     )
 
     # d+e) Determine approval status: pending_review for high-risk customers or high-value refunds
@@ -290,14 +304,21 @@ async def process_refund(
         initiated_by="agent",
     )
     db.add(refund)
-    order.status = "refunded"
+
+    # Mark order fully refunded only once the balance is exhausted.
+    # Round both sides to 2 dp to avoid binary float comparison errors on monetary amounts.
+    if round(already_refunded + refund_amount, 2) >= round(float(order.total_amount), 2):
+        order.status = "refunded"
+
     await db.commit()
 
+    remaining_after = round(remaining - refund_amount, 2)
     return {
         "success": True,
         "order_id": str(order.id),
         "refund_id": str(refund.id),
         "amount": refund_amount,
+        "remaining_balance": remaining_after,
         "status": refund_status,
         "message": message,
     }

@@ -317,13 +317,53 @@ async def test_process_refund_already_refunded(db, customer):
     await db.commit()
     result = await process_refund(db, customer_id=customer.id, order_id=order.id)
     assert result["success"] is False
-    assert "already" in result["error"].lower()
+    assert "fully refunded" in result["error"].lower()
 
 
 async def test_process_refund_includes_status_in_response(db, customer, returned_order):
     result = await process_refund(db, customer_id=customer.id, order_id=returned_order.id)
     assert result["success"] is True
     assert "status" in result
+
+
+async def test_process_refund_partial_leaves_order_in_returned_status(db, customer, returned_order):
+    """Partial refund should not mark the order as refunded — balance remains."""
+    result = await process_refund(
+        db, customer_id=customer.id, order_id=returned_order.id, amount=20.0
+    )
+    assert result["success"] is True
+    assert result["remaining_balance"] == round(49.99 - 20.0, 2)
+    # Order must stay in returned so a follow-up refund is still possible
+    await db.refresh(returned_order)
+    assert returned_order.status == "returned"
+
+
+async def test_process_refund_second_partial_uses_remaining_balance(db, customer, returned_order):
+    """Second call is capped at the remaining balance, not the full order total."""
+    await process_refund(db, customer_id=customer.id, order_id=returned_order.id, amount=20.0)
+    result = await process_refund(
+        db, customer_id=customer.id, order_id=returned_order.id, amount=99.0  # exceeds remaining
+    )
+    assert result["success"] is True
+    assert result["amount"] == round(49.99 - 20.0, 2)  # capped at remaining
+    assert result["remaining_balance"] == 0.0
+
+
+async def test_process_refund_full_after_partial_marks_order_refunded(db, customer, returned_order):
+    """Once remaining balance hits zero the order status flips to refunded."""
+    await process_refund(db, customer_id=customer.id, order_id=returned_order.id, amount=20.0)
+    await process_refund(db, customer_id=customer.id, order_id=returned_order.id)
+    await db.refresh(returned_order)
+    assert returned_order.status == "refunded"
+
+
+async def test_process_refund_blocks_after_balance_exhausted(db, customer, returned_order):
+    """A third call after balance is fully exhausted should be rejected."""
+    await process_refund(db, customer_id=customer.id, order_id=returned_order.id, amount=20.0)
+    await process_refund(db, customer_id=customer.id, order_id=returned_order.id)
+    result = await process_refund(db, customer_id=customer.id, order_id=returned_order.id)
+    assert result["success"] is False
+    assert "fully refunded" in result["error"].lower()
 
 
 # ---------------------------------------------------------------------------
