@@ -398,6 +398,13 @@ Migrate from manual JSON intent classification to native tool calling API (`tool
 
 **BUILD_SPEC.md updated:** Input guardrails section rewritten for abusive escalation and emotion handling; state schema updated; escalations reason enum updated (added `abusive_input`, `repeated_blocks`); eval Input Guard table row and failure reason enum updated.
 
+### Output guard: impossible_promise extended to cover escalation (2026-03-29) — 219 tests passing
+
+- `prompts/production.yaml` (`output_guard_prompt`): `impossible_promise` rule extended — if the response presents escalation as currently happening or already done ("I'm connecting you", "I've transferred you to a specialist", "I've raised a case") and `escalation_handler` is not in `tools_called`, the guard blocks with `impossible_promise`. Conditional offers ("if you'd like, I can connect you") do not trigger the rule. No Python code changes needed — `_build_guard_context` already serialises all `actions_taken` entries (including escalation) into the prompt's `tools_called` field.
+- `eval_test_cases.xlsx`: OG-026 (pass — escalation_handler present in tools_called), OG-027 (fail — escalation claimed but handler not called, impossible_promise).
+- `BUILD_SPEC.md`: output guardrails section updated.
+- File location fixed: `eval_test_cases.xlsx` moved from `evals/` to project root in git (reflects actual location on disk).
+
 **Next: Phase 4 — Frontend**
 - Typing indicator while agent streams
 - CSAT widget shown when conversation resolves
