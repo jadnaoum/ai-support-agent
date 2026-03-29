@@ -405,6 +405,39 @@ Migrate from manual JSON intent classification to native tool calling API (`tool
 - `BUILD_SPEC.md`: output guardrails section updated.
 - File location fixed: `eval_test_cases.xlsx` moved from `evals/` to project root in git (reflects actual location on disk).
 
+### Task 1: Add `returned` order status and enforce return-first refund policy (2026-03-29) — 220 tests passing
+
+- `backend/db/models.py`: Order status comment updated to include `returned` in the valid set
+- `backend/db/migrations/versions/003_add_returned_order_status.py`: Adds a `CHECK` constraint documenting the full valid status enum: `placed | processing | shipped | delivered | returned | cancelled | refunded`
+- `backend/tools/order_tools.py` (`process_refund`): Added explicit `delivered` rejection before the eligibility check — returns `{success: False, status: "rejected", reason: "return_required"}`. Eligibility check updated from `("delivered", "cancelled")` → `("returned", "cancelled")`.
+- `backend/db/seed.py`: 3 new `returned`-status orders added — loyal/headphones ($249.99), frustrated/blender ($89.99), vip/laptop ($1299.99). `delivered_at` set for returned orders. Seed count: 12 → 15 orders; loyal 4 → 5 orders; vip 3 → 4 orders.
+- Tests updated: `delivered_order` fixtures in `test_order_tools.py` and `test_action_service.py` changed to `returned` status; new `test_process_refund_delivered_order_requires_return`; seed count assertions updated.
+
+### Task 2: KB audit — Gaps 1–4 (2026-03-29) — 220 tests passing
+
+Full audit of all 6 KB documents against tool implementations. Four gaps found and fixed.
+
+**Gap 4 — `prompts/production.yaml` stale after Task 1:**
+- `intent_prompt` tool guidance and `tool_process_refund_description`: both changed `"delivered or cancelled"` → `"returned or cancelled"`.
+
+**Gap 1 — `process_refund` rejects defective claims (unsupported_action):**
+- KB says defective/damaged items require human review (photo verification, tech team assessment). Tool was auto-processing them.
+- Fix: `if db_reason == "defective"` → early return `{success: False, status: "rejected", reason: "unsupported_action"}` before any DB query. Fires for reason values `defective`, `broken`, `damaged`.
+- Agent escalates these claims to a human; they don't go through the automated refund flow.
+
+**Gap 2 — Return window skipped for cancelled orders:**
+- KB return window only applies to physically returned items. Pre-shipment cancelled orders have no delivery; using `updated_at` as fallback wrongly rejected old cancellations.
+- Fix: return window check condition changed from `if db_reason not in ("defective",)` → `if order.status == "returned" and db_reason not in ("defective",)`.
+
+**Gap 3 — `cancel_order` now rejects `returned` status:**
+- A returned order (item shipped back to warehouse) cannot be "cancelled" — it should proceed to refund.
+- Fix: `returned` added to the status rejection block with message: "This order has already been returned and cannot be cancelled. Please request a refund instead."
+
+**Acknowledged gaps (no fix — noted for reference):**
+- Restocking fee (up to 15% for poor-condition returns): requires warehouse inspection, not determinable at request time
+- Defective refund includes original shipping: `Order` schema has no `shipping_amount` field
+- Replacement option for defective items: no `send_replacement` tool in scope
+
 **Next: Phase 4 — Frontend**
 - Typing indicator while agent streams
 - CSAT widget shown when conversation resolves
