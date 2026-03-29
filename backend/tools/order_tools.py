@@ -94,6 +94,14 @@ async def cancel_order(
 
     if order.status in ("cancelled", "refunded"):
         return {"success": False, "error": f"This order is already {order.status}."}
+    if order.status == "returned":
+        return {
+            "success": False,
+            "error": (
+                "This order has already been returned and cannot be cancelled. "
+                "Please request a refund instead."
+            ),
+        }
     if order.status == "shipped":
         return {
             "success": False,
@@ -143,6 +151,20 @@ async def process_refund(
         "late_delivery": "late_delivery",
     }
     db_reason = reason_map.get(reason.lower(), "other")
+
+    # Defective/damaged claims require human review (photo verification, warranty assessment).
+    # The tool cannot auto-approve these — escalation handles them outside this flow.
+    if db_reason == "defective":
+        return {
+            "success": False,
+            "status": "rejected",
+            "reason": "unsupported_action",
+            "error": (
+                "Defective and damaged item claims require a review by our support team. "
+                "Please escalate so a team member can assess the issue and arrange a "
+                "replacement or refund."
+            ),
+        }
 
     # --- Locate order ---
     if order_id:
@@ -213,8 +235,11 @@ async def process_refund(
                     ),
                 }
 
-        # c) Return window check — bypass entirely for defective/damaged items (KB policy)
-        if db_reason not in ("defective",):
+        # c) Return window check — only applies to physically returned items.
+        # Cancelled orders (pre-shipment) were never delivered; no window to enforce.
+        # Defective items are now rejected before this point (unsupported_action), but
+        # the guard is kept for any future defective-bypass paths.
+        if order.status == "returned" and db_reason not in ("defective",):
             delivered_date = order.delivered_at or order.updated_at
             if delivered_date:
                 # Make delivered_date timezone-aware for comparison if needed

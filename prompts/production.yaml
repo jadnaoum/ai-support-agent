@@ -40,7 +40,7 @@ intent_prompt: |
     modify rather than cancel — explain modifications are not supported.
 
   process_refund:
-    Eligible only for orders with status "delivered" or "cancelled". Blocked for final sale
+    Eligible only for orders with status "returned" or "cancelled". Blocked for final sale
     items and non-returnable categories (gift cards, digital, personalized, perishable,
     hazardous). Return window must not have expired — defective items bypass this entirely.
     Partial refunds: use the "amount" parameter when the customer requests a refund on only
@@ -146,7 +146,7 @@ tool_cancel_order_description: >
   Do not use for refund requests (use process_refund) or order modifications (not supported).
 
 tool_process_refund_description: >
-  Initiate a refund for a delivered or cancelled order. Blocked for final sale items and
+  Initiate a refund for a returned or cancelled order. Blocked for final sale items and
   non-returnable categories (gift cards, digital, personalized, perishable, hazardous).
   Defective items bypass the return window. Partial refunds supported via the amount
   parameter. High-value (>$50) or high-risk accounts route to pending_review status.

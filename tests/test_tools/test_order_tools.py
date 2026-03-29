@@ -350,13 +350,14 @@ async def test_process_refund_rejects_outside_return_window(db, customer, old_re
     assert "return window" in result["error"].lower()
 
 
-async def test_process_refund_allows_defective_outside_window(db, customer, old_returned_order):
-    """Defective items bypass the return window per KB policy."""
+async def test_process_refund_rejects_defective_reason(db, customer, old_returned_order):
+    """Defective/damaged claims require human review — tool rejects with unsupported_action."""
     result = await process_refund(
         db, customer_id=customer.id, order_id=old_returned_order.id,
         reason="defective",
     )
-    assert result["success"] is True
+    assert result["success"] is False
+    assert result.get("reason") == "unsupported_action"
 
 
 async def test_process_refund_approves_normal_refund_within_window(db, customer, returned_order):
