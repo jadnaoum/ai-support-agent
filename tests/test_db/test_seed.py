@@ -42,9 +42,9 @@ async def test_seed_creates_ten_products(db, seeded):
     assert result.scalar() == 10
 
 
-async def test_seed_creates_twelve_orders(db, seeded):
+async def test_seed_creates_fifteen_orders(db, seeded):
     result = await db.execute(select(func.count(Order.id)))
-    assert result.scalar() == 12
+    assert result.scalar() == 15
 
 
 async def test_seed_creates_five_conversations(db, seeded):
@@ -108,21 +108,21 @@ async def test_seed_clothing_has_no_warranty(db, seeded):
 async def test_seed_orders_cover_all_statuses(db, seeded):
     result = await db.execute(select(Order.status).distinct())
     statuses = {row[0] for row in result}
-    assert {"placed", "shipped", "delivered", "cancelled", "refunded"}.issubset(statuses)
+    assert {"placed", "shipped", "delivered", "returned", "cancelled", "refunded"}.issubset(statuses)
 
 
-async def test_seed_loyal_customer_has_four_orders(db, seeded):
+async def test_seed_loyal_customer_has_five_orders(db, seeded):
     result = await db.execute(
         select(func.count(Order.id)).where(Order.customer_id == CUSTOMERS["loyal"])
     )
-    assert result.scalar() == 4
+    assert result.scalar() == 5
 
 
-async def test_seed_vip_customer_has_three_orders(db, seeded):
+async def test_seed_vip_customer_has_four_orders(db, seeded):
     result = await db.execute(
         select(func.count(Order.id)).where(Order.customer_id == CUSTOMERS["vip"])
     )
-    assert result.scalar() == 3
+    assert result.scalar() == 4
 
 
 async def test_seed_new_customer_has_one_order(db, seeded):

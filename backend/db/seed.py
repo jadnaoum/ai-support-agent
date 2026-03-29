@@ -169,6 +169,17 @@ async def seed_orders(db: AsyncSession) -> list[dict]:
         # Inactive customer — old delivered order
         dict(id=uid(), cid=CUSTOMERS["inactive"], status="delivered", total=79.99, days_ago=200,
              items=[(PRODUCTS["jeans"], 1, 79.99)]),
+
+        # Returned orders — eligible for process_refund
+        # loyal customer returned headphones (within 14-day electronics window)
+        dict(id=uid(), cid=CUSTOMERS["loyal"], status="returned", total=249.99, days_ago=10,
+             items=[(PRODUCTS["headphones"], 1, 249.99)]),
+        # frustrated customer returned blender (within 30-day window, low-value → will approve)
+        dict(id=uid(), cid=CUSTOMERS["frustrated"], status="returned", total=89.99, days_ago=8,
+             items=[(PRODUCTS["blender"], 1, 89.99)]),
+        # vip customer returned laptop (high-value → will route to pending_review)
+        dict(id=uid(), cid=CUSTOMERS["vip"], status="returned", total=1299.99, days_ago=6,
+             items=[(PRODUCTS["laptop"], 1, 1299.99)]),
     ]
 
     created_order_ids = {}
@@ -178,9 +189,9 @@ async def seed_orders(db: AsyncSession) -> list[dict]:
             created_order_ids[o["cid"]] = o["id"]
             continue
 
-        # Set delivered_at for orders that have been delivered/cancelled/refunded
+        # Set delivered_at for orders that have been delivered/returned/cancelled/refunded
         delivered_at = None
-        if o["status"] in ("delivered", "cancelled", "refunded"):
+        if o["status"] in ("delivered", "returned", "cancelled", "refunded"):
             delivered_at = dt(days_ago=o["days_ago"] - 5)  # arrived ~5 days after placing
 
         order = Order(

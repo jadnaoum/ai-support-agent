@@ -115,14 +115,14 @@ async def shipped_order(db: AsyncSession, customer, product):
 
 @pytest.fixture
 async def delivered_order(db: AsyncSession, customer, product):
-    """Delivered recently — within the 14-day electronics return window."""
+    """Delivered recently — NOT yet returned; refund should be rejected."""
     now = datetime.now(timezone.utc)
     order = Order(
         id=str(uuid.uuid4()),
         customer_id=customer.id,
         status="delivered",
         total_amount=49.99,
-        delivered_at=now - timedelta(days=3),  # 3 days ago — within 14-day window
+        delivered_at=now - timedelta(days=3),
     )
     db.add(order)
     await db.flush()
@@ -132,13 +132,31 @@ async def delivered_order(db: AsyncSession, customer, product):
 
 
 @pytest.fixture
-async def old_delivered_order(db: AsyncSession, customer, product):
-    """Electronics order delivered 20 days ago — outside the 14-day return window."""
+async def returned_order(db: AsyncSession, customer, product):
+    """Item returned within the 14-day electronics window — eligible for refund."""
     now = datetime.now(timezone.utc)
     order = Order(
         id=str(uuid.uuid4()),
         customer_id=customer.id,
-        status="delivered",
+        status="returned",
+        total_amount=49.99,
+        delivered_at=now - timedelta(days=3),
+    )
+    db.add(order)
+    await db.flush()
+    db.add(_add_item(order, product))
+    await db.commit()
+    return order
+
+
+@pytest.fixture
+async def old_returned_order(db: AsyncSession, customer, product):
+    """Electronics item returned 20 days after delivery — outside the 14-day window."""
+    now = datetime.now(timezone.utc)
+    order = Order(
+        id=str(uuid.uuid4()),
+        customer_id=customer.id,
+        status="returned",
         total_amount=49.99,
         delivered_at=now - timedelta(days=20),
     )
@@ -150,13 +168,13 @@ async def old_delivered_order(db: AsyncSession, customer, product):
 
 
 @pytest.fixture
-async def expensive_delivered_order(db: AsyncSession, customer, clothing_product):
-    """Clothing order delivered recently, total > $50 — triggers pending_review."""
+async def expensive_returned_order(db: AsyncSession, customer, clothing_product):
+    """Clothing item returned recently, total > $50 — triggers pending_review."""
     now = datetime.now(timezone.utc)
     order = Order(
         id=str(uuid.uuid4()),
         customer_id=customer.id,
-        status="delivered",
+        status="returned",
         total_amount=199.00,
         delivered_at=now - timedelta(days=3),
     )
@@ -168,13 +186,13 @@ async def expensive_delivered_order(db: AsyncSession, customer, clothing_product
 
 
 @pytest.fixture
-async def final_sale_order(db: AsyncSession, customer, final_sale_product):
-    """Order containing a final_sale product."""
+async def final_sale_returned_order(db: AsyncSession, customer, final_sale_product):
+    """Returned order containing a final_sale product."""
     now = datetime.now(timezone.utc)
     order = Order(
         id=str(uuid.uuid4()),
         customer_id=customer.id,
-        status="delivered",
+        status="returned",
         total_amount=9.99,
         delivered_at=now - timedelta(days=2),
     )
@@ -261,19 +279,27 @@ async def test_cancel_most_recent_order(db, customer, placed_order):
 # process_refund — basic eligibility
 # ---------------------------------------------------------------------------
 
-async def test_process_refund_delivered_order(db, customer, delivered_order):
-    result = await process_refund(db, customer_id=customer.id, order_id=delivered_order.id)
+async def test_process_refund_returned_order(db, customer, returned_order):
+    result = await process_refund(db, customer_id=customer.id, order_id=returned_order.id)
     assert result["success"] is True
     assert result["amount"] == 49.99
     assert "refund_id" in result
 
 
-async def test_process_refund_partial_amount(db, customer, delivered_order):
+async def test_process_refund_partial_amount(db, customer, returned_order):
     result = await process_refund(
-        db, customer_id=customer.id, order_id=delivered_order.id, amount=20.0
+        db, customer_id=customer.id, order_id=returned_order.id, amount=20.0
     )
     assert result["success"] is True
     assert result["amount"] == 20.0
+
+
+async def test_process_refund_delivered_order_requires_return(db, customer, delivered_order):
+    """Delivered but not yet returned — must be rejected with return_required."""
+    result = await process_refund(db, customer_id=customer.id, order_id=delivered_order.id)
+    assert result["success"] is False
+    assert result.get("reason") == "return_required"
+    assert "returned" in result["error"].lower()
 
 
 async def test_process_refund_placed_order_is_rejected(db, customer, placed_order):
@@ -294,8 +320,8 @@ async def test_process_refund_already_refunded(db, customer):
     assert "already" in result["error"].lower()
 
 
-async def test_process_refund_includes_status_in_response(db, customer, delivered_order):
-    result = await process_refund(db, customer_id=customer.id, order_id=delivered_order.id)
+async def test_process_refund_includes_status_in_response(db, customer, returned_order):
+    result = await process_refund(db, customer_id=customer.id, order_id=returned_order.id)
     assert result["success"] is True
     assert "status" in result
 
@@ -304,8 +330,8 @@ async def test_process_refund_includes_status_in_response(db, customer, delivere
 # process_refund — final sale
 # ---------------------------------------------------------------------------
 
-async def test_process_refund_rejects_final_sale_product(db, customer, final_sale_order):
-    result = await process_refund(db, customer_id=customer.id, order_id=final_sale_order.id)
+async def test_process_refund_rejects_final_sale_product(db, customer, final_sale_returned_order):
+    result = await process_refund(db, customer_id=customer.id, order_id=final_sale_returned_order.id)
     assert result["success"] is False
     assert "final sale" in result["error"].lower()
 
@@ -314,29 +340,29 @@ async def test_process_refund_rejects_final_sale_product(db, customer, final_sal
 # process_refund — return window
 # ---------------------------------------------------------------------------
 
-async def test_process_refund_rejects_outside_return_window(db, customer, old_delivered_order):
-    """Electronics delivered 20 days ago — outside the 14-day window."""
+async def test_process_refund_rejects_outside_return_window(db, customer, old_returned_order):
+    """Electronics returned 20 days after delivery — outside the 14-day window."""
     result = await process_refund(
-        db, customer_id=customer.id, order_id=old_delivered_order.id,
+        db, customer_id=customer.id, order_id=old_returned_order.id,
         reason="changed_mind",
     )
     assert result["success"] is False
     assert "return window" in result["error"].lower()
 
 
-async def test_process_refund_allows_defective_outside_window(db, customer, old_delivered_order):
+async def test_process_refund_allows_defective_outside_window(db, customer, old_returned_order):
     """Defective items bypass the return window per KB policy."""
     result = await process_refund(
-        db, customer_id=customer.id, order_id=old_delivered_order.id,
+        db, customer_id=customer.id, order_id=old_returned_order.id,
         reason="defective",
     )
     assert result["success"] is True
 
 
-async def test_process_refund_approves_normal_refund_within_window(db, customer, delivered_order):
-    """Recent delivery, low risk, small amount — should approve."""
+async def test_process_refund_approves_normal_refund_within_window(db, customer, returned_order):
+    """Recent return, low risk, small amount — should approve."""
     result = await process_refund(
-        db, customer_id=customer.id, order_id=delivered_order.id,
+        db, customer_id=customer.id, order_id=returned_order.id,
         reason="changed_mind", risk_score=0.1,
     )
     assert result["success"] is True
@@ -347,10 +373,10 @@ async def test_process_refund_approves_normal_refund_within_window(db, customer,
 # process_refund — pending_review
 # ---------------------------------------------------------------------------
 
-async def test_process_refund_pending_review_for_high_risk(db, customer, delivered_order):
+async def test_process_refund_pending_review_for_high_risk(db, customer, returned_order):
     """risk_score > 0.7 triggers pending_review."""
     result = await process_refund(
-        db, customer_id=customer.id, order_id=delivered_order.id,
+        db, customer_id=customer.id, order_id=returned_order.id,
         risk_score=0.8,
     )
     assert result["success"] is True
@@ -358,19 +384,19 @@ async def test_process_refund_pending_review_for_high_risk(db, customer, deliver
     assert "under review" in result["message"].lower()
 
 
-async def test_process_refund_pending_review_for_high_amount(db, customer, expensive_delivered_order):
+async def test_process_refund_pending_review_for_high_amount(db, customer, expensive_returned_order):
     """Refund amount > $50 triggers pending_review even with low risk."""
     result = await process_refund(
-        db, customer_id=customer.id, order_id=expensive_delivered_order.id,
+        db, customer_id=customer.id, order_id=expensive_returned_order.id,
         risk_score=0.0,
     )
     assert result["success"] is True
     assert result["status"] == "pending_review"
 
 
-async def test_process_refund_pending_review_message_is_informative(db, customer, delivered_order):
+async def test_process_refund_pending_review_message_is_informative(db, customer, returned_order):
     result = await process_refund(
-        db, customer_id=customer.id, order_id=delivered_order.id,
+        db, customer_id=customer.id, order_id=returned_order.id,
         risk_score=0.9,
     )
     assert "team will follow up" in result["message"].lower()

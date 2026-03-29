@@ -53,7 +53,7 @@ class Order(Base):
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
     customer_id = Column(UUID(as_uuid=False), ForeignKey("customers.id"), nullable=False)
-    status = Column(String, nullable=False)  # placed, shipped, delivered, cancelled, refunded
+    status = Column(String, nullable=False)  # placed, processing, shipped, delivered, returned, cancelled, refunded
     total_amount = Column(Numeric(10, 2), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

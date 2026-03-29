@@ -131,7 +131,7 @@ async def test_null_params_are_stripped(db, customer, placed_order):
 
 @pytest.fixture
 async def delivered_order(db: AsyncSession, customer):
-    """Delivered recently — within return window, low total to avoid high-value flag."""
+    """Returned (item shipped back) recently — within return window, low total to avoid high-value flag."""
     product = Product(
         id=str(uuid.uuid4()), name="Refund Widget", category="clothing",
         price=30.00, return_window_days=30, final_sale=False,
@@ -141,7 +141,7 @@ async def delivered_order(db: AsyncSession, customer):
     now = datetime.now(timezone.utc)
     order = Order(
         id=str(uuid.uuid4()), customer_id=customer.id,
-        status="delivered", total_amount=30.00,
+        status="returned", total_amount=30.00,
         delivered_at=now - timedelta(days=3),
     )
     db.add(order)

@@ -165,7 +165,18 @@ async def process_refund(
 
     if order.status == "refunded":
         return {"success": False, "error": "This order has already been refunded."}
-    if order.status not in ("delivered", "cancelled"):
+    if order.status == "delivered":
+        return {
+            "success": False,
+            "status": "rejected",
+            "reason": "return_required",
+            "error": (
+                "Item must be returned before a refund can be processed. "
+                "Please ship the item back using a prepaid return label, "
+                "and a refund will be issued once we receive it."
+            ),
+        }
+    if order.status not in ("returned", "cancelled"):
         return {
             "success": False,
             "error": f"Orders with status '{order.status}' are not eligible for a refund yet.",
