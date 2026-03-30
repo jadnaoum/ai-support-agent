@@ -38,10 +38,14 @@ async def action_service_node(state: AgentState, config: dict) -> dict:
             result = await tool.handler(
                 db=db,
                 customer_id=state.get("customer_id", ""),
+                actions_taken=state.get("actions_taken") or [],
                 **params,
             )
         except Exception as e:
             result = {"success": False, "error": f"Action failed: {str(e)}"}
+
+    # Resolve the order_id that was actually used (may differ from params when LLM omitted it).
+    resolved_order_id = result.get("order_id") or (result.get("details") or {}).get("order_id")
 
     return {
         "action_results": (state.get("action_results") or []) + [result],
@@ -53,6 +57,8 @@ async def action_service_node(state: AgentState, config: dict) -> dict:
                 "action": tool_name or "unknown",
                 "params": pending.get("params", {}),
                 "success": result.get("success", False),
+                "order_id": resolved_order_id,
+                "confirmation_required": result.get("confirmation_required", False),
             }
         ],
     }

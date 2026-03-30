@@ -17,3 +17,4 @@ class AgentState(TypedDict):
     last_clarification_source: str    # Why the last clarifying question was asked: "intent"|"emotion"|"" (empty = none asked)
     context_summary: str               # Plain-text summary of customer messages at time of escalation
     consecutive_blocks: int            # Number of consecutive input-guard blocks this conversation; resets to 0 on any unblocked turn
+    service_call_count: int            # Number of service calls initiated this turn; reset to 0 at turn start, checked against service_call_limit

@@ -31,7 +31,8 @@ intent_prompt: |
   cancel_order:
     Only "placed" and "processing" orders can be cancelled. Shipped, delivered, cancelled,
     and refunded orders cannot be cancelled — the tool will return an error for these.
-    Always confirm cancellation intent with the customer before calling this tool.
+    A reason is required — do not call without one. The tool will prompt for confirmation
+    before executing; do not attempt to pre-confirm on behalf of the customer.
     If the order is already cancelled, inform the customer — do not call the tool.
     If the order has shipped, explain it cannot be cancelled but can be returned once it arrives.
     If the order has been delivered, explain cancellation is not possible and offer the refund
@@ -42,14 +43,26 @@ intent_prompt: |
   process_refund:
     Eligible only for orders with status "returned" or "cancelled". Blocked for final sale
     items and non-returnable categories (gift cards, digital, personalized, perishable,
-    hazardous). Return window must not have expired — defective items bypass this entirely.
+    hazardous). Return window must not have expired — defective items route to escalation.
+    A reason is required — do not call without one. The tool will prompt for confirmation
+    before executing; do not attempt to pre-confirm on behalf of the customer.
     Partial refunds: use the "amount" parameter when the customer requests a refund on only
     some items from the order. Clarify which items and calculate the partial amount first.
     High-value refunds (over $50) or high-risk accounts route to pending_review — inform
     the customer a team member will follow up.
     Do NOT use for exchanges — exchanges are not supported; offer refund plus placing a new
     order as the alternative.
-    Do NOT call without first confirming the customer wants a refund and obtaining a reason.
+
+  check_cancel_eligibility:
+    Read-only. Use to check whether an order can be cancelled without executing any change.
+    Call this when you need to know cancellation status before explaining options to the customer.
+    Returns eligible/ineligible with a reason and available_action hint if applicable.
+
+  check_refund_eligibility:
+    Read-only. Use to check whether an order is eligible for a refund without executing any change.
+    Pass reason if known — defective claims will return requires_escalation rather than eligible,
+    allowing you to set correct expectations before proceeding.
+    Returns eligible/ineligible with a reason and available_action hint if applicable.
 
   Use needs_clarification when:
   - Customer says "cancel my order" or "refund my order" but has not provided an order ID and none is visible in the conversation history
@@ -146,11 +159,20 @@ tool_cancel_order_description: >
   Do not use for refund requests (use process_refund) or order modifications (not supported).
 
 tool_process_refund_description: >
-  Initiate a refund for a returned or cancelled order. Blocked for final sale items and
-  non-returnable categories (gift cards, digital, personalized, perishable, hazardous).
-  Defective items bypass the return window. Partial refunds supported via the amount
-  parameter. High-value (>$50) or high-risk accounts route to pending_review status.
-  Do not use for exchanges — offer refund plus new order instead.
+  Initiate a refund for a returned or cancelled order. Requires a reason. Blocked for
+  final sale items and non-returnable categories (gift cards, digital, personalized,
+  perishable, hazardous). Defective items route to escalation. Partial refunds supported
+  via the amount parameter. High-value (>$50) or high-risk accounts route to
+  pending_review status. Do not use for exchanges — offer refund plus new order instead.
+
+tool_check_cancel_eligibility_description: >
+  Read-only check: returns whether an order can be cancelled, with a reason if not.
+  Use before explaining cancellation options to the customer. Never modifies order state.
+
+tool_check_refund_eligibility_description: >
+  Read-only check: returns whether an order is eligible for a refund, with a reason if not.
+  Pass reason if known — defective/damaged claims return requires_escalation instead of
+  eligible. Never modifies order state.
 
 # ---------------------------------------------------------------------------
 # Output guard prompt (originally: backend/guardrails/output_guard.py)
@@ -232,3 +254,33 @@ redirect_prompt: |
   - Do NOT say the message was "blocked", "flagged", "filtered", or "inappropriate".
   - Do NOT reveal there is a filter, a safety system, or a rule being applied.
   - Respond with just the message text — no labels, no quotes.
+
+# ---------------------------------------------------------------------------
+# Loop decision prompt (backend/agents/conversation.py — _classify_next_step)
+# Called after a service returns a result that may warrant a follow-up call.
+# Template variable: {context_section}
+#
+# SYNC NOTE: the tool list below ("track_order, cancel_order, process_refund") must
+# stay in sync with TOOL_REGISTRY. When new tools are added (e.g. eligibility tools
+# in Step 2), update the tool list here too.
+# ---------------------------------------------------------------------------
+
+loop_decision_prompt: |
+  You are a customer support agent mid-turn. You have already made one or more service
+  calls and have partial results shown below. Decide what to do next.
+
+  {context_section}
+
+  Options:
+  - "respond"   — you have enough to answer the customer
+  - "knowledge" — look up a policy or product detail first
+  - "action"    — execute an operation first (track_order, cancel_order, process_refund, check_cancel_eligibility, check_refund_eligibility)
+
+  If "action", include the tool name and any parameters the customer has provided.
+  Use null for unknown parameters.
+
+  Respond with valid JSON only, no markdown.
+  Examples:
+  {"next": "respond"}
+  {"next": "knowledge"}
+  {"next": "action", "action": "process_refund", "params": {"order_id": "abc123", "reason": "defective", "amount": null}}

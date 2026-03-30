@@ -4,8 +4,9 @@ Conversation agent — the only customer-facing node.
 Two-pass design:
   Pass 1 (no service results yet): classify intent → set pending_service.
           If intent is "general", respond directly without calling a service.
-  Pass 2 (service results available): generate the customer-facing response
-          using retrieved_context / action_results.
+  Pass 2 (service results available): optionally loop for another service call
+          (if the result signals more may be needed and the call limit allows),
+          then generate the customer-facing response.
 """
 import json
 import litellm
@@ -23,6 +24,7 @@ settings = get_settings()
 INTENT_PROMPT = get_prompt("intent_prompt")
 RESPONSE_PROMPT = get_prompt("response_prompt")
 REDIRECT_PROMPT = get_prompt("redirect_prompt")
+LOOP_DECISION_PROMPT = get_prompt("loop_decision_prompt")
 
 
 def _build_context_section(state: AgentState) -> str:
@@ -162,6 +164,63 @@ async def _generate_emotion_clarification(state: AgentState, clarification_hint:
     return result.choices[0].message.content
 
 
+def _service_needs_loop(state: AgentState) -> bool:
+    """
+    Returns True if the most recent service result signals there may be more to do.
+    Only action_service results carry structured signals (success, reason, available_action).
+    Knowledge service results have no such signals and are always treated as clean.
+    """
+    last_service = next(
+        (e["service"] for e in reversed(state.get("actions_taken") or [])
+         if e.get("service") in ("knowledge_service", "action_service")),
+        None,
+    )
+    if last_service != "action_service":
+        return False
+
+    action_results = state.get("action_results") or []
+    if not action_results:
+        return False
+
+    last = action_results[-1]
+    return (
+        not last.get("success", True)
+        or bool(last.get("available_action"))
+        or bool(last.get("reason"))
+    )
+
+
+async def _classify_next_step(state: AgentState) -> dict:
+    """
+    After at least one service has run, decide whether another call is needed.
+    Returns {"next": "respond"|"knowledge"|"action", "action": ..., "params": ...}
+    Falls back to {"next": "respond"} on any parse error.
+    """
+    context_section = _build_context_section(state)
+    last_message = next(
+        (m["content"] for m in reversed(state["messages"]) if m["role"] == "customer"),
+        "",
+    )
+    try:
+        result = await litellm.acompletion(
+            model=settings.litellm_model,
+            messages=[
+                {"role": "system", "content": LOOP_DECISION_PROMPT.format(context_section=context_section)},
+                {"role": "user", "content": last_message},
+            ],
+            stream=False,
+        )
+        raw = result.choices[0].message.content.strip()
+        # Strip markdown code fences if the LLM wraps the JSON
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        return json.loads(raw.strip())
+    except Exception:
+        return {"next": "respond"}
+
+
 async def _do_escalate(reason: str, state: AgentState, config: dict) -> dict:
     """
     Call the escalation handler inline and return the full state update.
@@ -197,7 +256,8 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
 
     Pass 1 — no service results yet: classify intent and route to a service,
               or respond directly if no service is needed.
-    Pass 2 — service results available: generate the customer-facing response.
+    Pass 2 — service results available: optionally loop for another service call,
+              then generate the customer-facing response.
     """
     # Pass 2 if any service has already run (actions_taken is populated by services).
     # Checking actions_taken is more reliable than checking retrieved_context/action_results
@@ -226,6 +286,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                     **await _do_escalate("abusive_input", state, config),
                     "confidence": 1.0,
                     "consecutive_blocks": state.get("consecutive_blocks", 0),
+                    "service_call_count": 0,
                 }
 
             new_blocks = state.get("consecutive_blocks", 0) + 1
@@ -236,6 +297,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                     **await _do_escalate("repeated_blocks", state, config),
                     "confidence": 1.0,
                     "consecutive_blocks": new_blocks,
+                    "service_call_count": 0,
                 }
 
             # 1st or 2nd block → LLM-generated redirect with category- and count-specific tone
@@ -246,6 +308,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 "confidence": 1.0,
                 "consecutive_blocks": new_blocks,
                 "last_clarification_source": "",
+                "service_call_count": 0,
             }
 
         # Message passed the guard — reset the consecutive block counter
@@ -275,6 +338,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                     "pending_service": "",
                     "last_clarification_source": "emotion",
                     "consecutive_blocks": 0,
+                    "service_call_count": 0,
                 }
             _db = config.get("configurable", {}).get("db")
             _conv_id = config.get("configurable", {}).get("conversation_id", "")
@@ -285,10 +349,17 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 **await _do_escalate("unable_to_clarify", state, config),
                 "confidence": confidence,
                 "consecutive_blocks": 0,
+                "service_call_count": 0,
             }
 
         if intent == "knowledge_query":
-            return {"pending_service": "knowledge", "confidence": confidence, "last_clarification_source": "", "consecutive_blocks": 0}
+            return {
+                "pending_service": "knowledge",
+                "confidence": confidence,
+                "last_clarification_source": "",
+                "consecutive_blocks": 0,
+                "service_call_count": 1,
+            }
 
         if intent == "action_request":
             return {
@@ -297,6 +368,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 "confidence": confidence,
                 "last_clarification_source": "",
                 "consecutive_blocks": 0,
+                "service_call_count": 1,
             }
 
         if intent == "escalation_request":
@@ -304,6 +376,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 **await _do_escalate("customer_requested", state, config),
                 "confidence": confidence,
                 "consecutive_blocks": 0,
+                "service_call_count": 0,
             }
 
         if intent == "needs_clarification":
@@ -314,6 +387,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                     **await _do_escalate("unable_to_clarify", state, config),
                     "confidence": confidence,
                     "consecutive_blocks": 0,
+                    "service_call_count": 0,
                 }
             clarification_question = action_details.get(
                 "clarification_prompt",
@@ -327,6 +401,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                     "pending_service": "",
                     "last_clarification_source": "intent",
                     "consecutive_blocks": 0,
+                    "service_call_count": 0,
                 }
             # Output guard blocked the clarifying question — log and escalate
             _db = config.get("configurable", {}).get("db")
@@ -338,6 +413,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 **await _do_escalate("unable_to_clarify", state, config),
                 "confidence": confidence,
                 "consecutive_blocks": 0,
+                "service_call_count": 0,
             }
 
         # general — answer directly without a service call
@@ -353,11 +429,19 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 **await _do_escalate("policy_exception", state, config),
                 "confidence": confidence,
                 "consecutive_blocks": 0,
+                "service_call_count": 0,
             }
-        return {"response": response, "confidence": confidence, "pending_service": "", "last_clarification_source": "", "consecutive_blocks": 0}
+        return {
+            "response": response,
+            "confidence": confidence,
+            "pending_service": "",
+            "last_clarification_source": "",
+            "consecutive_blocks": 0,
+            "service_call_count": 0,
+        }
 
-    # Pass 2: check confidence before generating response.
-    # If KB results are present but below threshold, escalate instead of guessing.
+    # Pass 2: service results are available.
+    # Check escalation conditions first, then decide whether to loop or respond.
     retrieved = state.get("retrieved_context") or []
     if retrieved:
         top_similarity = retrieved[0]["similarity"]
@@ -376,6 +460,29 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 "confidence": retrieved[0]["similarity"] if retrieved else state.get("confidence", 1.0),
             }
 
+    # Loop decision: if the last service result signals more may be needed and we're under
+    # the call limit, ask the LLM whether to make another call before responding.
+    # Clean successes (no error, no rejection reason, no available_action) skip this entirely.
+    service_call_count = state.get("service_call_count", 0)
+    if service_call_count < settings.service_call_limit and _service_needs_loop(state):
+        next_step = await _classify_next_step(state)
+        if next_step.get("next") == "knowledge":
+            return {
+                "pending_service": "knowledge",
+                "service_call_count": service_call_count + 1,
+            }
+        if next_step.get("next") == "action":
+            action_details = {
+                "tool": next_step.get("action", ""),
+                "params": next_step.get("params") or {},
+            }
+            return {
+                "pending_service": "action",
+                "pending_action": action_details,
+                "service_call_count": service_call_count + 1,
+            }
+        # "respond" falls through to response generation
+
     # Generate the customer-facing response using service results
     response = await _generate_response(state)
     top_similarity = retrieved[0]["similarity"] if retrieved else state.get("confidence", 1.0)
@@ -392,4 +499,9 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             "confidence": top_similarity,
         }
 
-    return {"response": response, "confidence": top_similarity, "pending_service": "", "last_clarification_source": ""}
+    return {
+        "response": response,
+        "confidence": top_similarity,
+        "pending_service": "",
+        "last_clarification_source": "",
+    }

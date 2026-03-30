@@ -13,6 +13,8 @@ from backend.tools.order_tools import (
     cancel_order,
     process_refund,
     get_order_history,
+    check_cancel_eligibility,
+    check_refund_eligibility,
 )
 
 
@@ -81,6 +83,11 @@ def _add_item(order, product):
         quantity=1,
         price_at_purchase=float(product.price),
     )
+
+
+def _confirmed(tool_name: str, order_id: str) -> list:
+    """Return an actions_taken list that satisfies the confirmation gate for one call."""
+    return [{"action": tool_name, "order_id": order_id, "confirmation_required": True}]
 
 
 @pytest.fixture
@@ -235,17 +242,41 @@ async def test_track_order_wrong_customer(db, customer, placed_order):
 
 
 # ---------------------------------------------------------------------------
-# cancel_order
+# cancel_order — reason gate
 # ---------------------------------------------------------------------------
 
-async def test_cancel_placed_order(db, customer, placed_order):
+async def test_cancel_order_no_reason_is_rejected(db, customer, placed_order):
     result = await cancel_order(db, customer_id=customer.id, order_id=placed_order.id)
+    assert result["success"] is False
+    assert result.get("reason") == "reason_required"
+
+
+# ---------------------------------------------------------------------------
+# cancel_order — confirmation gate
+# ---------------------------------------------------------------------------
+
+async def test_cancel_order_confirmation_required_on_first_call(db, customer, placed_order):
+    result = await cancel_order(
+        db, customer_id=customer.id, order_id=placed_order.id, reason="changed_mind"
+    )
+    assert result["success"] is False
+    assert result.get("confirmation_required") is True
+    assert result["details"]["order_id"] == placed_order.id
+
+
+async def test_cancel_placed_order(db, customer, placed_order):
+    result = await cancel_order(
+        db, customer_id=customer.id, order_id=placed_order.id,
+        reason="changed_mind",
+        actions_taken=_confirmed("cancel_order", placed_order.id),
+    )
     assert result["success"] is True
     assert "cancelled" in result["message"].lower()
     assert result["refund_amount"] == 999.0
 
 
 async def test_cancel_shipped_order_is_rejected(db, customer, shipped_order):
+    # No reason needed — eligibility is checked first; ineligible orders are rejected immediately
     result = await cancel_order(db, customer_id=customer.id, order_id=shipped_order.id)
     assert result["success"] is False
     assert "shipped" in result["error"].lower()
@@ -271,8 +302,88 @@ async def test_cancel_already_cancelled_order(db, customer):
 
 
 async def test_cancel_most_recent_order(db, customer, placed_order):
-    result = await cancel_order(db, customer_id=customer.id)
+    result = await cancel_order(
+        db, customer_id=customer.id,
+        reason="changed_mind",
+        actions_taken=_confirmed("cancel_order", placed_order.id),
+    )
     assert result["success"] is True
+
+
+# ---------------------------------------------------------------------------
+# check_cancel_eligibility
+# ---------------------------------------------------------------------------
+
+async def test_check_cancel_eligibility_placed_order(db, customer, placed_order):
+    result = await check_cancel_eligibility(db, customer_id=customer.id, order_id=placed_order.id)
+    assert result["success"] is True
+    assert result["eligible"] is True
+    assert result["order_id"] == placed_order.id
+
+
+async def test_check_cancel_eligibility_shipped_order(db, customer, shipped_order):
+    result = await check_cancel_eligibility(db, customer_id=customer.id, order_id=shipped_order.id)
+    assert result["success"] is True
+    assert result["eligible"] is False
+    assert result["reason"] == "shipped"
+    assert result["available_action"] == "check_refund_eligibility"
+
+
+async def test_check_cancel_eligibility_no_order_id_returns_eligible_list(db, customer, placed_order):
+    result = await check_cancel_eligibility(db, customer_id=customer.id)
+    assert result["success"] is True
+    assert any(o["order_id"] == placed_order.id for o in result["eligible_orders"])
+
+
+# ---------------------------------------------------------------------------
+# check_refund_eligibility
+# ---------------------------------------------------------------------------
+
+async def test_check_refund_eligibility_returned_order(db, customer, returned_order):
+    result = await check_refund_eligibility(db, customer_id=customer.id, order_id=returned_order.id)
+    assert result["success"] is True
+    assert result["eligible"] is True
+
+
+async def test_check_refund_eligibility_defective_reason(db, customer, returned_order):
+    result = await check_refund_eligibility(
+        db, customer_id=customer.id, order_id=returned_order.id, reason="defective"
+    )
+    assert result["success"] is True
+    assert result["eligible"] is False
+    assert result["reason"] == "requires_escalation"
+
+
+async def test_check_refund_eligibility_delivered_order(db, customer, delivered_order):
+    result = await check_refund_eligibility(db, customer_id=customer.id, order_id=delivered_order.id)
+    assert result["success"] is True
+    assert result["eligible"] is False
+    assert result["reason"] == "return_required"
+    assert result["available_action"] == "initiate_return"
+
+
+# ---------------------------------------------------------------------------
+# process_refund — reason gate
+# ---------------------------------------------------------------------------
+
+async def test_process_refund_no_reason_is_rejected(db, customer, returned_order):
+    result = await process_refund(db, customer_id=customer.id, order_id=returned_order.id)
+    assert result["success"] is False
+    assert result.get("reason") == "reason_required"
+
+
+# ---------------------------------------------------------------------------
+# process_refund — confirmation gate
+# ---------------------------------------------------------------------------
+
+async def test_process_refund_confirmation_required_on_first_call(db, customer, returned_order):
+    result = await process_refund(
+        db, customer_id=customer.id, order_id=returned_order.id, reason="changed_mind"
+    )
+    assert result["success"] is False
+    assert result.get("confirmation_required") is True
+    assert result["details"]["order_id"] == returned_order.id
+    assert result["details"]["refund_amount"] == 49.99
 
 
 # ---------------------------------------------------------------------------
@@ -280,7 +391,11 @@ async def test_cancel_most_recent_order(db, customer, placed_order):
 # ---------------------------------------------------------------------------
 
 async def test_process_refund_returned_order(db, customer, returned_order):
-    result = await process_refund(db, customer_id=customer.id, order_id=returned_order.id)
+    result = await process_refund(
+        db, customer_id=customer.id, order_id=returned_order.id,
+        reason="changed_mind",
+        actions_taken=_confirmed("process_refund", returned_order.id),
+    )
     assert result["success"] is True
     assert result["amount"] == 49.99
     assert "refund_id" in result
@@ -288,7 +403,9 @@ async def test_process_refund_returned_order(db, customer, returned_order):
 
 async def test_process_refund_partial_amount(db, customer, returned_order):
     result = await process_refund(
-        db, customer_id=customer.id, order_id=returned_order.id, amount=20.0
+        db, customer_id=customer.id, order_id=returned_order.id,
+        amount=20.0, reason="changed_mind",
+        actions_taken=_confirmed("process_refund", returned_order.id),
     )
     assert result["success"] is True
     assert result["amount"] == 20.0
@@ -296,14 +413,18 @@ async def test_process_refund_partial_amount(db, customer, returned_order):
 
 async def test_process_refund_delivered_order_requires_return(db, customer, delivered_order):
     """Delivered but not yet returned — must be rejected with return_required."""
-    result = await process_refund(db, customer_id=customer.id, order_id=delivered_order.id)
+    result = await process_refund(
+        db, customer_id=customer.id, order_id=delivered_order.id, reason="changed_mind"
+    )
     assert result["success"] is False
     assert result.get("reason") == "return_required"
     assert "returned" in result["error"].lower()
 
 
 async def test_process_refund_placed_order_is_rejected(db, customer, placed_order):
-    result = await process_refund(db, customer_id=customer.id, order_id=placed_order.id)
+    result = await process_refund(
+        db, customer_id=customer.id, order_id=placed_order.id, reason="changed_mind"
+    )
     assert result["success"] is False
     assert "not eligible" in result["error"].lower()
 
@@ -315,13 +436,19 @@ async def test_process_refund_already_refunded(db, customer):
     )
     db.add(order)
     await db.commit()
-    result = await process_refund(db, customer_id=customer.id, order_id=order.id)
+    result = await process_refund(
+        db, customer_id=customer.id, order_id=order.id, reason="changed_mind"
+    )
     assert result["success"] is False
     assert "fully refunded" in result["error"].lower()
 
 
 async def test_process_refund_includes_status_in_response(db, customer, returned_order):
-    result = await process_refund(db, customer_id=customer.id, order_id=returned_order.id)
+    result = await process_refund(
+        db, customer_id=customer.id, order_id=returned_order.id,
+        reason="changed_mind",
+        actions_taken=_confirmed("process_refund", returned_order.id),
+    )
     assert result["success"] is True
     assert "status" in result
 
@@ -329,7 +456,9 @@ async def test_process_refund_includes_status_in_response(db, customer, returned
 async def test_process_refund_partial_leaves_order_in_returned_status(db, customer, returned_order):
     """Partial refund should not mark the order as refunded — balance remains."""
     result = await process_refund(
-        db, customer_id=customer.id, order_id=returned_order.id, amount=20.0
+        db, customer_id=customer.id, order_id=returned_order.id,
+        amount=20.0, reason="changed_mind",
+        actions_taken=_confirmed("process_refund", returned_order.id),
     )
     assert result["success"] is True
     assert result["remaining_balance"] == round(49.99 - 20.0, 2)
@@ -340,9 +469,15 @@ async def test_process_refund_partial_leaves_order_in_returned_status(db, custom
 
 async def test_process_refund_second_partial_uses_remaining_balance(db, customer, returned_order):
     """Second call is capped at the remaining balance, not the full order total."""
-    await process_refund(db, customer_id=customer.id, order_id=returned_order.id, amount=20.0)
+    await process_refund(
+        db, customer_id=customer.id, order_id=returned_order.id,
+        amount=20.0, reason="changed_mind",
+        actions_taken=_confirmed("process_refund", returned_order.id),
+    )
     result = await process_refund(
-        db, customer_id=customer.id, order_id=returned_order.id, amount=99.0  # exceeds remaining
+        db, customer_id=customer.id, order_id=returned_order.id,
+        amount=99.0, reason="changed_mind",  # exceeds remaining
+        actions_taken=_confirmed("process_refund", returned_order.id),
     )
     assert result["success"] is True
     assert result["amount"] == round(49.99 - 20.0, 2)  # capped at remaining
@@ -351,17 +486,36 @@ async def test_process_refund_second_partial_uses_remaining_balance(db, customer
 
 async def test_process_refund_full_after_partial_marks_order_refunded(db, customer, returned_order):
     """Once remaining balance hits zero the order status flips to refunded."""
-    await process_refund(db, customer_id=customer.id, order_id=returned_order.id, amount=20.0)
-    await process_refund(db, customer_id=customer.id, order_id=returned_order.id)
+    await process_refund(
+        db, customer_id=customer.id, order_id=returned_order.id,
+        amount=20.0, reason="changed_mind",
+        actions_taken=_confirmed("process_refund", returned_order.id),
+    )
+    await process_refund(
+        db, customer_id=customer.id, order_id=returned_order.id,
+        reason="changed_mind",
+        actions_taken=_confirmed("process_refund", returned_order.id),
+    )
     await db.refresh(returned_order)
     assert returned_order.status == "refunded"
 
 
 async def test_process_refund_blocks_after_balance_exhausted(db, customer, returned_order):
     """A third call after balance is fully exhausted should be rejected."""
-    await process_refund(db, customer_id=customer.id, order_id=returned_order.id, amount=20.0)
-    await process_refund(db, customer_id=customer.id, order_id=returned_order.id)
-    result = await process_refund(db, customer_id=customer.id, order_id=returned_order.id)
+    await process_refund(
+        db, customer_id=customer.id, order_id=returned_order.id,
+        amount=20.0, reason="changed_mind",
+        actions_taken=_confirmed("process_refund", returned_order.id),
+    )
+    await process_refund(
+        db, customer_id=customer.id, order_id=returned_order.id,
+        reason="changed_mind",
+        actions_taken=_confirmed("process_refund", returned_order.id),
+    )
+    result = await process_refund(
+        db, customer_id=customer.id, order_id=returned_order.id,
+        reason="changed_mind",
+    )
     assert result["success"] is False
     assert "fully refunded" in result["error"].lower()
 
@@ -371,7 +525,10 @@ async def test_process_refund_blocks_after_balance_exhausted(db, customer, retur
 # ---------------------------------------------------------------------------
 
 async def test_process_refund_rejects_final_sale_product(db, customer, final_sale_returned_order):
-    result = await process_refund(db, customer_id=customer.id, order_id=final_sale_returned_order.id)
+    result = await process_refund(
+        db, customer_id=customer.id, order_id=final_sale_returned_order.id,
+        reason="changed_mind",
+    )
     assert result["success"] is False
     assert "final sale" in result["error"].lower()
 
@@ -391,13 +548,13 @@ async def test_process_refund_rejects_outside_return_window(db, customer, old_re
 
 
 async def test_process_refund_rejects_defective_reason(db, customer, old_returned_order):
-    """Defective/damaged claims require human review — tool rejects with unsupported_action."""
+    """Defective/damaged claims require human review — tool rejects with requires_escalation."""
     result = await process_refund(
         db, customer_id=customer.id, order_id=old_returned_order.id,
         reason="defective",
     )
     assert result["success"] is False
-    assert result.get("reason") == "unsupported_action"
+    assert result.get("reason") == "requires_escalation"
 
 
 async def test_process_refund_approves_normal_refund_within_window(db, customer, returned_order):
@@ -405,6 +562,7 @@ async def test_process_refund_approves_normal_refund_within_window(db, customer,
     result = await process_refund(
         db, customer_id=customer.id, order_id=returned_order.id,
         reason="changed_mind", risk_score=0.1,
+        actions_taken=_confirmed("process_refund", returned_order.id),
     )
     assert result["success"] is True
     assert result["status"] == "approved"
@@ -418,7 +576,8 @@ async def test_process_refund_pending_review_for_high_risk(db, customer, returne
     """risk_score > 0.7 triggers pending_review."""
     result = await process_refund(
         db, customer_id=customer.id, order_id=returned_order.id,
-        risk_score=0.8,
+        reason="changed_mind", risk_score=0.8,
+        actions_taken=_confirmed("process_refund", returned_order.id),
     )
     assert result["success"] is True
     assert result["status"] == "pending_review"
@@ -429,7 +588,8 @@ async def test_process_refund_pending_review_for_high_amount(db, customer, expen
     """Refund amount > $50 triggers pending_review even with low risk."""
     result = await process_refund(
         db, customer_id=customer.id, order_id=expensive_returned_order.id,
-        risk_score=0.0,
+        reason="changed_mind", risk_score=0.0,
+        actions_taken=_confirmed("process_refund", expensive_returned_order.id),
     )
     assert result["success"] is True
     assert result["status"] == "pending_review"
@@ -438,7 +598,8 @@ async def test_process_refund_pending_review_for_high_amount(db, customer, expen
 async def test_process_refund_pending_review_message_is_informative(db, customer, returned_order):
     result = await process_refund(
         db, customer_id=customer.id, order_id=returned_order.id,
-        risk_score=0.9,
+        reason="changed_mind", risk_score=0.9,
+        actions_taken=_confirmed("process_refund", returned_order.id),
     )
     assert "team will follow up" in result["message"].lower()
 

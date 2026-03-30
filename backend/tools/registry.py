@@ -11,6 +11,8 @@ from backend.tools.order_tools import (
     track_order,
     cancel_order,
     process_refund,
+    check_cancel_eligibility,
+    check_refund_eligibility,
 )
 from prompts.loader import get_prompt
 
@@ -38,7 +40,7 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
         description=get_prompt("tool_cancel_order_description"),
         parameters={
             "order_id": {"type": "str", "required": False, "description": "Order ID to cancel. Omit to cancel most recent order."},
-            "reason": {"type": "str", "required": False, "description": "Cancellation reason."},
+            "reason": {"type": "str", "required": True, "description": "Cancellation reason."},
         },
         handler=cancel_order,
     ),
@@ -48,8 +50,25 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
         parameters={
             "order_id": {"type": "str", "required": False, "description": "Order ID to refund. Omit to refund most recent order."},
             "amount": {"type": "float", "required": False, "description": "Partial refund amount. Omit for full refund."},
-            "reason": {"type": "str", "required": False, "description": "Refund reason: defective, changed_mind, wrong_item, late_delivery, other."},
+            "reason": {"type": "str", "required": True, "description": "Refund reason: defective, changed_mind, wrong_item, late_delivery, other."},
         },
         handler=process_refund,
+    ),
+    "check_cancel_eligibility": ToolDefinition(
+        name="check_cancel_eligibility",
+        description=get_prompt("tool_check_cancel_eligibility_description"),
+        parameters={
+            "order_id": {"type": "str", "required": False, "description": "Order ID to check. Omit to check most recent order."},
+        },
+        handler=check_cancel_eligibility,
+    ),
+    "check_refund_eligibility": ToolDefinition(
+        name="check_refund_eligibility",
+        description=get_prompt("tool_check_refund_eligibility_description"),
+        parameters={
+            "order_id": {"type": "str", "required": False, "description": "Order ID to check. Omit to check most recent order."},
+            "reason": {"type": "str", "required": False, "description": "Refund reason if known — defective claims return requires_escalation instead of eligible."},
+        },
+        handler=check_refund_eligibility,
     ),
 }

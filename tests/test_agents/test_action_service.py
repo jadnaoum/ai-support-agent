@@ -11,6 +11,11 @@ from backend.agents.action_service import action_service_node
 from backend.db.models import Customer, Order, Product, OrderItem
 
 
+def _confirmed(tool_name: str, order_id: str) -> list:
+    """Return an actions_taken list that satisfies the confirmation gate for one call."""
+    return [{"action": tool_name, "order_id": order_id, "confirmation_required": True}]
+
+
 def make_state(tool: str = "track_order", params: dict = None, **overrides) -> dict:
     base = {
         "messages": [{"role": "customer", "content": "Track my order"}],
@@ -25,6 +30,10 @@ def make_state(tool: str = "track_order", params: dict = None, **overrides) -> d
         "response": "",
         "pending_service": "action",
         "pending_action": {"tool": tool, "params": params or {}},
+        "last_clarification_source": "",
+        "context_summary": "",
+        "consecutive_blocks": 0,
+        "service_call_count": 0,
     }
     base.update(overrides)
     return base
@@ -90,6 +99,27 @@ async def test_appends_to_actions_taken(db, customer, placed_order):
     assert result["actions_taken"][0]["action"] == "track_order"
 
 
+async def test_actions_taken_records_order_id(db, customer, placed_order):
+    """action_service must store the resolved order_id in the actions_taken entry."""
+    state = make_state("track_order", {"order_id": placed_order.id}, customer_id=customer.id)
+    result = await action_service_node(state, {"configurable": {"db": db}})
+    assert result["actions_taken"][0]["order_id"] == placed_order.id
+
+
+async def test_actions_taken_records_confirmation_required(db, customer, placed_order):
+    """confirmation_required=True must appear in the audit entry when gate fires."""
+    state = make_state(
+        "cancel_order",
+        {"order_id": placed_order.id, "reason": "changed_mind"},
+        customer_id=customer.id,
+    )
+    result = await action_service_node(state, {"configurable": {"db": db}})
+    entry = result["actions_taken"][0]
+    assert entry["confirmation_required"] is True
+    # order_id resolved from details.order_id on a confirmation_required response
+    assert entry["order_id"] == placed_order.id
+
+
 # ---------------------------------------------------------------------------
 # Tool execution
 # ---------------------------------------------------------------------------
@@ -101,8 +131,25 @@ async def test_track_order_succeeds(db, customer, placed_order):
     assert result["action_results"][0]["status"] == "placed"
 
 
-async def test_cancel_order_succeeds(db, customer, placed_order):
-    state = make_state("cancel_order", {"order_id": placed_order.id}, customer_id=customer.id)
+async def test_cancel_order_returns_confirmation_required_on_first_call(db, customer, placed_order):
+    """First call with reason but no prior confirmation → confirmation_required."""
+    state = make_state(
+        "cancel_order",
+        {"order_id": placed_order.id, "reason": "changed_mind"},
+        customer_id=customer.id,
+    )
+    result = await action_service_node(state, {"configurable": {"db": db}})
+    assert result["action_results"][0].get("confirmation_required") is True
+
+
+async def test_cancel_order_succeeds_with_prior_confirmation(db, customer, placed_order):
+    """Second call with prior confirmation entry → executes cancellation."""
+    state = make_state(
+        "cancel_order",
+        {"order_id": placed_order.id, "reason": "changed_mind"},
+        customer_id=customer.id,
+        actions_taken=_confirmed("cancel_order", placed_order.id),
+    )
     result = await action_service_node(state, {"configurable": {"db": db}})
     assert result["action_results"][0]["success"] is True
 
@@ -130,8 +177,8 @@ async def test_null_params_are_stripped(db, customer, placed_order):
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-async def delivered_order(db: AsyncSession, customer):
-    """Returned (item shipped back) recently — within return window, low total to avoid high-value flag."""
+async def returned_order(db: AsyncSession, customer):
+    """Returned recently — within return window, low total to avoid high-value flag."""
     product = Product(
         id=str(uuid.uuid4()), name="Refund Widget", category="clothing",
         price=30.00, return_window_days=30, final_sale=False,
@@ -154,13 +201,14 @@ async def delivered_order(db: AsyncSession, customer):
     return order
 
 
-async def test_risk_score_injected_from_customer_context(db, customer, delivered_order):
+async def test_risk_score_injected_from_customer_context(db, customer, returned_order):
     """action_service must inject risk_score from customer_context, not from LLM params."""
     state = make_state(
         "process_refund",
-        {"order_id": delivered_order.id},  # LLM provides order_id only — no risk_score
+        {"order_id": returned_order.id, "reason": "changed_mind"},
         customer_id=customer.id,
         customer_context={"risk_score": 0.9},  # high risk — should trigger pending_review
+        actions_taken=_confirmed("process_refund", returned_order.id),
     )
     result = await action_service_node(state, {"configurable": {"db": db}})
     tool_result = result["action_results"][0]
@@ -168,13 +216,14 @@ async def test_risk_score_injected_from_customer_context(db, customer, delivered
     assert tool_result["status"] == "pending_review"
 
 
-async def test_risk_score_cannot_be_overridden_by_llm(db, customer, delivered_order):
+async def test_risk_score_cannot_be_overridden_by_llm(db, customer, returned_order):
     """Even if the LLM somehow provides risk_score=0.0 in params, action_service overwrites it."""
     state = make_state(
         "process_refund",
-        {"order_id": delivered_order.id, "risk_score": 0.0},  # LLM-provided — must be ignored
+        {"order_id": returned_order.id, "reason": "changed_mind", "risk_score": 0.0},
         customer_id=customer.id,
         customer_context={"risk_score": 0.9},  # actual risk from customer context
+        actions_taken=_confirmed("process_refund", returned_order.id),
     )
     result = await action_service_node(state, {"configurable": {"db": db}})
     tool_result = result["action_results"][0]
@@ -183,13 +232,14 @@ async def test_risk_score_cannot_be_overridden_by_llm(db, customer, delivered_or
     assert tool_result["status"] == "pending_review"
 
 
-async def test_low_risk_score_from_context_approves_refund(db, customer, delivered_order):
+async def test_low_risk_score_from_context_approves_refund(db, customer, returned_order):
     """Low risk_score in customer_context → approved (not pending_review)."""
     state = make_state(
         "process_refund",
-        {"order_id": delivered_order.id},
+        {"order_id": returned_order.id, "reason": "changed_mind"},
         customer_id=customer.id,
         customer_context={"risk_score": 0.1},
+        actions_taken=_confirmed("process_refund", returned_order.id),
     )
     result = await action_service_node(state, {"configurable": {"db": db}})
     tool_result = result["action_results"][0]
@@ -197,13 +247,14 @@ async def test_low_risk_score_from_context_approves_refund(db, customer, deliver
     assert tool_result["status"] == "approved"
 
 
-async def test_missing_customer_context_defaults_to_zero_risk(db, customer, delivered_order):
+async def test_missing_customer_context_defaults_to_zero_risk(db, customer, returned_order):
     """No customer_context in state → risk_score defaults to 0.0 → approved."""
     state = make_state(
         "process_refund",
-        {"order_id": delivered_order.id},
+        {"order_id": returned_order.id, "reason": "changed_mind"},
         customer_id=customer.id,
         customer_context={},  # no risk_score field
+        actions_taken=_confirmed("process_refund", returned_order.id),
     )
     result = await action_service_node(state, {"configurable": {"db": db}})
     tool_result = result["action_results"][0]

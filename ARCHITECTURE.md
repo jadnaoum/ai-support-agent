@@ -251,7 +251,7 @@ Escalation is a decision the conversation agent makes — not a separate service
   - **Budget alerts:** Set configurable spend thresholds that trigger alerts (e.g. daily/monthly caps). Prevents runaway costs from unexpected traffic spikes or prompt loops.
   - **LiteLLM proxy (optional):** For multi-model or multi-client deployments, LiteLLM's proxy server provides centralized cost tracking, rate limiting, and model routing across all API calls. Overkill for v1 but valuable at scale.
   - **Third-party options:** Tools like Cloudidr or Helicone provide plug-and-play cost dashboards with 1-2 lines of integration. Worth evaluating if building a custom dashboard isn't justified.
-
+- **Native tool calling migration (Approach C):** The current orchestration uses manual intent classification (`_classify_intent` returns JSON) with graph-based service routing. A future migration to Anthropic's native tool calling API (`tools` parameter) would let Claude handle tool selection and chaining internally — eliminating `_classify_intent`, simplifying the graph, and gaining access to parallel tool calls and strict schema validation. LiteLLM supports the `tools` parameter across providers, preserving model portability. This is a significant architectural change (pending change #15) deferred until after baseline eval. The current graph loop approach (Approach A) is designed for clean swapability: tools reference domain concepts only (never orchestration mechanics like `pending_service`), prompts reference behavior only (never graph routing details), and only the graph definition handles orchestration logic. This separation ensures the migration touches one layer, not three.
 ---
 
 ## Development tool
@@ -269,6 +269,7 @@ Escalation is a decision the conversation agent makes — not a separate service
 
 ## Decisions still open
 
+- [ ] Native tool calling migration — when to execute Approach C (after baseline eval)
 - [ ] Sliding window vs. summarization for long in-session conversations
 - [ ] Admin dashboard specific metrics and views
 - [ ] Specific guardrail implementation (custom vs. library like NeMo Guardrails)
@@ -279,3 +280,9 @@ Escalation is a decision the conversation agent makes — not a separate service
 - [x] **Agent architecture:** Single conversation agent with backend services (not supervisor-routing to multiple customer-facing agents). See "Architecture change" in Agent design decisions above.
 - [x] **PostgreSQL schema:** Defined and implemented in Phase 1.
 - [x] **LangGraph state machine:** Defined in BUILD_SPEC.md — conversation agent as central node calling knowledge/action services.
+- [x] **Read/write tool separation:** Eligibility checks as separate read-only tools, with shared validation logic. See "Tool design principles" in Agent design decisions.
+- [x] **Confirmation gate:** Structural two-call pattern on state-changing tools. See "Tool design principles" in Agent design decisions.
+- [x] **Workflow strategy:** Layered approach (tool constraints → autonomous reasoning → explicit workflows only when needed). See "Workflow strategy" in Agent design decisions.
+- [x] **Dead-end handling:** Business Limitations catch-all KB article. See "Dead-end handling" in Agent design decisions.
+- [x] **Multi-step orchestration:** Graph loop (Approach A) with 3-call limit, abstracted for future native tool calling migration. See "Future-ready considerations."
+- [x] **One agent for all tools:** Rejected LLM-per-tool separation. See "One conversation agent for all tools" in Agent design decisions.

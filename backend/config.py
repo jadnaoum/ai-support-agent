@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     confidence_threshold: float = 0.7
     max_context_messages: int = 50
     message_retention_days: int = 60
+    service_call_limit: int = 3        # max service calls per turn before forcing response generation
 
     # LangSmith tracing
     langchain_tracing_v2: bool = False
