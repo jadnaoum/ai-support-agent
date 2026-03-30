@@ -438,6 +438,17 @@ Full audit of all 6 KB documents against tool implementations. Four gaps found a
 - Defective refund includes original shipping: `Order` schema has no `shipping_amount` field
 - Replacement option for defective items: no `send_replacement` tool in scope
 
+### Fix partial refund: balance-aware multi-call support (2026-03-29) — 224 tests passing
+
+`process_refund` now supports multiple partial refund calls on the same order.
+
+- **Balance tracking**: before calculating refund amount, queries `SUM(refunds.amount)` for all `approved/pending_review/processed` refunds on the order. `rejected` refunds excluded so a failed attempt doesn't block future ones.
+- **Amount capping**: `refund_amount = min(requested, remaining)` instead of `min(requested, total)`. Defaults to full remaining balance when no amount supplied.
+- **Order status**: only set to `"refunded"` when `round(already_refunded + refund_amount, 2) >= round(total_amount, 2)`. Order stays in `returned` until balance is fully exhausted — follow-up calls remain possible.
+- **Response**: now includes `remaining_balance` field so the agent can inform the customer how much is still owed after a partial.
+- **Float safety**: `round(..., 2)` on both sides of the completion check — `20.0 + 29.99` produces `49.989999...` in binary float without it, preventing the order from ever flipping to `refunded`.
+- 4 new tests: partial leaves order in `returned` status; second partial capped at remaining; full-after-partial flips to `refunded`; blocked after balance exhausted.
+
 **Next: Phase 4 — Frontend**
 - Typing indicator while agent streams
 - CSAT widget shown when conversation resolves
