@@ -1,0 +1,3 @@
+- LangGraph 0.2.60 on Python 3.9 silently drops `None` state updates. Use `""` as the "no pending service" sentinel, never `None`.
+- LangSmith tracing is EU region: `LANGCHAIN_ENDPOINT=https://eu.api.smith.langchain.com`. US endpoint returns 403.
+- `str | None` type annotations must use string form `"str | None"` for Python 3.9 compatibility.

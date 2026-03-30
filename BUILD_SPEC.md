@@ -128,7 +128,7 @@ Note: categories `gift_cards`, `digital`, `personalized`, `perishable`, and `haz
 |---|---|---|
 | id | UUID | PK |
 | customer_id | UUID | FK → customers |
-| status | VARCHAR | placed, shipped, delivered, cancelled, refunded |
+| status | VARCHAR | placed, shipped, delivered, returned, cancelled, refunded |
 | total_amount | DECIMAL | |
 | created_at | TIMESTAMP | |
 | updated_at | TIMESTAMP | |
@@ -270,9 +270,10 @@ class AgentState(TypedDict):
     confidence: float        # Conversation agent's confidence in its response
     requires_escalation: bool
     escalation_reason: str   # Why escalation was triggered
-    actions_taken: list      # Audit trail of all service calls this turn
+    actions_taken: list      # Audit trail of all service calls this turn. Used by confirmation gate to check prior confirmation_required entries.
     last_clarification_source: str   # Source of the last clarifying question asked: "intent" (needs_clarification intent path), "emotion" (high-negative-emotion path), or "" (none asked). Enforces the one-question cap for both paths — if non-empty and intent is still needs_clarification, escalate with unable_to_clarify instead of asking again.
     context_summary: str     # Escalation context summary. Built by handle_escalation, surfaced to eval judge via TestChatResponse.
+    service_call_count: int  # Number of service calls made this turn. Reset to 0 at turn start. Graph loop checks this against SERVICE_CALL_LIMIT (default: 3) to prevent runaway chains.
 ```
 
 ### Graph nodes
@@ -284,19 +285,23 @@ class AgentState(TypedDict):
 `handle_escalation(reason: str, context: dict) → str` in `backend/agents/escalation.py`. Pluggable async callable — the default implementation logs to the `escalations` table, marks the conversation as `escalated`, builds a `context_summary` for the human agent, and returns the appropriate handoff message. Called directly by the conversation agent node; not a graph node. Swap the implementation by replacing the callable — the interface is `(reason, context) → str` where `context` carries `db`, `conversation_id`, `confidence`, and `messages`.
 
 ### Graph flow
-The conversation agent is the central node. It can invoke services as needed within a single turn — including multiple services (e.g. look up KB for refund policy, then execute the refund action). Escalation is handled inline — the conversation agent calls `handle_escalation` directly and routes to END.
-
-```
-START → conversation_agent
+The conversation agent is the central node. It can invoke services as needed within a single turn — including multiple services sequentially via a loop. After each service returns, the agent decides whether it needs another call or has enough to compose the response. A per-turn loop limit (`SERVICE_CALL_LIMIT`, default: 3) prevents runaway chains.
+START → conversation_agent (Pass 1: classify intent, decide first service call)
 conversation_agent → knowledge_service  (if needs KB lookup)
 conversation_agent → action_service     (if needs to execute an action)
 knowledge_service → conversation_agent  (returns retrieved chunks)
 action_service → conversation_agent     (returns action result)
-conversation_agent → END               (after composing final response, or after inline escalation)
-```
+conversation_agent → [LOOP DECISION]
+→ needs another service call AND service_call_count < SERVICE_CALL_LIMIT → route to next service
+→ has enough info OR service_call_count >= SERVICE_CALL_LIMIT → compose final response → END
+→ escalation triggered → handle_escalation inline → END
+
+When the loop limit is reached, the agent responds with whatever information it has gathered so far. This is not an error — the agent can continue in the next turn if needed. Escalation is still handled inline at any point in the loop.
+
+**Orchestration abstraction:** The loop mechanism (pending_service, service_call_count, graph routing) is isolated from tools and prompts. Tools reference domain concepts only (eligibility, returns, orders) — never orchestration mechanics like `pending_service`. Prompts reference behavior only (how to handle rejections, when to escalate) — never graph routing details. This separation ensures a future migration to native tool calling (Approach C) is a contained change to the graph layer only.
 
 ### Key difference from previous design
-There is no separate supervisor/triage node. The conversation agent handles intent classification, service orchestration, and response generation in one place. This ensures consistent tone across all interaction types and avoids hand-off seams between agents.
+There is no separate supervisor/triage node. The conversation agent handles intent classification, service orchestration, and response generation in one place. This ensures consistent tone across all interaction types and avoids hand-off seams between agents. The graph loop allows multi-service turns without adding separate orchestration nodes.
 
 ---
 
@@ -309,11 +314,26 @@ Tool descriptions live in `prompts/production.yaml` (`tool_track_order_descripti
 ### v1 tools (agent-callable)
 | Tool | Parameters | What it does |
 |---|---|---|
-| track_order | order_id | Returns order status and item details. Uses most recent order if order_id omitted |
-| cancel_order | order_id, reason | Cancels order if status is `placed`. Rejects shipped, delivered, cancelled, and refunded orders |
-| process_refund | order_id, amount, reason | Initiates refund for a delivered or cancelled order. Enforces final sale, non-returnable category, and return window rules. Auto-approves or flags for human review based on risk score and refund amount |
+| track_order | order_id (optional) | Returns order status and item details. Uses most recent order if order_id omitted |
+| check_refund_eligibility | order_id (optional) | Read-only. With order_id: checks if that order is refund-eligible. Without: returns all refund-eligible orders for the customer. Applies final sale, non-returnable category, and return window rules. Returns structured result with reason codes. Shares validation logic with `process_refund` via common internal function |
+| check_cancel_eligibility | order_id (optional) | Read-only. With order_id: checks if that order is cancellable. Without: returns all cancellable orders for the customer. Applies order status rules. Returns structured result with reason codes. Shares validation logic with `cancel_order` via common internal function |
+| cancel_order | order_id, reason | Cancels order if status is `placed`. Rejects shipped, delivered, cancelled, returned, and refunded orders. **Confirmation gate applies** (see below) |
+| process_refund | order_id, amount, reason | Initiates refund for a delivered or cancelled order. Enforces final sale, non-returnable category, and return window rules. Auto-approves or flags for human review based on risk score and refund amount. **Confirmation gate applies** (see below) |
 
 **Security note:** `get_order_history`, `get_customer_context`, and `get_risk_score` are NOT agent-callable tools. Customer context and order history are loaded by the API layer and injected into agent state before the graph runs. The agent-callable tools above (track, cancel, refund) must validate that the order_id belongs to the current customer from state — reject any order that doesn't match.
+
+**Eligibility tool response format:** Both `check_refund_eligibility` and `check_cancel_eligibility` return structured results. When checking a specific order:
+```json
+{
+  "eligible": false,
+  "reason": "return_required",
+  "details": "Order delivered 12 days ago, within 30-day return window",
+  "available_action": "initiate_return"
+}
+```
+When called without order_id, returns a list of all eligible orders with the same structure per order. The `available_action` field is a hint for the LLM — it references domain actions only, never orchestration mechanics.
+
+**Confirmation gate mechanism:** State-changing tools check `actions_taken` in agent state for a prior `confirmation_required` entry matching the same tool + order_id. This is a structural state lookup — the tool does not parse conversation history or interpret customer responses. The LLM decides whether to re-invoke based on the customer's reply. The confirmation gate eliminates the need for "ask for confirmation" instructions in the prompt.
 
 **`process_refund` eligibility rules (enforced in order):**
 1. **Final sale** — reject if any product in the order has `final_sale=True`
@@ -419,6 +439,13 @@ Create synthetic e-commerce KB documents covering:
 ## Demo seed data
 
 Generate synthetic data for a convincing demo:
+
+### Business Limitations KB article
+A catch-all KB document listing things the business doesn't support at all — not just things the AI can't do. Examples: "Store credit cannot be applied to orders," "We do not offer gift wrapping," "International returns are not supported."
+
+When the agent hits a dead end (no matching tool, no specific KB article), it performs a broader KB query. If it retrieves this article with content matching the customer's request, it tells the customer the service isn't available — no escalation. If KB returns nothing relevant, the agent escalates (safe default: over-escalation is better than a wrong answer).
+
+This article should be updated whenever a new business-wide limitation is identified. Eval cases should test retrieval of this article for known limitation scenarios.
 
 ### Customers (5-10)
 Mix of: loyal customer (many orders, high value), new customer (1 order), frustrated customer (multiple refund requests, high risk score), VIP customer.
