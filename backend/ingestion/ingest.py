@@ -23,6 +23,7 @@ FILENAME_TO_CATEGORY: dict[str, str] = {
     "account_management.md": "account",
     "warranties.md": "warranty",
     "faq.md": "faq",
+    "business_limitations.md": "limitations",
 }
 
 
@@ -59,8 +60,12 @@ async def ingest_file(db: AsyncSession, path: Path) -> int:
     db.add(doc)
     await db.flush()  # get doc.id
 
-    # Chunk the content
-    chunks = chunk_text(content)
+    # Chunk the content.
+    # Lookup-table articles (one independent topic per H2 section) use heading-aware
+    # splitting so each limitation gets its own embedding rather than being diluted
+    # across a multi-topic token-bounded chunk.
+    heading_split_files = {"business_limitations.md"}
+    chunks = chunk_text(content, split_on_headings=(filename in heading_split_files))
     if not chunks:
         await db.commit()
         return 0

@@ -4,13 +4,24 @@ import tiktoken
 _enc = tiktoken.get_encoding("cl100k_base")
 
 
-def chunk_text(text: str, max_tokens: int = 400, overlap_tokens: int = 50) -> list[str]:
-    """Split text into overlapping token-bounded chunks.
+def chunk_text(
+    text: str,
+    max_tokens: int = 400,
+    overlap_tokens: int = 50,
+    split_on_headings: bool = False,
+) -> list[str]:
+    """Split text into chunks for embedding.
 
     Args:
         text: Raw document text (markdown or plain).
         max_tokens: Soft upper bound on tokens per chunk (default 400).
-        overlap_tokens: How many tokens of context to carry over between chunks (default 50).
+            Ignored when split_on_headings=True.
+        overlap_tokens: Tokens of context to carry over between chunks (default 50).
+            Ignored when split_on_headings=True.
+        split_on_headings: If True, emit one chunk per H2 section (## heading).
+            Use for lookup-table articles where each section is an independent topic
+            and diluting the embedding across sections would hurt retrieval precision.
+            The H1 title is prepended to each chunk for context.
 
     Returns:
         List of chunk strings. Empty input returns [].
@@ -18,12 +29,40 @@ def chunk_text(text: str, max_tokens: int = 400, overlap_tokens: int = 50) -> li
     if not text or not text.strip():
         return []
 
-    # Split into paragraphs on double newlines; discard empty strings
+    # --- Heading-aware mode ---
+    if split_on_headings:
+        lines = text.splitlines()
+        title = ""
+        for line in lines:
+            if line.startswith("# ") and not line.startswith("## "):
+                title = line.strip()
+                break
+
+        chunks: list[str] = []
+        current: list[str] = []
+
+        for line in lines:
+            if line.startswith("## ") and current:
+                chunk = "\n".join(current).strip()
+                if chunk:
+                    chunks.append(chunk)
+                current = [title, line] if title else [line]
+            else:
+                current.append(line)
+
+        if current:
+            chunk = "\n".join(current).strip()
+            if chunk:
+                chunks.append(chunk)
+
+        return [c for c in chunks if c]
+
+    # --- Token-bounded mode (default) ---
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
     if not paragraphs:
         return []
 
-    chunks: list[str] = []
+    token_chunks: list[str] = []
     buffer: list[str] = []
     buffer_tokens: int = 0
 
@@ -33,7 +72,7 @@ def chunk_text(text: str, max_tokens: int = 400, overlap_tokens: int = 50) -> li
         # If adding this paragraph would exceed the limit AND the buffer is non-empty,
         # finalize the current chunk and start a new one with overlap.
         if buffer and buffer_tokens + para_tokens > max_tokens:
-            chunks.append("\n\n".join(buffer))
+            token_chunks.append("\n\n".join(buffer))
 
             # Build overlap seed: backfill paragraphs from the end of the buffer
             # until their combined token count reaches overlap_tokens.
@@ -54,6 +93,6 @@ def chunk_text(text: str, max_tokens: int = 400, overlap_tokens: int = 50) -> li
 
     # Flush the final buffer
     if buffer:
-        chunks.append("\n\n".join(buffer))
+        token_chunks.append("\n\n".join(buffer))
 
-    return chunks
+    return token_chunks
