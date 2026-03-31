@@ -260,3 +260,58 @@ async def test_missing_customer_context_defaults_to_zero_risk(db, customer, retu
     tool_result = result["action_results"][0]
     assert tool_result["success"] is True
     assert tool_result["status"] == "approved"
+
+
+# ---------------------------------------------------------------------------
+# initiate_return — via action_service
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+async def delivered_order_for_return(db: AsyncSession, customer):
+    product = Product(
+        id=str(uuid.uuid4()), name="Return Widget", category="clothing",
+        price=40.00, return_window_days=30, final_sale=False,
+    )
+    db.add(product)
+    await db.flush()
+    now = datetime.now(timezone.utc)
+    order = Order(
+        id=str(uuid.uuid4()), customer_id=customer.id,
+        status="delivered", total_amount=40.00,
+        delivered_at=now - timedelta(days=2),
+    )
+    db.add(order)
+    await db.flush()
+    db.add(OrderItem(
+        id=str(uuid.uuid4()), order_id=order.id, product_id=product.id,
+        quantity=1, price_at_purchase=40.00,
+    ))
+    await db.commit()
+    return order
+
+
+async def test_initiate_return_returns_confirmation_required_on_first_call(db, customer, delivered_order_for_return):
+    state = make_state(
+        "initiate_return",
+        {"order_id": delivered_order_for_return.id, "reason": "changed_mind"},
+        customer_id=customer.id,
+    )
+    result = await action_service_node(state, {"configurable": {"db": db}})
+    assert result["action_results"][0].get("confirmation_required") is True
+
+
+async def test_initiate_return_succeeds_with_prior_confirmation(db, customer, delivered_order_for_return):
+    state = make_state(
+        "initiate_return",
+        {"order_id": delivered_order_for_return.id, "reason": "changed_mind"},
+        customer_id=customer.id,
+        actions_taken=_confirmed("initiate_return", delivered_order_for_return.id),
+    )
+    result = await action_service_node(state, {"configurable": {"db": db}})
+    tool_result = result["action_results"][0]
+    assert tool_result["success"] is True
+    assert tool_result["return_label"].startswith("RETURN-")
+    # action_service must record order_id and confirmation_required=False in the entry
+    entry = result["actions_taken"][-1]
+    assert entry["order_id"] == delivered_order_for_return.id
+    assert entry["confirmation_required"] is False

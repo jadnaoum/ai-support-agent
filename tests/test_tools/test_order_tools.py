@@ -15,6 +15,8 @@ from backend.tools.order_tools import (
     get_order_history,
     check_cancel_eligibility,
     check_refund_eligibility,
+    check_return_eligibility,
+    initiate_return,
 )
 
 
@@ -618,3 +620,155 @@ async def test_get_order_history_empty(db, customer):
     result = await get_order_history(db, customer_id=customer.id)
     assert result["success"] is True
     assert result["orders"] == []
+
+
+# ---------------------------------------------------------------------------
+# check_return_eligibility
+# ---------------------------------------------------------------------------
+
+async def test_check_return_eligibility_delivered_order(db, customer, delivered_order):
+    result = await check_return_eligibility(db, customer_id=customer.id, order_id=delivered_order.id)
+    assert result["success"] is True
+    assert result["eligible"] is True
+
+
+async def test_check_return_eligibility_defective_reason_escalates(db, customer, delivered_order):
+    result = await check_return_eligibility(
+        db, customer_id=customer.id, order_id=delivered_order.id, reason="defective"
+    )
+    assert result["success"] is True
+    assert result["eligible"] is False
+    assert result["reason"] == "requires_escalation"
+
+
+async def test_check_return_eligibility_returned_order(db, customer, returned_order):
+    result = await check_return_eligibility(db, customer_id=customer.id, order_id=returned_order.id)
+    assert result["success"] is True
+    assert result["eligible"] is False
+    assert result["reason"] == "already_returned"
+
+
+@pytest.fixture
+async def delivered_final_sale_order(db: AsyncSession, customer, final_sale_product):
+    now = datetime.now(timezone.utc)
+    order = Order(
+        id=str(uuid.uuid4()), customer_id=customer.id,
+        status="delivered", total_amount=9.99,
+        delivered_at=now - timedelta(days=2),
+    )
+    db.add(order)
+    await db.flush()
+    db.add(_add_item(order, final_sale_product))
+    await db.commit()
+    return order
+
+
+async def test_check_return_eligibility_final_sale_delivered(db, customer, delivered_final_sale_order):
+    result = await check_return_eligibility(db, customer_id=customer.id, order_id=delivered_final_sale_order.id)
+    assert result["success"] is True
+    assert result["eligible"] is False
+    assert result["reason"] == "final_sale"
+
+
+# ---------------------------------------------------------------------------
+# check_refund_eligibility — return_in_progress status
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+async def return_in_progress_order(db: AsyncSession, customer, product):
+    now = datetime.now(timezone.utc)
+    order = Order(
+        id=str(uuid.uuid4()), customer_id=customer.id,
+        status="return_in_progress", total_amount=49.99,
+        delivered_at=now - timedelta(days=2),
+    )
+    db.add(order)
+    await db.flush()
+    db.add(_add_item(order, product))
+    await db.commit()
+    return order
+
+
+async def test_check_refund_eligibility_return_in_progress(db, customer, return_in_progress_order):
+    result = await check_refund_eligibility(db, customer_id=customer.id, order_id=return_in_progress_order.id)
+    assert result["success"] is True
+    assert result["eligible"] is False
+    assert result["reason"] == "return_in_progress"
+    # No hardcoded timeline — the response should state the fact, not a number of days
+    assert "3" not in result["details"] and "5" not in result["details"]
+
+
+async def test_check_return_eligibility_return_in_progress(db, customer, return_in_progress_order):
+    result = await check_return_eligibility(db, customer_id=customer.id, order_id=return_in_progress_order.id)
+    assert result["success"] is True
+    assert result["eligible"] is False
+    assert result["reason"] == "already_in_progress"
+
+
+# ---------------------------------------------------------------------------
+# initiate_return — reason gate
+# ---------------------------------------------------------------------------
+
+async def test_initiate_return_no_reason_is_rejected(db, customer, delivered_order):
+    result = await initiate_return(db, customer_id=customer.id, order_id=delivered_order.id)
+    assert result["success"] is False
+    assert result.get("reason") == "reason_required"
+
+
+async def test_initiate_return_defective_reason_escalates(db, customer, delivered_order):
+    result = await initiate_return(
+        db, customer_id=customer.id, order_id=delivered_order.id, reason="defective"
+    )
+    assert result["success"] is False
+    assert result.get("reason") == "requires_escalation"
+
+
+# ---------------------------------------------------------------------------
+# initiate_return — confirmation gate
+# ---------------------------------------------------------------------------
+
+async def test_initiate_return_confirmation_required_on_first_call(db, customer, delivered_order):
+    result = await initiate_return(
+        db, customer_id=customer.id, order_id=delivered_order.id, reason="changed_mind"
+    )
+    assert result["success"] is False
+    assert result.get("confirmation_required") is True
+    assert result["details"]["order_id"] == delivered_order.id
+
+
+async def test_initiate_return_succeeds_with_prior_confirmation(db, customer, delivered_order):
+    result = await initiate_return(
+        db, customer_id=customer.id, order_id=delivered_order.id,
+        reason="changed_mind",
+        actions_taken=_confirmed("initiate_return", delivered_order.id),
+    )
+    assert result["success"] is True
+    assert "return_label" in result
+    assert result["return_label"].startswith("RETURN-")
+    assert result["order_id"] == delivered_order.id
+
+
+async def test_initiate_return_flips_status_to_return_in_progress(db, customer, delivered_order):
+    await initiate_return(
+        db, customer_id=customer.id, order_id=delivered_order.id,
+        reason="changed_mind",
+        actions_taken=_confirmed("initiate_return", delivered_order.id),
+    )
+    await db.refresh(delivered_order)
+    assert delivered_order.status == "return_in_progress"
+
+
+async def test_initiate_return_blocks_if_already_in_progress(db, customer, return_in_progress_order):
+    result = await initiate_return(
+        db, customer_id=customer.id, order_id=return_in_progress_order.id, reason="changed_mind"
+    )
+    assert result["success"] is False
+    assert result.get("reason") == "already_in_progress"
+
+
+async def test_initiate_return_placed_order_is_rejected(db, customer, placed_order):
+    result = await initiate_return(
+        db, customer_id=customer.id, order_id=placed_order.id, reason="changed_mind"
+    )
+    assert result["success"] is False
+    assert result.get("reason") == "wrong_status"

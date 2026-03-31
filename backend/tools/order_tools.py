@@ -91,6 +91,18 @@ def _check_refund_eligibility_sync(order, products, reason=None, now=None) -> di
             "available_action": None,
         }
 
+    # Return in progress — item is on its way back; refund will be issued after warehouse receives it.
+    # Refund timeline lives in the KB (returns_and_refunds.md), not here.
+    if order.status == "return_in_progress":
+        return {
+            "eligible": False, "reason": "return_in_progress",
+            "details": (
+                "A return for this order is already in progress. "
+                "Your refund will be processed after we receive the item at our warehouse."
+            ),
+            "available_action": None,
+        }
+
     if order.status == "delivered":
         return {
             "eligible": False, "reason": "return_required",
@@ -102,7 +114,7 @@ def _check_refund_eligibility_sync(order, products, reason=None, now=None) -> di
             "available_action": "initiate_return",
         }
 
-    if order.status not in ("returned", "cancelled"):
+    if order.status not in ("returned", "cancelled", "return_in_progress"):
         return {
             "eligible": False, "reason": "wrong_status",
             "details": f"Orders with status '{order.status}' are not eligible for a refund yet.",
@@ -155,6 +167,107 @@ def _check_refund_eligibility_sync(order, products, reason=None, now=None) -> di
     return {
         "eligible": True, "reason": None,
         "details": "This order is eligible for a refund.",
+        "available_action": None,
+    }
+
+
+def _check_return_eligibility_sync(order, products, reason=None, now=None) -> dict:
+    """
+    Pure function — no DB calls. Returns eligibility for initiating a return on a delivered order.
+    Gate sequence for initiate_return: eligibility → reason → confirmation (reason does not affect
+    eligibility here — defective claims escalate rather than routing through the return flow,
+    because defective items require human judgment on replacement vs. refund).
+    Shape: {"eligible": bool, "reason": str|None, "details": str, "available_action": str|None}
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    # Defective/damaged claims require human review — same escalation as _check_refund_eligibility_sync.
+    # A customer returning a broken item expects a refund or replacement, not just a label.
+    # Human judgment is needed; do not route through the standard return flow.
+    if reason and reason.lower() in ("defective", "broken", "damaged"):
+        return {
+            "eligible": False, "reason": "requires_escalation",
+            "details": (
+                "Defective and damaged item claims require review by our support team. "
+                "Please escalate so a team member can assess the issue and arrange the "
+                "appropriate resolution (replacement or refund)."
+            ),
+            "available_action": None,
+        }
+
+    if order.status == "return_in_progress":
+        return {
+            "eligible": False, "reason": "already_in_progress",
+            "details": "A return has already been initiated for this order. Check your email for the prepaid return label.",
+            "available_action": None,
+        }
+
+    if order.status == "returned":
+        return {
+            "eligible": False, "reason": "already_returned",
+            "details": "This order has already been returned.",
+            "available_action": None,
+        }
+
+    if order.status == "refunded":
+        return {
+            "eligible": False, "reason": "already_refunded",
+            "details": "This order has already been refunded.",
+            "available_action": None,
+        }
+
+    if order.status != "delivered":
+        return {
+            "eligible": False, "reason": "wrong_status",
+            "details": f"Only delivered orders can be returned. This order has status '{order.status}'.",
+            "available_action": None,
+        }
+
+    if products:
+        if any(p.final_sale for p in products):
+            return {
+                "eligible": False, "reason": "final_sale",
+                "details": (
+                    "One or more items in this order are marked as Final Sale and are not "
+                    "eligible for returns or refunds."
+                ),
+                "available_action": None,
+            }
+
+        for p in products:
+            if p.category in _NON_RETURNABLE_CATEGORIES:
+                return {
+                    "eligible": False, "reason": "non_returnable_category",
+                    "details": (
+                        f"This order contains a non-returnable item ({p.name}). "
+                        "Gift cards, digital products, personalized items, perishable goods, "
+                        "and hazardous materials cannot be returned."
+                    ),
+                    "available_action": None,
+                }
+
+        delivered_date = order.delivered_at or order.updated_at
+        if delivered_date:
+            if delivered_date.tzinfo is None:
+                delivered_date = delivered_date.replace(tzinfo=timezone.utc)
+            days_since = (now - delivered_date).days
+            min_window = min(p.return_window_days for p in products)
+            if days_since > min_window:
+                return {
+                    "eligible": False, "reason": "outside_return_window",
+                    "details": (
+                        f"The return window for this order has passed "
+                        f"({min_window} days for this item type). "
+                        "If your item is defective, please contact us — "
+                        "defective items are handled separately."
+                    ),
+                    "available_action": None,
+                }
+
+    return {
+        "eligible": True, "reason": None,
+        "details": "This order is eligible for a return.",
         "available_action": None,
     }
 
@@ -328,6 +441,144 @@ async def check_refund_eligibility(
                 **check,
             })
     return {"success": True, "eligible_orders": eligible_orders}
+
+
+async def check_return_eligibility(
+    db: AsyncSession,
+    customer_id: str,
+    order_id: str = None,
+    reason: str = None,
+    actions_taken: list = None,
+) -> dict:
+    """
+    Read-only: check whether a delivered order is eligible for a return.
+    Pass reason if known — defective/damaged claims return requires_escalation.
+    Never modifies state.
+    """
+    if order_id:
+        result = await db.execute(select(Order).where(Order.id == order_id))
+        order = result.scalar_one_or_none()
+        if not order:
+            return {"success": False, "error": f"Order {order_id} not found."}
+        if str(order.customer_id) != customer_id:
+            return {"success": False, "error": "That order does not belong to your account."}
+        items_result = await db.execute(
+            select(Product)
+            .join(OrderItem, OrderItem.product_id == Product.id)
+            .where(OrderItem.order_id == order.id)
+        )
+        products = items_result.scalars().all()
+        check = _check_return_eligibility_sync(order, products, reason=reason)
+        return {"success": True, "order_id": str(order.id), **check}
+
+    result = await db.execute(
+        select(Order)
+        .where(Order.customer_id == customer_id)
+        .order_by(Order.created_at.desc())
+    )
+    orders = result.scalars().all()
+    if not orders:
+        return {"success": False, "error": "No orders found for this account."}
+
+    eligible_orders = []
+    for order in orders:
+        items_result = await db.execute(
+            select(Product)
+            .join(OrderItem, OrderItem.product_id == Product.id)
+            .where(OrderItem.order_id == order.id)
+        )
+        products = items_result.scalars().all()
+        check = _check_return_eligibility_sync(order, products, reason=reason)
+        if check["eligible"]:
+            eligible_orders.append({"order_id": str(order.id), "status": order.status, **check})
+    return {"success": True, "eligible_orders": eligible_orders}
+
+
+async def initiate_return(
+    db: AsyncSession,
+    customer_id: str,
+    order_id: str = None,
+    reason: str = None,
+    actions_taken: list = None,
+) -> dict:
+    """Initiate a return. Sequence: eligibility → reason → confirmation gate → execute.
+
+    Eligibility goes first — reason does not affect return eligibility (except defective,
+    which escalates). Checking eligibility first avoids prompting for a reason on orders
+    that are ineligible (wrong status, non-returnable items, etc.).
+    """
+    # 1. Locate order
+    if order_id:
+        result = await db.execute(select(Order).where(Order.id == order_id))
+        order = result.scalar_one_or_none()
+        if not order:
+            return {"success": False, "error": f"Order {order_id} not found."}
+        if str(order.customer_id) != customer_id:
+            return {"success": False, "error": "That order does not belong to your account."}
+    else:
+        result = await db.execute(
+            select(Order)
+            .where(Order.customer_id == customer_id)
+            .order_by(Order.created_at.desc())
+            .limit(1)
+        )
+        order = result.scalar_one_or_none()
+        if not order:
+            return {"success": False, "error": "No orders found for this account."}
+
+    resolved_order_id = str(order.id)
+
+    # 2. Load products and check eligibility (reason-aware: defective → escalation)
+    items_result = await db.execute(
+        select(Product)
+        .join(OrderItem, OrderItem.product_id == Product.id)
+        .where(OrderItem.order_id == order.id)
+    )
+    products = items_result.scalars().all()
+
+    eligibility = _check_return_eligibility_sync(order, products, reason=reason)
+    if not eligibility["eligible"]:
+        return {
+            "success": False,
+            "reason": eligibility["reason"],
+            "error": eligibility["details"],
+            "available_action": eligibility["available_action"],
+        }
+
+    # 3. Reason required (order is eligible — now collect reason)
+    if not reason:
+        return {
+            "success": False,
+            "reason": "reason_required",
+            "details": "Please provide a reason for the return (e.g., changed_mind, wrong_item, wrong_size, other).",
+        }
+
+    # 4. Confirmation gate — first call returns details for customer to confirm
+    if not _has_prior_confirmation(actions_taken, "initiate_return", resolved_order_id):
+        return {
+            "success": False,
+            "confirmation_required": True,
+            "details": {
+                "order_id": resolved_order_id,
+                "items": [p.name for p in products],
+                "reason": reason,
+            },
+        }
+
+    # 5. Execute — flip status and generate mocked prepaid return label
+    order.status = "return_in_progress"
+    label_id = f"RETURN-{str(uuid.uuid4())[:8].upper()}"
+    await db.commit()
+
+    return {
+        "success": True,
+        "order_id": resolved_order_id,
+        "return_label": label_id,
+        "message": (
+            f"Return initiated. A prepaid return label ({label_id}) has been emailed to you. "
+            "Once we receive your item, your refund will be processed."
+        ),
+    }
 
 
 async def cancel_order(

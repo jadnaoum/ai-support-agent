@@ -13,6 +13,8 @@ from backend.tools.order_tools import (
     process_refund,
     check_cancel_eligibility,
     check_refund_eligibility,
+    check_return_eligibility,
+    initiate_return,
 )
 from prompts.loader import get_prompt
 
@@ -70,5 +72,23 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
             "reason": {"type": "str", "required": False, "description": "Refund reason if known — defective claims return requires_escalation instead of eligible."},
         },
         handler=check_refund_eligibility,
+    ),
+    "check_return_eligibility": ToolDefinition(
+        name="check_return_eligibility",
+        description=get_prompt("tool_check_return_eligibility_description"),
+        parameters={
+            "order_id": {"type": "str", "required": False, "description": "Order ID to check. Omit to check most recent order."},
+            "reason": {"type": "str", "required": False, "description": "Return reason if known — defective claims return requires_escalation instead of eligible."},
+        },
+        handler=check_return_eligibility,
+    ),
+    "initiate_return": ToolDefinition(
+        name="initiate_return",
+        description=get_prompt("tool_initiate_return_description"),
+        parameters={
+            "order_id": {"type": "str", "required": False, "description": "Order ID to return. Omit to use most recent order."},
+            "reason": {"type": "str", "required": True, "description": "Return reason: changed_mind, wrong_item, wrong_size, other."},
+        },
+        handler=initiate_return,
     ),
 }

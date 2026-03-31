@@ -62,7 +62,22 @@ intent_prompt: |
     Read-only. Use to check whether an order is eligible for a refund without executing any change.
     Pass reason if known — defective claims will return requires_escalation rather than eligible,
     allowing you to set correct expectations before proceeding.
+    If order status is return_in_progress, returns reason: return_in_progress — inform the customer
+    their return is on its way and the refund will follow; retrieve the KB for the refund timeline.
     Returns eligible/ineligible with a reason and available_action hint if applicable.
+
+  check_return_eligibility:
+    Read-only. Use to check whether a delivered order is eligible to be returned without executing
+    any change. Pass reason if known — defective claims return requires_escalation.
+    Returns eligible/ineligible with a reason and available_action hint if applicable.
+
+  initiate_return:
+    Initiate a return on a delivered order. Sets order status to return_in_progress and generates
+    a mocked prepaid return label. Requires a reason (changed_mind, wrong_item, wrong_size, other).
+    Defective/damaged reasons escalate — do not use initiate_return for defective claims.
+    The refund is NOT processed here — it happens after the warehouse receives the item.
+    Use this when process_refund returns available_action: initiate_return (order is delivered),
+    or when a customer directly asks to return an item.
 
   Use needs_clarification when:
   - Customer says "cancel my order" or "refund my order" but has not provided an order ID and none is visible in the conversation history
@@ -174,6 +189,17 @@ tool_check_refund_eligibility_description: >
   Pass reason if known — defective/damaged claims return requires_escalation instead of
   eligible. Never modifies order state.
 
+tool_check_return_eligibility_description: >
+  Read-only check: returns whether a delivered order is eligible to be returned, with a
+  reason if not. Pass reason if known — defective/damaged claims return requires_escalation.
+  Never modifies order state.
+
+tool_initiate_return_description: >
+  Initiate a return on a delivered order. Requires a reason. Sets order status to
+  return_in_progress and generates a prepaid return label. Does not process a refund —
+  the refund is issued after the warehouse receives the item. Defective/damaged reasons
+  escalate instead of proceeding through the standard return flow.
+
 # ---------------------------------------------------------------------------
 # Output guard prompt (originally: backend/guardrails/output_guard.py)
 # Template variables: {response}, {conversation}, {tools_called},
@@ -274,7 +300,7 @@ loop_decision_prompt: |
   Options:
   - "respond"   — you have enough to answer the customer
   - "knowledge" — look up a policy or product detail first
-  - "action"    — execute an operation first (track_order, cancel_order, process_refund, check_cancel_eligibility, check_refund_eligibility)
+  - "action"    — execute an operation first (track_order, cancel_order, process_refund, check_cancel_eligibility, check_refund_eligibility, check_return_eligibility, initiate_return)
 
   If "action", include the tool name and any parameters the customer has provided.
   Use null for unknown parameters.

@@ -2,6 +2,10 @@
 
 Some things are not available through any channel — not through support, not through your account portal, not through any other path. This page lists those hard limits so you get a direct answer rather than being sent somewhere that also can't help.
 
+## Can a cancellation be undone or reversed?
+
+No. Once an order is cancelled, it cannot be reinstated. The customer must place a new order.
+
 ## Can I modify my order after placing it?
 
 No. Once an order is placed, items cannot be added, removed, or swapped. The only option is to cancel the order (if it hasn't shipped yet) and place a new one with the correct items. Support cannot edit the contents of an existing order.
