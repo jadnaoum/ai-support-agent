@@ -230,11 +230,18 @@ async def _do_escalate(reason: str, state: AgentState, config: dict) -> dict:
     """
     _db = config.get("configurable", {}).get("db")
     _conv_id = config.get("configurable", {}).get("conversation_id", "")
+    summary = build_context_summary(
+        messages=state.get("messages") or [],
+        actions_taken=state.get("actions_taken") or [],
+        retrieved_context=state.get("retrieved_context") or [],
+        reason=reason,
+    )
     context = {
         "db": _db,
         "conversation_id": _conv_id,
         "confidence": state.get("confidence", 0.0),
         "messages": state.get("messages") or [],
+        "context_summary": summary,
     }
     handoff = await handle_escalation(reason, context)
     return {
@@ -243,7 +250,7 @@ async def _do_escalate(reason: str, state: AgentState, config: dict) -> dict:
         "pending_service": "",
         "escalation_reason": reason,
         "last_clarification_source": "",
-        "context_summary": build_context_summary(state.get("messages") or []),
+        "context_summary": summary,
         "actions_taken": (state.get("actions_taken") or []) + [
             {"service": "escalation_handler", "action": "escalate", "reason": reason}
         ],

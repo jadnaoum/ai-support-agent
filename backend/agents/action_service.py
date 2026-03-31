@@ -47,6 +47,14 @@ async def action_service_node(state: AgentState, config: dict) -> dict:
     # Resolve the order_id that was actually used (may differ from params when LLM omitted it).
     resolved_order_id = result.get("order_id") or (result.get("details") or {}).get("order_id")
 
+    # Machine-readable result for the escalation context summary.
+    # Priority: confirmation_pending > success > structured reason code > failed.
+    result_detail = (
+        "confirmation_pending" if result.get("confirmation_required")
+        else "success" if result.get("success")
+        else result.get("reason") or "failed"
+    )
+
     return {
         "action_results": (state.get("action_results") or []) + [result],
         "pending_service": "",
@@ -59,6 +67,7 @@ async def action_service_node(state: AgentState, config: dict) -> dict:
                 "success": result.get("success", False),
                 "order_id": resolved_order_id,
                 "confirmation_required": result.get("confirmation_required", False),
+                "result_detail": result_detail,
             }
         ],
     }
