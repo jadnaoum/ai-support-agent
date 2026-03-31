@@ -25,25 +25,43 @@ async def knowledge_service_node(state: AgentState, config: dict) -> dict:
             query = msg["content"]
             break
 
-    # Embed the query
-    embed_response = await litellm.aembedding(
-        model=settings.litellm_embedding_model,
-        input=[query],
-    )
-    query_embedding = embed_response["data"][0]["embedding"]
+    # Embed the query and run vector search
+    try:
+        embed_response = await litellm.aembedding(
+            model=settings.litellm_embedding_model,
+            input=[query],
+        )
+        query_embedding = embed_response["data"][0]["embedding"]
 
-    # Vector search via raw SQL
-    sql = text("""
-        SELECT c.id, c.chunk_text, d.title, d.category,
-               (c.embedding <=> :embedding) AS cosine_distance
-        FROM kb_chunks c
-        JOIN kb_documents d ON c.document_id = d.id
-        WHERE c.embedding IS NOT NULL
-        ORDER BY c.embedding <=> :embedding
-        LIMIT 5
-    """)
-    result = await db.execute(sql, {"embedding": str(query_embedding)})
-    chunks = result.fetchall()
+        sql = text("""
+            SELECT c.id, c.chunk_text, d.title, d.category,
+                   (c.embedding <=> :embedding) AS cosine_distance
+            FROM kb_chunks c
+            JOIN kb_documents d ON c.document_id = d.id
+            WHERE c.embedding IS NOT NULL
+            ORDER BY c.embedding <=> :embedding
+            LIMIT 5
+        """)
+        result = await db.execute(sql, {"embedding": str(query_embedding)})
+        chunks = result.fetchall()
+    except Exception as e:
+        return {
+            "retrieved_context": [],
+            "action_results": (state.get("action_results") or []) + [
+                {"success": False, "error": f"Knowledge search failed: {str(e)}"}
+            ],
+            "pending_service": "",
+            "actions_taken": (state.get("actions_taken") or []) + [
+                {
+                    "service": "knowledge_service",
+                    "action": "search_kb",
+                    "query": query,
+                    "chunks_retrieved": 0,
+                    "top_similarity": 0.0,
+                    "success": False,
+                }
+            ],
+        }
 
     retrieved = [
         {

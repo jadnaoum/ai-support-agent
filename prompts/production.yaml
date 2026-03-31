@@ -33,6 +33,7 @@ intent_prompt: |
     and refunded orders cannot be cancelled — the tool will return an error for these.
     A reason is required — do not call without one. The tool will prompt for confirmation
     before executing; do not attempt to pre-confirm on behalf of the customer.
+    Extract: order_id, reason (one of: {reason_enum}; null if not stated).
     If the order is already cancelled, inform the customer — do not call the tool.
     If the order has shipped, explain it cannot be cancelled but can be returned once it arrives.
     If the order has been delivered, explain cancellation is not possible and offer the refund
@@ -46,6 +47,7 @@ intent_prompt: |
     hazardous). Return window must not have expired — defective items route to escalation.
     A reason is required — do not call without one. The tool will prompt for confirmation
     before executing; do not attempt to pre-confirm on behalf of the customer.
+    Extract: order_id, amount (null if full refund), reason (one of: {reason_enum}; null if not stated).
     Partial refunds: use the "amount" parameter when the customer requests a refund on only
     some items from the order. Clarify which items and calculate the partial amount first.
     High-value refunds (over $50) or high-risk accounts route to pending_review — inform
@@ -73,11 +75,16 @@ intent_prompt: |
 
   initiate_return:
     Initiate a return on a delivered order. Sets order status to return_in_progress and generates
-    a mocked prepaid return label. Requires a reason (changed_mind, wrong_item, wrong_size, other).
+    a mocked prepaid return label. Requires a reason.
+    Extract: order_id, reason (one of: {reason_enum}; null if not stated).
     Defective/damaged reasons escalate — do not use initiate_return for defective claims.
     The refund is NOT processed here — it happens after the warehouse receives the item.
     Use this when process_refund returns available_action: initiate_return (order is delivered),
     or when a customer directly asks to return an item.
+
+  Reason values: map the customer's stated reason to the closest value from this list:
+  {reason_enum}. Use "other" only when none of the specific values fit.
+  Use null when the customer has not stated any reason.
 
   Use needs_clarification when:
   - Customer says "cancel my order" or "refund my order" but has not provided an order ID and none is visible in the conversation history

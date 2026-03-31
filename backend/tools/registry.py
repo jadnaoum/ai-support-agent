@@ -16,7 +16,10 @@ from backend.tools.order_tools import (
     check_return_eligibility,
     initiate_return,
 )
+from backend.tools.constants import REASON_VALUES
 from prompts.loader import get_prompt
+
+_REASON_LIST = ", ".join(REASON_VALUES)
 
 
 @dataclass
@@ -52,7 +55,7 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
         parameters={
             "order_id": {"type": "str", "required": False, "description": "Order ID to refund. Omit to refund most recent order."},
             "amount": {"type": "float", "required": False, "description": "Partial refund amount. Omit for full refund."},
-            "reason": {"type": "str", "required": True, "description": "Refund reason: defective, changed_mind, wrong_item, late_delivery, other."},
+            "reason": {"type": "str", "required": True, "description": f"Refund reason: {_REASON_LIST}."},
         },
         handler=process_refund,
     ),
@@ -87,7 +90,7 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
         description=get_prompt("tool_initiate_return_description"),
         parameters={
             "order_id": {"type": "str", "required": False, "description": "Order ID to return. Omit to use most recent order."},
-            "reason": {"type": "str", "required": True, "description": "Return reason: changed_mind, wrong_item, wrong_size, other."},
+            "reason": {"type": "str", "required": True, "description": f"Return reason: {_REASON_LIST}."},
         },
         handler=initiate_return,
     ),

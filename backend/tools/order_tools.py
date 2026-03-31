@@ -11,6 +11,12 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.models import Order, OrderItem, Product, Refund
+from backend.tools.constants import REASON_VALUES
+
+# Accepted reason inputs: all canonical values (map to themselves) plus
+# natural-language synonyms the LLM or customer might supply.
+_REASON_MAP: dict = {v: v for v in REASON_VALUES}
+_REASON_MAP.update({"broken": "defective", "damaged": "defective"})
 
 # Product categories that can never be returned, regardless of window or condition.
 # These map to the non-returnable items listed in returns_and_refunds.md.
@@ -550,7 +556,14 @@ async def initiate_return(
         return {
             "success": False,
             "reason": "reason_required",
-            "details": "Please provide a reason for the return (e.g., changed_mind, wrong_item, wrong_size, other).",
+            "details": f"Please provide a reason for the return. Valid values: {', '.join(REASON_VALUES)}.",
+        }
+
+    if reason not in _REASON_MAP:
+        return {
+            "success": False,
+            "error": "invalid_reason",
+            "message": f"Reason must be one of: {REASON_VALUES}. Received: {reason}",
         }
 
     # 4. Confirmation gate — first call returns details for customer to confirm
@@ -630,7 +643,14 @@ async def cancel_order(
         return {
             "success": False,
             "reason": "reason_required",
-            "details": "Please provide a reason for the cancellation before proceeding.",
+            "details": f"Please provide a reason for the cancellation. Valid values: {', '.join(REASON_VALUES)}.",
+        }
+
+    if reason not in _REASON_MAP:
+        return {
+            "success": False,
+            "error": "invalid_reason",
+            "message": f"Reason must be one of: {REASON_VALUES}. Received: {reason}",
         }
 
     # 4. Confirmation gate — first call returns details for customer to confirm
@@ -681,7 +701,14 @@ async def process_refund(
         return {
             "success": False,
             "reason": "reason_required",
-            "details": "Please provide a reason for the refund (e.g., defective, changed_mind, wrong_item, late_delivery).",
+            "details": f"Please provide a reason for the refund. Valid values: {', '.join(REASON_VALUES)}.",
+        }
+
+    if reason not in _REASON_MAP:
+        return {
+            "success": False,
+            "error": "invalid_reason",
+            "message": f"Reason must be one of: {REASON_VALUES}. Received: {reason}",
         }
 
     # 2. Locate order
@@ -764,18 +791,8 @@ async def process_refund(
             },
         }
 
-    # 6. Execute — map reason to DB enum and create refund record
-    reason_map = {
-        "defective": "defective",
-        "broken": "defective",
-        "damaged": "defective",
-        "wrong": "wrong_item",
-        "wrong_item": "wrong_item",
-        "changed_mind": "changed_mind",
-        "late": "late_delivery",
-        "late_delivery": "late_delivery",
-    }
-    db_reason = reason_map.get(reason.lower(), "other")
+    # 6. Execute — map to DB column value via module-level _REASON_MAP
+    db_reason = _REASON_MAP.get(reason, "other")
 
     if risk_score > 0.7 or refund_amount > 50:
         refund_status = "pending_review"

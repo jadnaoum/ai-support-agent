@@ -43,7 +43,7 @@ def _build_context_section(state: AgentState) -> str:
             ]
             order_summary = "\nRecent orders:\n" + "\n".join(lines)
         parts.append(
-            f"\nCustomer: {customer_context['name']} (risk score: {customer_context.get('risk_score', 'n/a')}){order_summary}"
+            f"\nCustomer: {customer_context['name']}{order_summary}"
         )
 
     if chunks:
