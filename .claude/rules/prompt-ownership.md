@@ -1,0 +1,1 @@
+Never modify files in the `prompts/` directory. Prompt changes are authored by the project owner. If a task requires a prompt change, describe the needed change in your plan and wait for the owner to implement it.

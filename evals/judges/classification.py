@@ -103,20 +103,26 @@ _INTENT_ALIASES = {
 
 
 def judge_intent_classifier(test_case: dict, agent_response: dict) -> dict:
-    """Programmatic comparison of inferred_intent against expected_intent."""
-    expected = test_case.get("expected_intent", "")
-    actual = agent_response.get("inferred_intent", "")
+    """Programmatic comparison of inferred_intent against expected_intent.
 
-    # Normalise via aliases
-    expected_set = _INTENT_ALIASES.get(expected, {expected})
+    expected_intent may contain pipe-separated alternatives
+    (e.g. "action_request|needs_clarification") — a match against any value passes.
+    """
+    expected_raw = test_case.get("expected_intent", "")
+    actual = agent_response.get("inferred_intent", "")
     actual_norm = actual.strip().lower()
 
-    if actual_norm in expected_set:
+    # Expand pipe-separated alternatives, resolving aliases for each
+    accepted: set = set()
+    for token in expected_raw.split("|"):
+        accepted |= _INTENT_ALIASES.get(token.strip(), {token.strip()})
+
+    if actual_norm in accepted:
         return _verdict("pass", f"Intent correctly classified as '{actual}'.")
 
     # Escalation cases: if the agent escalated when the expected intent was
     # escalation_request, still pass even if inferred_intent is "escalation_request"
-    if expected == "escalation_request" and agent_response.get("requires_escalation"):
+    if "escalation_request" in expected_raw and agent_response.get("requires_escalation"):
         return _verdict(
             "pass",
             "Agent escalated as expected (requires_escalation=True).",
@@ -124,7 +130,7 @@ def judge_intent_classifier(test_case: dict, agent_response: dict) -> dict:
 
     return _verdict(
         "fail",
-        f"Expected intent '{expected}' but got '{actual}'.",
+        f"Expected intent '{expected_raw}' but got '{actual}'.",
     )
 
 

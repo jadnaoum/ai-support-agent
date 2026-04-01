@@ -183,6 +183,47 @@ Escalation is a decision the conversation agent makes — not a separate service
 - When triggered, the escalation handler logs the reason and conversation context to the database.
 - The conversation agent delivers the handoff message to the customer, maintaining tone consistency even during escalation.
 
+### Tool design principles
+
+#### Read/write tool separation
+- **Decision:** Eligibility checks are separate read-only tools (`check_refund_eligibility`, `check_cancel_eligibility`), distinct from their write counterparts (`process_refund`, `cancel_order`). Both share validation logic via a common internal function — no duplicated business rules.
+- **Why separate tools instead of a dry-run flag:** A dry-run flag on `process_refund` forces the LLM to make a high-stakes parameter decision: is the customer asking a question (`dry_run: true`) or requesting action (`dry_run: false`)? Misclassification in one direction accidentally processes a refund. Separate tools make tool selection the only decision — "Can I get a refund?" maps to `check_refund_eligibility`, "I want a refund" maps to `process_refund`. This is a much more natural classification for LLMs, especially with native tool calling, and produces a cleaner eval surface (test tool selection accuracy directly).
+- **Why not LLM-side eligibility checking:** The LLM could read KB articles about return windows and check order dates from customer context. But LLMs are unreliable at date arithmetic and rule application. Business rules (return windows, final sale flags, non-returnable categories) belong in deterministic code, not in LLM interpretation of natural language policy chunks.
+
+#### Confirmation gate on state-changing tools
+- **Decision:** All state-changing tools (`process_refund`, `cancel_order`) always reject on first invocation for a given action + order_id combination within a conversation. First call returns `confirmation_required` plus eligibility details. Second call for the same action + order_id checks `actions_taken` in agent state for a prior `confirmation_required` entry — if found, executes.
+- **Why structural, not semantic:** The check is a state lookup, not LLM parsing of customer words. The tool never reads conversation history to determine if the customer said "yes." The LLM decides whether to make the second call based on the customer's response — but interpreting "yes, go ahead" is a much easier judgment than distinguishing "Can I get a refund?" from "I want a refund." The confirmation gate moves the critical decision to the easy problem.
+- **Why not let the LLM set a `confirmed` flag:** If the LLM can bypass the gate, then a misclassification can bypass it too. The structural two-call pattern is the guarantee.
+- **Tradeoff accepted:** Every state-changing action becomes a 2-turn minimum, even when intent is obvious. Acceptable because the cost of an unwanted action (accidental refund/cancellation) is high.
+- **Eliminates prompt instructions for confirmation.** The tool forces the pattern regardless of what the prompt says — one fewer thing for the LLM to get wrong.
+
+#### Tool responses as workflow drivers
+- **Decision:** Tool rejections include an `available_action` field hinting at the logical next step (e.g., `check_refund_eligibility` returning `return_required` also returns `available_action: initiate_return`). This is a nudge, not a command — the LLM decides whether to follow it.
+- **Why:** Helps the agent chain tool calls without the prompt defining per-scenario workflows. Combined with the layered workflow strategy (see below), this means the tools themselves encode most workflow logic through their constraints and hints.
+- **Orchestration-agnostic requirement:** The `available_action` field references domain actions (e.g., `initiate_return`), never orchestration mechanics (e.g., not `next_pending_service: "action"`). This ensures tool responses work identically in both graph loop mode and future native tool calling mode.
+
+#### Tool vs. KB responsibility split
+- **Decision:** Tools answer eligibility questions (yes/no with structured reason codes). The KB provides process guidance (how to initiate a return, shipping options, timelines). The LLM combines both into a customer-facing response.
+- **The LLM never calculates business rules.** It doesn't check return windows, apply final sale logic, or determine order eligibility from context data. It calls the tool, gets a structured answer, and works with that.
+- **Tool rejection reasons are machine-readable** (e.g., `return_required`, `final_sale`, `outside_return_window`), not customer-facing prose. The LLM composes the customer explanation.
+
+### One conversation agent for all tools (considered and rejected: LLM-per-tool separation)
+- **Considered:** Separate LLMs for read-only tools vs. state-changing tools, to reduce risk of the wrong action being taken.
+- **Rejected because:** Splitting into multiple LLMs doesn't eliminate the classification risk — it moves it to a router LLM that must decide which tool-specific LLM to invoke. The routing decision is the same classification problem, just with added latency, duplicated context, and coordination complexity. This effectively recreates the supervisor-routing architecture already rejected for tone consistency and handoff seam reasons.
+- **The actual safety boundary** is in the tool layer: validation logic, structured rejections, and confirmation gates. These enforce correct behavior regardless of what the LLM intended. One conversation agent with safe tools is more reliable than multiple LLMs with unsafe tools.
+
+### Workflow strategy: layered, not per-scenario
+- **Decision:** The system uses three layers of workflow control, always preferring the lowest layer that works.
+- **Layer 1 — Tool constraints (always active):** Confirmation gates, required parameters, structured rejections with `available_action` hints. This is the floor — the agent can't skip these regardless of prompt instructions or LLM reasoning.
+- **Layer 2 — Autonomous LLM reasoning (always active):** The agent interprets the customer's message, selects tools, reads KB content, and decides what to say and do. General prompt principles guide behavior (e.g., "when a tool rejects, explain why and offer alternatives"). This is where the LLM earns its keep — handling novel situations, combining information sources, maintaining tone.
+- **Layer 3 — Explicit workflows (selective):** Predefined step-by-step flows for specific issue types. Only added when layers 1 and 2 have been tested via evals and consistently fail for a specific scenario. Each explicit workflow is maintenance overhead — it must be updated when tools or policies change, and it adds rigidity.
+- **Discipline:** Don't reach for layer 3 until evals show the agent can't handle a scenario with good tool design and prompt principles alone.
+
+### Dead-end handling: Business Limitations KB article
+- **Decision:** When the agent hits a dead end (no matching tool, no specific KB article), it performs a broader KB query. If it retrieves a "Business Limitations" article that matches the customer's request, it tells the customer it's not possible — no escalation. If KB returns nothing relevant, the agent escalates (safe default).
+- **Why this over KB metadata tags:** Metadata tags (`ai_actionable`, `business_limitation`) on every article require ongoing tagging discipline across the entire KB. A single catch-all article is one document to maintain, updated through the same workflow as any other KB content.
+- **Why this over tool registry scope:** Maintaining a parallel list of "things humans can do" alongside the actual tools drifts over time and duplicates knowledge.
+- **Graceful failure:** If the article isn't retrieved when it should be, the agent over-escalates — a human gets a case they can't help with either. That's wasted time, not a wrong answer. Over-escalation is a tuning problem; wrong answers are a trust problem.
 ---
 
 ## Guardrails (input/output)

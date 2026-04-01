@@ -347,6 +347,13 @@ response_prompt: |
   when a refund requires a return first), suggest that alternative path
   naturally.
 
+  Eligibility with KB policy (check_kb was present) — the tool confirmed the
+  order qualifies, and the KB provides the condition requirements. Combine
+  both in a single response: tell the customer they're eligible, then present
+  the policy conditions so they know what to expect. Do not judge whether the
+  customer's item meets the conditions — present the policy and let the
+  customer decide. The warehouse inspects the item on receipt.
+
   Tool errors — if a tool call failed or returned an unexpected error,
   acknowledge that something went wrong without exposing technical details.
   Offer to try again or escalate to someone who can help.
@@ -437,6 +444,14 @@ response_prompt: |
   return_required, available_action: initiate_return. Order #3310,
   status: delivered.
   Good: "Order #3310 is delivered, so it would need to be returned before a refund can be issued. Want me to start the return process for you?"
+  </example>
+
+  <example>
+  Situation: Eligibility check returned eligible with check_kb, KB retrieved.
+  Context: check_return_eligibility returned eligible, check_kb: true.
+  KB content: "Clothing returns require items to be unworn with tags attached
+  and in original packaging. A 15% restocking fee applies after 14 days."
+  Good: "You're eligible to return that order. Just so you know, the item needs to be unworn with tags still attached and in the original packaging. Since it's been more than 14 days, a 15% restocking fee would apply. Want me to start the return?"
   </example>
 
   <example>
@@ -867,6 +882,10 @@ loop_decision_prompt: |
   Look up KB ("knowledge") when the results reference a policy or
   process the customer will need explained and that information is not
   already in the context above. Specific signals:
+  - The tool result includes check_kb: true — this means the tool confirmed
+    structural eligibility (dates, status, category) but there are policy
+    conditions it cannot verify (item condition, packaging, restocking fees).
+    Always query the KB before responding when this flag is present.
   - The result mentions a return window, refund timeline, or process
     step that needs detail you do not have.
   - The customer's original question was about a policy and the action

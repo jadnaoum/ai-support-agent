@@ -148,6 +148,7 @@ async def stream_response(
         "response": "",
         "pending_service": "",
         "pending_action": {},
+        "inferred_intent": "",
         "last_clarification_source": "",
         "context_summary": "",
         "consecutive_blocks": 0,
@@ -356,6 +357,7 @@ async def test_chat(
         "response": "",
         "pending_service": "",
         "pending_action": {},
+        "inferred_intent": "",
         "last_clarification_source": "",
         "context_summary": "",
         "consecutive_blocks": 0,
@@ -374,23 +376,18 @@ async def test_chat(
         metadata["version_tag"] = body.version_tag
 
     # conversation_id="" — escalation handler skips DB writes when absent
+    # mock_account_state — present only when mock_context provided; feeds mock tool layer
+    configurable: dict = {"db": db, "conversation_id": ""}
+    if body.mock_context:
+        configurable["mock_account_state"] = body.mock_context
     config = {
-        "configurable": {"db": db, "conversation_id": ""},
+        "configurable": configurable,
         "tags": tags,
         "metadata": metadata,
     }
     final_state = await graph.ainvoke(initial_state, config=config)
 
-    # Infer intent from which services were called
-    services = {a.get("service", "") for a in (final_state.get("actions_taken") or [])}
-    if final_state.get("requires_escalation"):
-        inferred_intent = "escalation_request"
-    elif "action_service" in services:
-        inferred_intent = "action_request"
-    elif "knowledge_service" in services:
-        inferred_intent = "knowledge_query"
-    else:
-        inferred_intent = "general"
+    inferred_intent = final_state.get("inferred_intent") or "general"
 
     response_text = final_state.get("response", "")
 

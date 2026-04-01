@@ -53,6 +53,7 @@ PASS_RATE_THRESHOLD = float(os.environ.get("EVAL_PASS_RATE_THRESHOLD", "0.75"))
 EVALS_DIR = os.path.dirname(os.path.abspath(__file__))
 TEST_CASES_FILE = os.path.join(EVALS_DIR, "eval_test_cases.xlsx")
 RESULTS_DIR = os.path.join(EVALS_DIR, "results")
+EVAL_RUNS_DIR = os.path.join(EVALS_DIR, "eval_runs")
 
 # ---------------------------------------------------------------------------
 # Cost estimation — average token counts per call type

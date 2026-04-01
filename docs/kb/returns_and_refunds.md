@@ -18,7 +18,7 @@ Items marked as **Final Sale** are not eligible for returns or exchanges. These 
 
 To qualify for a return, items must meet the following conditions:
 
-- Original packaging intact (box, inserts, and accessories included)
+- Original product packaging intact (product box, inserts, and accessories included). The shipping carton is not required — "original packaging" refers to the product's own packaging, not the outer shipping box.
 - No physical damage, scratches, or signs of use
 - All tags and labels still attached (for clothing and accessories)
 - Serial numbers and IMEI numbers must not be altered or removed (for electronics)

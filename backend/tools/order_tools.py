@@ -174,6 +174,7 @@ def _check_refund_eligibility_sync(order, products, reason=None, now=None) -> di
         "eligible": True, "reason": None,
         "details": "This order is eligible for a refund.",
         "available_action": None,
+        "check_kb": True,
     }
 
 
@@ -275,6 +276,7 @@ def _check_return_eligibility_sync(order, products, reason=None, now=None) -> di
         "eligible": True, "reason": None,
         "details": "This order is eligible for a return.",
         "available_action": None,
+        "check_kb": True,
     }
 
 

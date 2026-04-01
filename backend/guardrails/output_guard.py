@@ -64,6 +64,12 @@ def _build_guard_context(response: str, state: AgentState) -> str:
     # IDs legitimately present in this conversation's context
     ids: set[str] = set()
     ctx = state.get("customer_context") or {}
+    # Include the customer's own name and email so the guard doesn't flag
+    # them as cross-customer leaks when the response addresses the customer by name.
+    for field in ("name", "email"):
+        val = ctx.get(field, "")
+        if val:
+            ids.add(val)
     for order in ctx.get("recent_orders") or []:
         oid = order.get("order_id", "")
         if oid:
@@ -118,6 +124,10 @@ async def check_output(response: str, state: AgentState) -> dict:
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start != -1 and end != -1:
+            raw = raw[start:end + 1]
         parsed = json.loads(raw.strip())
         if parsed.get("verdict") == "pass":
             return {"safe": True}

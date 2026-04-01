@@ -34,17 +34,7 @@ def _build_context_section(state: AgentState) -> str:
     parts = []
 
     if customer_context.get("name"):
-        orders = customer_context.get("recent_orders") or []
-        order_summary = ""
-        if orders:
-            lines = [
-                f"  - Order {o['order_id'][:8]}… | {o['status']} | ${o['total']:.2f}"
-                for o in orders[:3]
-            ]
-            order_summary = "\nRecent orders:\n" + "\n".join(lines)
-        parts.append(
-            f"\nCustomer: {customer_context['name']}{order_summary}"
-        )
+        parts.append(f"\nCustomer: {customer_context['name']}")
 
     if chunks:
         kb_text = "\n\n---\n\n".join(
@@ -84,6 +74,11 @@ async def _classify_intent(state: AgentState) -> tuple[str, float, dict]:
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
+        # Extract JSON from anywhere in the response — handles reasoning preambles
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start != -1 and end != -1:
+            raw = raw[start:end + 1]
         parsed = json.loads(raw.strip())
         intent = parsed.get("intent", "general")
         confidence = float(parsed.get("confidence", 0.8))
@@ -113,12 +108,16 @@ async def _generate_response(state: AgentState) -> str:
         if msg["role"] in role_map:
             messages_for_llm.append({"role": role_map[msg["role"]], "content": msg["content"]})
 
-    result = await litellm.acompletion(
-        model=settings.litellm_model,
-        messages=messages_for_llm,
-        stream=False,
-    )
-    return result.choices[0].message.content
+    try:
+        result = await litellm.acompletion(
+            model=settings.litellm_model,
+            messages=messages_for_llm,
+            stream=False,
+            num_retries=3,
+        )
+        return result.choices[0].message.content
+    except Exception:
+        return "I'm having trouble processing your request right now. Please try again in a moment."
 
 
 async def _generate_redirect(block_count: int, category: str) -> str:
@@ -156,12 +155,16 @@ async def _generate_emotion_clarification(state: AgentState, clarification_hint:
     for msg in state["messages"][-settings.max_context_messages:]:
         if msg["role"] in role_map:
             messages_for_llm.append({"role": role_map[msg["role"]], "content": msg["content"]})
-    result = await litellm.acompletion(
-        model=settings.litellm_model,
-        messages=messages_for_llm,
-        stream=False,
-    )
-    return result.choices[0].message.content
+    try:
+        result = await litellm.acompletion(
+            model=settings.litellm_model,
+            messages=messages_for_llm,
+            stream=False,
+            num_retries=3,
+        )
+        return result.choices[0].message.content
+    except Exception:
+        return "I'm sorry to hear you're frustrated. Could you tell me more about what happened so I can help?"
 
 
 def _service_needs_loop(state: AgentState) -> bool:
@@ -342,6 +345,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 return {
                     "response": question,
                     "confidence": confidence,
+                    "inferred_intent": intent,
                     "pending_service": "",
                     "last_clarification_source": "emotion",
                     "consecutive_blocks": 0,
@@ -355,6 +359,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             return {
                 **await _do_escalate("unable_to_clarify", state, config),
                 "confidence": confidence,
+                "inferred_intent": intent,
                 "consecutive_blocks": 0,
                 "service_call_count": 0,
             }
@@ -363,6 +368,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             return {
                 "pending_service": "knowledge",
                 "confidence": confidence,
+                "inferred_intent": intent,
                 "last_clarification_source": "",
                 "consecutive_blocks": 0,
                 "service_call_count": 1,
@@ -373,6 +379,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 "pending_service": "action",
                 "pending_action": action_details,
                 "confidence": confidence,
+                "inferred_intent": intent,
                 "last_clarification_source": "",
                 "consecutive_blocks": 0,
                 "service_call_count": 1,
@@ -382,6 +389,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             return {
                 **await _do_escalate("customer_requested", state, config),
                 "confidence": confidence,
+                "inferred_intent": intent,
                 "consecutive_blocks": 0,
                 "service_call_count": 0,
             }
@@ -393,6 +401,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 return {
                     **await _do_escalate("unable_to_clarify", state, config),
                     "confidence": confidence,
+                    "inferred_intent": intent,
                     "consecutive_blocks": 0,
                     "service_call_count": 0,
                 }
@@ -405,6 +414,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 return {
                     "response": clarification_question,
                     "confidence": confidence,
+                    "inferred_intent": intent,
                     "pending_service": "",
                     "last_clarification_source": "intent",
                     "consecutive_blocks": 0,
@@ -418,6 +428,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 await _db.commit()
             return {
                 **await _do_escalate("unable_to_clarify", state, config),
+                "inferred_intent": intent,
                 "confidence": confidence,
                 "consecutive_blocks": 0,
                 "service_call_count": 0,
@@ -435,12 +446,14 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             return {
                 **await _do_escalate("policy_exception", state, config),
                 "confidence": confidence,
+                "inferred_intent": intent,
                 "consecutive_blocks": 0,
                 "service_call_count": 0,
             }
         return {
             "response": response,
             "confidence": confidence,
+            "inferred_intent": intent,
             "pending_service": "",
             "last_clarification_source": "",
             "consecutive_blocks": 0,

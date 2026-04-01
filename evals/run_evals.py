@@ -36,6 +36,7 @@ from evals.config import (  # noqa: E402
     AVG_JUDGE_COMPLETION_TOKENS,
     AVG_JUDGE_PROMPT_TOKENS,
     DEFAULT_CUSTOMER_ID,
+    EVAL_RUNS_DIR,
     EVALS_DIR,
     JUDGE_MODEL_BEHAVIORAL,
     JUDGE_MODEL_CALIBRATION,
@@ -84,6 +85,36 @@ FILL_PARTIAL = PatternFill("solid", fgColor="FFF3E0")  # orange
 FILL_FAIL    = PatternFill("solid", fgColor="FCE4EC")  # red
 FILL_HEADER  = PatternFill("solid", fgColor="E8EAF6")  # indigo-ish header
 FONT_BOLD    = Font(bold=True)
+
+
+# ---------------------------------------------------------------------------
+# Excel layout helpers — work around openpyxl's max_row / max_column returning
+# the *formatted* extent of the sheet (which includes pre-formatted empty rows /
+# columns) rather than the last row / column that actually contains data.
+# ---------------------------------------------------------------------------
+
+def _true_last_row(ws) -> int:
+    """Return the last row index that has at least one non-None cell, or 0."""
+    for row in range(ws.max_row, 0, -1):
+        for col in range(1, ws.max_column + 1):
+            if ws.cell(row, col).value is not None:
+                return row
+    return 0
+
+
+def _true_last_col(ws, header_row: int = 2) -> int:
+    """Return the last column index with a non-None value in header_row, or 0."""
+    for col in range(ws.max_column, 0, -1):
+        if ws.cell(header_row, col).value is not None:
+            return col
+    return 0
+
+
+def _ws_append(ws, data: list):
+    """Write data as a new row immediately after the last non-empty row."""
+    next_row = _true_last_row(ws) + 1
+    for col, value in enumerate(data, start=1):
+        ws.cell(next_row, col, value)
 
 
 # ---------------------------------------------------------------------------
@@ -166,17 +197,17 @@ async def _fetch_kb_reference_content(titles: list) -> "str | None":
     if not titles:
         return None
     from backend.db.session import AsyncSessionLocal
-    from backend.db.models import KbDocument, KbChunk
+    from backend.db.models import KBDocument, KBChunk
     from sqlalchemy import select
 
     parts = []
     async with AsyncSessionLocal() as session:
         for title in titles:
             result = await session.execute(
-                select(KbChunk.chunk_text)
-                .join(KbDocument, KbChunk.document_id == KbDocument.id)
-                .where(KbDocument.title == title)
-                .order_by(KbChunk.chunk_index)
+                select(KBChunk.chunk_text)
+                .join(KBDocument, KBChunk.document_id == KBDocument.id)
+                .where(KBDocument.title == title)
+                .order_by(KBChunk.chunk_index)
             )
             rows = result.scalars().all()
             if rows:
@@ -203,6 +234,8 @@ def _call_agent_full(messages: list, mock_context: dict, customer_id: str = None
         resp = requests.post(AGENT_TEST_ENDPOINT, json=payload, timeout=AGENT_TIMEOUT)
         resp.raise_for_status()
         return resp.json()
+    except requests.exceptions.Timeout:
+        return {"error": "api_timeout"}
     except requests.exceptions.ConnectionError:
         return {"error": "Agent not reachable. Is it running with APP_ENV=test?"}
     except Exception as e:
@@ -224,6 +257,8 @@ def _call_agent_output_guard(agent_response: str, tools_called: list, known_ids:
         resp = requests.post(AGENT_TEST_ENDPOINT, json=payload, timeout=AGENT_TIMEOUT)
         resp.raise_for_status()
         return resp.json()
+    except requests.exceptions.Timeout:
+        return {"error": "api_timeout"}
     except requests.exceptions.ConnectionError:
         return {"error": "Agent not reachable."}
     except Exception as e:
@@ -325,8 +360,7 @@ async def run_conversation_quality(test_case: dict, calibrate: bool, test_id: st
             break
         pre_turns.append(msg)
 
-    # Only send customer turns that precede the placeholder
-    messages = [m for m in pre_turns if m.get("role") == "customer"]
+    messages = pre_turns
     if not messages:
         messages = [{"role": "customer", "content": "Hello"}]
 
@@ -402,6 +436,21 @@ _SHEET_RUNNERS = {
     "Context Retention":    run_context_retention,
 }
 
+# Sheets whose judges are programmatic (no LLM call) — skipped in --judge-only mode
+PROGRAMMATIC_SHEETS = {"Input Guard", "Intent Classifier", "Output Guard"}
+
+# Map sheet name → judge function (for --judge-only mode, which bypasses runner logic)
+_JUDGE_DISPATCH = {
+    "KB Retrieval":         judge_kb_retrieval,
+    "Action Execution":     judge_action_execution,
+    "Escalation":           judge_escalation,
+    "Conversation Quality": judge_conversation_quality,
+    "PII & Data Leakage":   judge_pii_leakage,
+    "Policy Compliance":    judge_policy_compliance,
+    "Graceful Failure":     judge_graceful_failure,
+    "Context Retention":    judge_context_retention,
+}
+
 
 # ---------------------------------------------------------------------------
 # Results writing
@@ -429,7 +478,7 @@ def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float,
     extra_cols = extra_cols or []
     n_cols = 4 + len(extra_cols)
 
-    col = ws.max_column + 1
+    col = _true_last_col(ws) + 1
     fill_map  = {"pass": FILL_PASS, "fail": FILL_FAIL}
     label_map = {"pass": "PASS", "fail": "FAIL"}
 
@@ -638,22 +687,27 @@ def _build_analysis_sheet(wb):
 
     for sheet_name in SHEET_NAMES:
         reasons = sheet_reasons.get(sheet_name, [])
-        tag_map  = sheet_cols.get(sheet_name, {})
-        sn       = sheet_name.replace("'", "''")
+        tag_map   = sheet_cols.get(sheet_name, {})
+        sn        = sheet_name.replace("'", "''")
+        # Only include tags that were actually run on this sheet
+        sheet_tags = [t for t in tags if t in tag_map]
+        n_sheet_tags = len(sheet_tags)
+        table_last_col = max(1, n_sheet_tags + 1)
 
-        # Section label (merged across all columns)
-        ws_a.merge_cells(
-            start_row=current_row, start_column=1,
-            end_row=current_row,   end_column=last_col,
-        )
+        # Section label (merged across columns used by this sheet's table)
+        if table_last_col > 1:
+            ws_a.merge_cells(
+                start_row=current_row, start_column=1,
+                end_row=current_row,   end_column=table_last_col,
+            )
         lbl = ws_a.cell(current_row, 1, f"Failure reasons: {sheet_name}")
         lbl.font = BOLD; lbl.fill = SEC_FILL; lbl.alignment = CENTER_MID
         current_row += 1
 
-        # Sub-header row
+        # Sub-header row — only columns for tags run on this sheet
         ws_a.cell(current_row, 1, "failure_reason").font = BOLD
         ws_a.cell(current_row, 1).fill = HDR_FILL
-        for j, tag in enumerate(tags, start=2):
+        for j, tag in enumerate(sheet_tags, start=2):
             c = ws_a.cell(current_row, j, tag)
             c.font = BOLD; c.fill = HDR_FILL; c.alignment = CENTER_MID
         current_row += 1
@@ -665,9 +719,7 @@ def _build_analysis_sheet(wb):
 
         for reason in reasons:
             ws_a.cell(current_row, 1, reason).alignment = WRAP_TOP
-            for j, tag in enumerate(tags, start=2):
-                if tag not in tag_map:
-                    continue
+            for j, tag in enumerate(sheet_tags, start=2):
                 _, fr_col = tag_map[tag]
                 cnt = f"COUNTIF('{sn}'!{fr_col}3:{fr_col}{ROW_LIMIT},\"{reason}\")"
                 tot = f"COUNTA('{sn}'!A3:A{ROW_LIMIT})"
@@ -822,21 +874,339 @@ def _append_run_history(ws, run_id: int, tag: str, desc: str,
     for sheet, rate in sheet_pass_rates.items():
         tokens = sheet_tokens.get(sheet, 0)
         cost   = sheet_costs.get(sheet, 0.0)
-        ws.append([run_id, date_str, tag, desc, sheet,
-                   round(rate * 100, 1), tokens, round(cost, 4), judge_model, ""])
+        _ws_append(ws, [run_id, date_str, tag, desc, sheet,
+                        round(rate * 100, 1), tokens, round(cost, 4), judge_model, ""])
 
     overall_scores = list(sheet_pass_rates.values())
     overall_pass   = sum(overall_scores) / len(overall_scores) if overall_scores else 0.0
     overall_tokens = sum(sheet_tokens.values())
     overall_cost   = sum(sheet_costs.values())
-    ws.append([run_id, date_str, tag, desc, "OVERALL",
-               round(overall_pass * 100, 1), overall_tokens,
-               round(overall_cost, 4), judge_model, ""])
-    last_row = ws.max_row
+    _ws_append(ws, [run_id, date_str, tag, desc, "OVERALL",
+                    round(overall_pass * 100, 1), overall_tokens,
+                    round(overall_cost, 4), judge_model, ""])
+    last_row = _true_last_row(ws)
     for c in range(1, 11):
         ws.cell(last_row, c).font = FONT_BOLD
 
 
+def _write_run_history_row(ws, run_id: int, tag: str, desc: str,
+                            sheet_name: str, pass_rate: float,
+                            cost: float, tokens: int, calibrate: bool):
+    """Append a single row to Run History — used for both per-sheet and OVERALL entries."""
+    judge_model = (
+        JUDGE_MODEL_CALIBRATION if calibrate
+        else f"classification: {JUDGE_MODEL_CLASSIFICATION} | behavioral+safety: {JUDGE_MODEL_BEHAVIORAL}"
+    )
+    date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    _ws_append(ws, [run_id, date_str, tag, desc, sheet_name,
+                    round(pass_rate * 100, 1), tokens, round(cost, 4), judge_model, ""])
+    if sheet_name == "OVERALL":
+        last_row = _true_last_row(ws)
+        for c in range(1, 11):
+            ws.cell(last_row, c).font = FONT_BOLD
+
+
+# ---------------------------------------------------------------------------
+# Agent response sidecar helpers
+# ---------------------------------------------------------------------------
+
+def _sidecar_path(tag: str) -> str:
+    return os.path.join(EVAL_RUNS_DIR, tag, "responses.json")
+
+
+def _save_sidecar(tag: str, responses: dict):
+    """Write (or merge-update) the agent response sidecar for a run tag."""
+    path = _sidecar_path(tag)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    # Merge with any existing content so incremental per-sheet saves accumulate correctly.
+    existing = {}
+    if os.path.exists(path):
+        try:
+            with open(path) as f:
+                existing = json.load(f)
+        except Exception:
+            pass
+    existing.update(responses)
+    with open(path, "w") as f:
+        json.dump(existing, f, indent=2)
+
+
+def _load_sidecar(tag: str) -> dict:
+    """
+    Load the agent response sidecar for a run tag.
+    Raises SystemExit with a clear message if the file does not exist.
+    """
+    path = _sidecar_path(tag)
+    if not os.path.exists(path):
+        sys.exit(
+            f"No sidecar found for tag '{tag}' at {path}\n"
+            f"Run a full eval with --tag '{tag}' first to generate it."
+        )
+    with open(path) as f:
+        return json.load(f)
+
+
+# ---------------------------------------------------------------------------
+# Judge-only helpers
+# ---------------------------------------------------------------------------
+
+def _find_latest_tag(wb, exclude_tag: str) -> "str | None":
+    """Return the most recent version_tag in Run History, excluding exclude_tag."""
+    if RUN_HISTORY_SHEET not in wb.sheetnames:
+        return None
+    rh = wb[RUN_HISTORY_SHEET]
+    vt_col = next(
+        (c for c in range(1, rh.max_column + 1) if rh.cell(1, c).value == "version_tag"),
+        None,
+    )
+    if vt_col is None:
+        return None
+    for row in range(rh.max_row, 1, -1):
+        tag = rh.cell(row, vt_col).value
+        if tag and tag != "OVERALL" and tag != exclude_tag:
+            return str(tag)
+    return None
+
+
+def _find_sheet_tag_cols(ws, tag: str) -> dict:
+    """
+    Find column indices for a tag's result columns in a test sheet.
+    Returns dict with keys: verdict, response, reasoning, failure_reason,
+    and optionally escalation_summary. Returns {} if tag columns not found.
+    """
+    verdict_col = None
+    for c in range(1, ws.max_column + 1):
+        v = ws.cell(2, c).value
+        if v and str(v).startswith(f"{tag} ($"):
+            verdict_col = c
+            break
+    if verdict_col is None:
+        return {}
+    cols = {
+        "verdict":        verdict_col,
+        "response":       verdict_col + 1,
+        "reasoning":      verdict_col + 2,
+        "failure_reason": verdict_col + 3,
+    }
+    # Check for extra columns (e.g. escalation_summary on Escalation sheet)
+    for c in range(verdict_col + 4, ws.max_column + 1):
+        hdr = ws.cell(2, c).value
+        if hdr and str(hdr).startswith(f"{tag} "):
+            suffix = str(hdr)[len(tag) + 1:]
+            cols[suffix] = c
+    return cols
+
+
+def _generate_disagreement_report(wb, from_tag: str, new_tag: str, output_path: str):
+    """Compare verdicts between from_tag and new_tag; write report to output_path."""
+    lines = [
+        f"Disagreement report: {from_tag} (baseline) vs {new_tag} (calibration)",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        "",
+    ]
+    total_disagreements = 0
+    sheet_counts = []
+
+    for sheet_name in SHEET_NAMES:
+        if sheet_name in PROGRAMMATIC_SHEETS or sheet_name not in wb.sheetnames:
+            continue
+        ws = wb[sheet_name]
+        from_cols = _find_sheet_tag_cols(ws, from_tag)
+        new_cols  = _find_sheet_tag_cols(ws, new_tag)
+        if not from_cols or not new_cols:
+            continue
+
+        sheet_lines = []
+        for row_idx in range(3, ws.max_row + 1):
+            test_id = ws.cell(row_idx, 1).value
+            if not test_id:
+                continue
+            from_v = str(ws.cell(row_idx, from_cols["verdict"]).value or "").upper()
+            new_v  = str(ws.cell(row_idx, new_cols["verdict"]).value or "").upper()
+            if from_v in ("SKIP", "") or new_v in ("SKIP", ""):
+                continue
+            if from_v != new_v:
+                reasoning = str(ws.cell(row_idx, new_cols["reasoning"]).value or "")[:120]
+                sheet_lines.append(
+                    f"  {test_id}: baseline={from_v}, {new_tag}={new_v}"
+                    f' — "{reasoning}"'
+                )
+                total_disagreements += 1
+
+        if sheet_lines:
+            sheet_counts.append(f"{sheet_name}: {len(sheet_lines)}")
+            lines.append(f"=== {sheet_name} ({len(sheet_lines)} disagreements) ===")
+            lines.extend(sheet_lines)
+            lines.append("")
+
+    if total_disagreements == 0:
+        lines.append("No disagreements found — judges agree on all cases.")
+    else:
+        summary = f"Total disagreements: {total_disagreements}  ({', '.join(sheet_counts)})"
+        lines.insert(3, summary)
+        lines.insert(4, "")
+
+    with open(output_path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+    print(f"\nDisagreement report written to: {output_path}")
+    print(f"Total disagreements: {total_disagreements}")
+
+
+async def _run_judge_only(wb, tag: str, desc: str, target_sheets: list,
+                           calibrate: bool, yes: bool, delay: float, from_tag: str):
+    """Re-judge stored agent responses from a previous run without calling the agent."""
+    if not from_tag:
+        from_tag = _find_latest_tag(wb, tag)
+        if not from_tag:
+            sys.exit("--judge-only requires --from-tag or at least one prior run in Run History.")
+        print(f"Auto-detected baseline tag: {from_tag}")
+
+    llm_sheets = [s for s in target_sheets if s not in PROGRAMMATIC_SHEETS]
+    if not llm_sheets:
+        sys.exit("No LLM-judged sheets in target. --judge-only skips Input Guard, Intent Classifier, Output Guard.")
+
+    # Load sidecar — errors clearly if not found (full run required first)
+    sidecar = _load_sidecar(from_tag)
+
+    total_cases = 0
+    for s in llm_sheets:
+        if s in wb.sheetnames:
+            ws = wb[s]
+            if _find_sheet_tag_cols(ws, from_tag):
+                total_cases += ws.max_row - 2
+
+    judge_label = "Opus" if calibrate else "Sonnet"
+    print(f"\nJudge-only mode: re-judging up to {total_cases} cases from '{from_tag}' using {judge_label}")
+    print(f"Sidecar: {_sidecar_path(from_tag)}  ({len(sidecar)} entries)")
+    print(f"Sheets: {', '.join(llm_sheets)}\n")
+
+    if not yes:
+        answer = input("Proceed? [y/N] ").strip().lower()
+        if answer not in ("y", "yes"):
+            print("Aborted.")
+            return
+
+    rh_ws  = _ensure_run_history_sheet(wb)
+    run_id = _true_last_row(rh_ws)
+
+    sheet_pass_rates: dict = {}
+    sheet_costs: dict      = {}
+    sheet_tokens: dict     = {}
+
+    for sheet_name in llm_sheets:
+        if sheet_name not in wb.sheetnames or sheet_name not in _JUDGE_DISPATCH:
+            print(f"[SKIP] {sheet_name} — sheet not found or no judge defined.")
+            continue
+
+        ws = wb[sheet_name]
+        tag_cols = _find_sheet_tag_cols(ws, from_tag)
+        if not tag_cols:
+            print(f"[SKIP] {sheet_name} — no columns found for tag '{from_tag}'")
+            continue
+
+        print(f"[{sheet_name}] Re-judging stored responses from '{from_tag}'...")
+        case_results     = []
+        scores           = []
+        sheet_judge_cost = 0.0
+        judge_fn         = _JUDGE_DISPATCH[sheet_name]
+
+        for row_idx in range(3, ws.max_row + 1):
+            test_case = _row_to_dict(ws, row_idx)
+            test_id   = test_case.get("test_id", f"row-{row_idx}")
+
+            stored_verdict = str(ws.cell(row_idx, tag_cols["verdict"]).value or "").upper()
+            stored_fr      = str(ws.cell(row_idx, tag_cols["failure_reason"]).value or "").lower()
+            if stored_verdict == "SKIP" or stored_fr == "api_timeout":
+                print(f"  [{test_id}] SKIP (baseline: {stored_verdict or stored_fr})")
+                case_results.append({"test_id": test_id, "skipped": True})
+                continue
+
+            entry = sidecar.get(test_id, {})
+            agent_resp = {
+                "response":            entry.get("response", str(ws.cell(row_idx, tag_cols["response"]).value or "")),
+                "actions_taken":       entry.get("actions_taken", []),
+                "requires_escalation": entry.get("requires_escalation", False),
+                "escalation_reason":   entry.get("escalation_reason", ""),
+                "confidence":          entry.get("confidence", 0.0),
+                "inferred_intent":     entry.get("inferred_intent", ""),
+                "context_summary":     entry.get("context_summary", ""),
+            }
+
+            if sheet_name == "KB Retrieval":
+                ref_titles  = _parse_json_field(test_case.get("reference_articles"), default=[])
+                ref_content = await _fetch_kb_reference_content(ref_titles)
+                test_case   = {**test_case, "reference_content": ref_content}
+
+            t0 = time.time()
+            judgment = await judge_fn(test_case, agent_resp, calibrate)
+            latency  = time.time() - t0
+
+            sheet_judge_cost += judgment.get("cost_usd", 0.0)
+            verdict = judgment.get("verdict", "fail")
+            score   = judgment.get("score", 0.0)
+            scores.append(score)
+
+            verdict_label = {"pass": "PASS", "fail": "FAIL"}.get(verdict, "FAIL")
+            print(f"  {test_id}: {verdict_label}  ({latency:.1f}s)  ${judgment.get('cost_usd', 0.0):.4f}  {judgment.get('reasoning', '')[:70]}")
+
+            case_results.append({
+                "test_id":        test_id,
+                "result":         judgment,
+                "agent_response": agent_resp,
+                "latency_s":      latency,
+            })
+
+            if delay > 0:
+                time.sleep(delay)
+
+        pass_rate = sum(scores) / len(scores) if scores else 0.0
+        sheet_pass_rates[sheet_name] = pass_rate
+        sheet_costs[sheet_name]      = sheet_judge_cost
+        sheet_tokens[sheet_name]     = 0
+
+        pass_count  = sum(1 for r in case_results if not r.get("skipped") and r.get("result", {}).get("verdict") == "pass")
+        total_count = sum(1 for r in case_results if not r.get("skipped"))
+        print(f"  → Pass rate: {pass_rate * 100:.1f}%  |  judge: ${sheet_judge_cost:.4f}\n")
+
+        _append_run_column(ws, tag, case_results, sheet_judge_cost,
+                           extra_cols=_SHEET_EXTRA_COLS.get(sheet_name))
+        _write_run_history_row(rh_ws, run_id, tag, desc, sheet_name,
+                               pass_rate, sheet_judge_cost, 0, calibrate)
+        wb.save(TEST_CASES_FILE)
+        print(f"[{sheet_name}] Complete: {pass_count}/{total_count} passed ({pass_rate * 100:.1f}%) — saved to Run History")
+
+    overall_scores = list(sheet_pass_rates.values())
+    overall_pass   = sum(overall_scores) / len(overall_scores) if overall_scores else 0.0
+    overall_cost   = sum(sheet_costs.values())
+    _write_run_history_row(rh_ws, run_id, tag, desc, "OVERALL",
+                           overall_pass, overall_cost, 0, calibrate)
+
+    _build_analysis_sheet(wb)
+    for sname in SHEET_NAMES:
+        if sname in wb.sheetnames:
+            _format_test_sheet(wb[sname])
+    if RUN_HISTORY_SHEET in wb.sheetnames:
+        _format_run_history_sheet(wb[RUN_HISTORY_SHEET])
+
+    wb.save(TEST_CASES_FILE)
+    print(f"Updated {TEST_CASES_FILE} with results.")
+
+    print("\n=== Judge-Only Run Summary ===")
+    print(f"Tag:      {tag}")
+    print(f"Baseline: {from_tag}")
+    if desc:
+        print(f"Desc:     {desc}")
+    print()
+    print(f"  {'Sheet':<25}  {'Pass%':>6}  {'Cost':>8}")
+    print(f"  {'-'*25}  {'-'*6}  {'-'*8}")
+    for sheet, rate in sheet_pass_rates.items():
+        print(f"  {sheet:<25}  {rate * 100:>5.1f}%  ${sheet_costs.get(sheet, 0):.4f}")
+    print(f"  {'-'*25}  {'-'*6}  {'-'*8}")
+    print(f"  {'OVERALL':<25}  {overall_pass * 100:>5.1f}%  ${overall_cost:.4f}")
+
+    report_path = f"{tag}_disagreements.txt"
+    _generate_disagreement_report(wb, from_tag, tag, report_path)
 
 
 # ---------------------------------------------------------------------------
@@ -868,6 +1238,8 @@ def _estimate_run_cost(wb, target_sheets: list, calibrate: bool) -> tuple:
         _skip_col = next((i + 1 for i, h in enumerate(_hdrs) if h == "skip"), None)
         n_cases = 0
         for _r in range(3, _ws.max_row + 1):
+            if not _ws.cell(_r, 1).value:
+                break
             if _skip_col:
                 _val = str(_ws.cell(_r, _skip_col).value or "").strip().upper()
                 if _val in ("TRUE", "1", "YES"):
@@ -905,7 +1277,7 @@ def _estimate_run_cost(wb, target_sheets: list, calibrate: bool) -> tuple:
     return total, breakdown
 
 
-def _print_cost_estimate(breakdown: list, total: float) -> bool:
+def _print_cost_estimate(breakdown: list, total: float, yes: bool = False) -> bool:
     """Print the pre-run cost estimate and prompt for confirmation. Returns True to proceed."""
     print("\n=== Pre-run cost estimate ===")
     print(f"  {'Sheet':<25} {'Cases':>5}  {'Agent':>8}  {'Judge':>8}  {'Total':>8}")
@@ -916,6 +1288,9 @@ def _print_cost_estimate(breakdown: list, total: float) -> bool:
     print(f"  {'TOTAL':<25} {'':>5}  {'':>8}  {'':>8}  ${total:>7.3f}")
     print()
     print("Note: agent costs are estimates (chars÷4 heuristic); judge costs use LiteLLM pricing.")
+    if yes:
+        print("\nProceeding automatically (--yes flag set).")
+        return True
     answer = input("\nProceed? [y/N] ").strip().lower()
     return answer in ("y", "yes")
 
@@ -924,7 +1299,9 @@ def _print_cost_estimate(breakdown: list, total: float) -> bool:
 # Main runner
 # ---------------------------------------------------------------------------
 
-async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool):
+async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
+                    yes: bool = False, delay: float = 5.0,
+                    judge_only: bool = False, from_tag: str = ""):
     # 1. Load workbook
     if not os.path.exists(TEST_CASES_FILE):
         sys.exit(f"Test cases file not found: {TEST_CASES_FILE}")
@@ -936,6 +1313,11 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool):
     missing = [s for s in target_sheets if s not in wb.sheetnames]
     if missing:
         sys.exit(f"Sheets not found in workbook: {missing}")
+
+    # Judge-only mode: skip agent, re-judge stored responses from a prior run
+    if judge_only:
+        await _run_judge_only(wb, tag, desc, target_sheets, calibrate, yes, delay, from_tag)
+        return
 
     # 2. Verify agent is reachable
     print(f"Checking agent at {AGENT_TEST_ENDPOINT} ...")
@@ -955,7 +1337,7 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool):
 
     # 3. Pre-run cost estimate + confirmation
     estimated_total, cost_breakdown = _estimate_run_cost(wb, target_sheets, calibrate)
-    if not _print_cost_estimate(cost_breakdown, estimated_total):
+    if not _print_cost_estimate(cost_breakdown, estimated_total, yes=yes):
         print("Aborted.")
         return
 
@@ -964,6 +1346,12 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool):
     sheet_pass_rates: dict[str, float] = {}
     sheet_costs: dict[str, float] = {}    # actual costs per sheet
     sheet_tokens: dict[str, int] = {}     # actual tokens per sheet
+    run_responses: dict = {}              # sidecar: test_id → full agent state
+
+    # Initialise Run History and capture run_id before the loop so per-sheet
+    # rows can be written incrementally as each sheet completes.
+    rh_ws  = _ensure_run_history_sheet(wb)
+    run_id = _true_last_row(rh_ws)
 
     for sheet_name in target_sheets:
         if sheet_name not in _SHEET_RUNNERS:
@@ -972,7 +1360,7 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool):
 
         runner = _SHEET_RUNNERS[sheet_name]
         ws = wb[sheet_name]
-        total_rows = ws.max_row - 2  # row 1 = labels, row 2 = headers, row 3+ = data
+        total_rows = sum(1 for r in range(3, ws.max_row + 1) if ws.cell(r, 1).value)
         print(f"[{sheet_name}] Running {total_rows} cases...")
 
         case_results = []
@@ -983,7 +1371,9 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool):
 
         for row_idx in range(3, ws.max_row + 1):
             test_case = _row_to_dict(ws, row_idx)
-            test_id = test_case.get("test_id", f"row-{row_idx}")
+            test_id = test_case.get("test_id")
+            if not test_id:
+                break
 
             if str(test_case.get("skip", "")).strip().upper() in ("TRUE", "1", "YES"):
                 print(f"  [{test_id}] SKIP")
@@ -994,6 +1384,13 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool):
             agent_resp, judgment = await runner(test_case, calibrate,
                                                 test_id=test_id, version_tag=tag)
             latency = time.time() - t0
+
+            # Normalise api_timeout: runners return failure_reason=None on error;
+            # set it explicitly so the Analysis sheet can bucket it correctly.
+            if judgment.get("verdict") == "fail" and not judgment.get("failure_reason"):
+                err = str(agent_resp.get("error", ""))
+                if err == "api_timeout" or "timeout" in err.lower():
+                    judgment = {**judgment, "failure_reason": "api_timeout"}
 
             # Accumulate agent token estimates
             p_tok = agent_resp.get("prompt_tokens", 0)
@@ -1024,6 +1421,21 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool):
                 "latency_s": latency,
             })
 
+            # Accumulate full agent state for sidecar (only for non-error responses)
+            if "error" not in agent_resp:
+                run_responses[test_id] = {
+                    "response":            agent_resp.get("response", ""),
+                    "actions_taken":       agent_resp.get("actions_taken", []),
+                    "requires_escalation": agent_resp.get("requires_escalation", False),
+                    "escalation_reason":   agent_resp.get("escalation_reason", ""),
+                    "confidence":          agent_resp.get("confidence", 0.0),
+                    "inferred_intent":     agent_resp.get("inferred_intent", ""),
+                    "context_summary":     agent_resp.get("context_summary", ""),
+                }
+
+            if delay > 0:
+                time.sleep(delay)
+
         pass_rate   = sum(scores) / len(scores) if scores else 0.0
         sheet_total_cost = sheet_agent_cost + sheet_judge_cost
         sheet_pass_rates[sheet_name] = pass_rate
@@ -1035,10 +1447,24 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool):
         _append_run_column(ws, tag, case_results, sheet_total_cost,
                            extra_cols=_SHEET_EXTRA_COLS.get(sheet_name))
 
-    # 5. Append to Run History sheet
-    rh_ws  = _ensure_run_history_sheet(wb)
-    run_id = rh_ws.max_row
-    _append_run_history(rh_ws, run_id, tag, desc, sheet_pass_rates, sheet_costs, sheet_tokens, calibrate)
+        # Incremental persistence — save this sheet's results immediately so a
+        # mid-run crash doesn't lose completed work.
+        pass_count  = sum(1 for r in case_results
+                          if not r.get("skipped") and r.get("result", {}).get("verdict") == "pass")
+        total_count = sum(1 for r in case_results if not r.get("skipped"))
+        _write_run_history_row(rh_ws, run_id, tag, desc, sheet_name,
+                               pass_rate, sheet_total_cost, sheet_agent_tokens, calibrate)
+        wb.save(TEST_CASES_FILE)
+        _save_sidecar(tag, run_responses)
+        print(f"[{sheet_name}] Complete: {pass_count}/{total_count} passed ({pass_rate * 100:.1f}%) — saved to Run History")
+
+    # 5. Write OVERALL row to Run History
+    overall_scores = list(sheet_pass_rates.values())
+    overall_pass   = sum(overall_scores) / len(overall_scores) if overall_scores else 0.0
+    overall_tokens = sum(sheet_tokens.values())
+    overall_cost   = sum(sheet_costs.values())
+    _write_run_history_row(rh_ws, run_id, tag, desc, "OVERALL",
+                           overall_pass, overall_cost, overall_tokens, calibrate)
 
     # 6. Rebuild Analysis sheet, apply formatting, then save
     _build_analysis_sheet(wb)
@@ -1091,11 +1517,42 @@ def main():
         "--calibrate", action="store_true",
         help="Use the calibration model (Opus) for all judgments instead of the standard tiered approach.",
     )
+    parser.add_argument(
+        "--yes", "-y", action="store_true",
+        help="Skip the cost confirmation prompt and proceed automatically.",
+    )
+    parser.add_argument(
+        "--delay", type=float, default=5.0, metavar="SECONDS",
+        help="Seconds to sleep between test cases (default: 5). "
+             "Tier 1 Anthropic limit is 50 RPM; each case makes ~4 calls, "
+             "so 5s keeps throughput well under the limit.",
+    )
+    parser.add_argument(
+        "--judge-only", action="store_true",
+        help="Skip the agent; re-judge stored responses from a previous run. "
+             "Skips Input Guard, Intent Classifier, Output Guard (programmatic judges). "
+             "Use with --from-tag to specify the baseline run.",
+    )
+    parser.add_argument(
+        "--from-tag", default="",
+        help="Baseline tag to read stored agent responses from (used with --judge-only). "
+             "Defaults to the most recent tag in Run History.",
+    )
+    parser.add_argument(
+        "--judge-model", default="", metavar="MODEL",
+        help="Override the judge model. 'opus' uses claude-opus-4-6 for all judge calls "
+             "(equivalent to --calibrate).",
+    )
     args = parser.parse_args()
 
     sheets_filter = [s.strip() for s in args.sheets.split(",") if s.strip()] if args.sheets else []
+    calibrate = args.calibrate or (args.judge_model.lower() == "opus")
 
-    asyncio.run(run_evals(args.tag, args.desc, sheets_filter, args.calibrate))
+    asyncio.run(run_evals(
+        args.tag, args.desc, sheets_filter, calibrate,
+        yes=args.yes, delay=args.delay,
+        judge_only=args.judge_only, from_tag=args.from_tag,
+    ))
 
 
 if __name__ == "__main__":

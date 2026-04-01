@@ -37,6 +37,8 @@ async def _llm_judge(prompt: str, calibrate: bool = False) -> dict:
             model=model,
             messages=[{"role": "user", "content": prompt}],
             stream=False,
+            timeout=90,
+            num_retries=3,
         )
         try:
             cost = litellm.completion_cost(completion_response=result)
@@ -58,7 +60,15 @@ async def _llm_judge(prompt: str, calibrate: bool = False) -> dict:
         return {"verdict": v, "score": scores.get(v, 0.0), "reasoning": r,
                 "failure_reason": fr, "cost_usd": cost}
     except Exception as e:
-        return _verdict("fail", f"Judge call failed: {e}")
+        ename = type(e).__name__.lower()
+        estr = str(e).lower()
+        if "timeout" in ename or "timeout" in estr:
+            fr = "api_timeout"
+        elif "ratelimit" in ename or "rate_limit" in estr or "rate limit" in estr:
+            fr = "rate_limit"
+        else:
+            fr = "judge_error"
+        return _verdict("fail", f"Judge call failed: {e}", fr)
 
 
 # ---------------------------------------------------------------------------

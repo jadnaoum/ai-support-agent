@@ -32,20 +32,33 @@ async def action_service_node(state: AgentState, config: dict) -> dict:
     if not tool_name or tool_name not in TOOL_REGISTRY:
         result = {"success": False, "error": f"Unknown action: '{tool_name}'."}
     else:
-        tool = TOOL_REGISTRY[tool_name]
-        # Always inject db and customer_id; tools ignore extra kwargs via their signatures
-        try:
-            result = await tool.handler(
-                db=db,
-                customer_id=state.get("customer_id", ""),
-                actions_taken=state.get("actions_taken") or [],
-                **params,
+        mock = (config.get("configurable") or {}).get("mock_account_state")
+        if mock:
+            from backend.agents.mock_tools import mock_tool_call  # noqa: PLC0415
+            result = mock_tool_call(
+                tool_name, params, mock,
+                state.get("customer_id", ""),
+                state.get("actions_taken") or [],
             )
-        except Exception as e:
-            result = {"success": False, "error": f"Action failed: {str(e)}"}
+        else:
+            tool = TOOL_REGISTRY[tool_name]
+            # Always inject db and customer_id; tools ignore extra kwargs via their signatures
+            try:
+                result = await tool.handler(
+                    db=db,
+                    customer_id=state.get("customer_id", ""),
+                    actions_taken=state.get("actions_taken") or [],
+                    **params,
+                )
+            except Exception as e:
+                result = {"success": False, "error": f"Action failed: {str(e)}"}
 
     # Resolve the order_id that was actually used (may differ from params when LLM omitted it).
-    resolved_order_id = result.get("order_id") or (result.get("details") or {}).get("order_id")
+    # Note: some tools return "details" as a plain string (e.g. reason_required gate) — guard against that.
+    _details = result.get("details")
+    resolved_order_id = result.get("order_id") or (
+        _details.get("order_id") if isinstance(_details, dict) else None
+    )
 
     # Machine-readable result for the escalation context summary.
     # Priority: confirmation_pending > success > structured reason code > failed.

@@ -14,6 +14,7 @@ class AgentState(TypedDict):
     response: str               # final customer-facing response text
     pending_service: str        # internal routing: "knowledge"|"action"|"escalation"|"" (empty = none pending)
     pending_action: dict        # {"tool": "cancel_order", "params": {...}} set by conversation agent
+    inferred_intent: str               # Raw output of _classify_intent: "knowledge_query"|"action_request"|"escalation_request"|"needs_clarification"|"general"
     last_clarification_source: str    # Why the last clarifying question was asked: "intent"|"emotion"|"" (empty = none asked)
     context_summary: str               # Plain-text summary of customer messages at time of escalation
     consecutive_blocks: int            # Number of consecutive input-guard blocks this conversation; resets to 0 on any unblocked turn
