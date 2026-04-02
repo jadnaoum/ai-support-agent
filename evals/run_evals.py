@@ -585,11 +585,13 @@ def _build_analysis_sheet(wb):
                     seen.add(tag)
                     tags.append(str(tag))
 
-    # ── 2. For each eval sheet, map tag → (verdict_col_letter, fr_col_letter) ──
+    # ── 2. For each eval sheet, map tag → column letters ──
     # Verdict column headers look like  "v1.0_baseline ($0.041)"
-    # Failure_reason column is always verdict_col + 3.
+    # Column layout (fixed offsets from verdict col):
+    #   +0 verdict  +1 response  +2 reasoning  +3 failure_reason
+    #   +4 latency_s  +5 cost_usd
     # Also detect the skip column letter (header == "skip") if present.
-    sheet_cols: dict = {}        # {sheet_name: {tag: (verdict_letter, fr_letter)}}
+    sheet_cols: dict = {}        # {sheet_name: {tag: (verdict_letter, fr_letter, lat_letter, cost_letter)}}
     sheet_skip_col: dict = {}    # {sheet_name: skip_col_letter | None}
     for sheet_name in SHEET_NAMES:
         if sheet_name not in wb.sheetnames:
@@ -607,8 +609,10 @@ def _build_analysis_sheet(wb):
                 v = ws.cell(2, c).value
                 if v and str(v).startswith(f"{tag} ($"):
                     sheet_cols[sheet_name][tag] = (
-                        get_column_letter(c),
-                        get_column_letter(c + 3),
+                        get_column_letter(c),       # verdict  (+0)
+                        get_column_letter(c + 3),   # failure_reason (+3)
+                        get_column_letter(c + 4),   # latency_s (+4)
+                        get_column_letter(c + 5),   # cost_usd  (+5)
                     )
                     break
 
@@ -617,7 +621,8 @@ def _build_analysis_sheet(wb):
     for sheet_name, tag_map in sheet_cols.items():
         ws = wb[sheet_name]
         reasons: set = set()
-        for _, fr_col in tag_map.values():
+        for cols_tuple in tag_map.values():
+            fr_col = cols_tuple[1]
             fr_idx = column_index_from_string(fr_col)
             for row in range(3, ws.max_row + 1):
                 v = ws.cell(row, fr_idx).value
@@ -661,7 +666,7 @@ def _build_analysis_sheet(wb):
         for j, tag in enumerate(tags, start=2):
             if tag not in tag_map:
                 continue
-            verdict_col, _ = tag_map[tag]
+            verdict_col = tag_map[tag][0]
             sn = sheet_name.replace("'", "''")   # escape single quotes in sheet names
             skip_col = sheet_skip_col.get(sheet_name)
             if skip_col:
@@ -699,9 +704,68 @@ def _build_analysis_sheet(wb):
             CellIsRule(operator="lessThan", formula=["0.7"], fill=CF_RED),
         )
 
-    # ── 6. Tables 2-12 — Failure reason breakdowns ────────────────────────────
+    # ── 6. Table 2 — Performance stats (latency & cost per sheet × tag) ──────
+    # One sub-table per tag: rows = sheets, cols = avg/σ/max for latency and cost.
+    # Latency and cost columns only exist in runs recorded after these columns
+    # were added; for older runs the cells are blank and formulas return "—".
 
-    current_row = 1 + len(SHEET_NAMES) + 2   # blank row after Table 1
+    perf_start_row = 1 + len(SHEET_NAMES) + 2   # blank row after Table 1
+    current_row = perf_start_row
+
+    PERF_METRICS = [
+        ("avg (s)",  "AVERAGEIF({rng},\">0\")"),
+        ("σ (s)",    "IFERROR(STDEV({rng}),\"\")"),
+        ("max (s)",  "MAX({rng})"),
+        ("avg ($)",  "AVERAGEIF({rng},\">0\")"),
+        ("σ ($)",    "IFERROR(STDEV({rng}),\"\")"),
+        ("max ($)",  "MAX({rng})"),
+    ]
+
+    for tag in tags:
+        # Section label
+        ws_a.merge_cells(
+            start_row=current_row, start_column=1,
+            end_row=current_row,   end_column=7,
+        )
+        lbl = ws_a.cell(current_row, 1, f"Performance: {tag}")
+        lbl.font = BOLD; lbl.fill = SEC_FILL; lbl.alignment = CENTER_MID
+        current_row += 1
+
+        # Header row
+        ws_a.cell(current_row, 1, "Sheet").font = BOLD
+        ws_a.cell(current_row, 1).fill = HDR_FILL
+        for k, (metric_label, _) in enumerate(PERF_METRICS, start=2):
+            c = ws_a.cell(current_row, k, metric_label)
+            c.font = BOLD; c.fill = HDR_FILL; c.alignment = CENTER_MID
+        current_row += 1
+
+        # Data rows — one per sheet
+        for sheet_name in SHEET_NAMES:
+            tag_map = sheet_cols.get(sheet_name, {})
+            ws_a.cell(current_row, 1, sheet_name).font = BOLD
+            if tag not in tag_map:
+                current_row += 1
+                continue
+            sn = sheet_name.replace("'", "''")
+            lat_col  = tag_map[tag][2]
+            cost_col = tag_map[tag][3]
+            col_refs = [lat_col, lat_col, lat_col, cost_col, cost_col, cost_col]
+            for k, ((_, fmt), col_ref) in enumerate(zip(PERF_METRICS, col_refs), start=2):
+                rng = f"'{sn}'!{col_ref}3:{col_ref}{ROW_LIMIT}"
+                formula = f"=IFERROR({fmt.format(rng=rng)},\"—\")"
+                cell = ws_a.cell(current_row, k, formula)
+                cell.alignment = CENTER_MID
+                if k <= 4:   # latency cols (s)
+                    cell.number_format = "0.00"
+                else:        # cost cols ($)
+                    cell.number_format = "$0.00000"
+            current_row += 1
+
+        current_row += 1   # blank row between tags
+
+    # ── 7. Tables 3-13 — Failure reason breakdowns ────────────────────────────
+
+    current_row += 1   # extra blank before failure tables
 
     for sheet_name in SHEET_NAMES:
         reasons = sheet_reasons.get(sheet_name, [])
@@ -738,7 +802,7 @@ def _build_analysis_sheet(wb):
         for reason in reasons:
             ws_a.cell(current_row, 1, reason).alignment = WRAP_TOP
             for j, tag in enumerate(sheet_tags, start=2):
-                _, fr_col = tag_map[tag]
+                fr_col = tag_map[tag][1]
                 cnt = f"COUNTIF('{sn}'!{fr_col}3:{fr_col}{ROW_LIMIT},\"{reason}\")"
                 tot = f"COUNTA('{sn}'!A3:A{ROW_LIMIT})"
                 formula = f'=IFERROR({cnt}&" ("&TEXT({cnt}/{tot},"0%")&")","0 (0%)")'
@@ -747,9 +811,11 @@ def _build_analysis_sheet(wb):
 
         current_row += 1   # blank row between tables
 
-    # ── 7. Column widths + zoom ────────────────────────────────────────────────
+    # ── 8. Column widths + zoom ────────────────────────────────────────────────
     ws_a.column_dimensions["A"].width = 32
-    for j in range(2, last_col + 1):
+    # Perf table always uses up to col 7 (B–G); pass-rate table uses up to last_col
+    width_end = max(last_col, 7)
+    for j in range(2, width_end + 1):
         ws_a.column_dimensions[get_column_letter(j)].width = 18
 
     ws_a.sheet_view.zoomScale = 125
