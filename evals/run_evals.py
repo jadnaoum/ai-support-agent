@@ -221,7 +221,8 @@ async def _fetch_kb_reference_content(titles: list) -> "str | None":
 # ---------------------------------------------------------------------------
 
 def _call_agent_full(messages: list, mock_context: dict, customer_id: str = None,
-                     test_id: str = "", version_tag: str = "") -> dict:
+                     test_id: str = "", version_tag: str = "",
+                     mock_agent_state: dict = None) -> dict:
     """POST to /api/chat/test and return parsed JSON response."""
     payload = {
         "customer_id": customer_id or DEFAULT_CUSTOMER_ID,
@@ -230,6 +231,8 @@ def _call_agent_full(messages: list, mock_context: dict, customer_id: str = None
         "test_id": test_id,
         "version_tag": version_tag,
     }
+    if mock_agent_state:
+        payload["mock_agent_state"] = mock_agent_state
     try:
         resp = requests.post(AGENT_TEST_ENDPOINT, json=payload, timeout=AGENT_TIMEOUT)
         resp.raise_for_status()
@@ -329,7 +332,9 @@ async def run_kb_retrieval(test_case: dict, calibrate: bool, test_id: str = "", 
 async def run_action_execution(test_case: dict, calibrate: bool, test_id: str = "", version_tag: str = "") -> tuple[dict, dict]:
     messages = _parse_conversation(test_case.get("conversation"))
     mock_context = _parse_json_field(test_case.get("mock_account_state"))
-    agent_resp = _call_agent_full(messages, mock_context, test_id=test_id, version_tag=version_tag)
+    mock_agent_state = _parse_json_field(test_case.get("mock_agent_state"))
+    agent_resp = _call_agent_full(messages, mock_context, test_id=test_id, version_tag=version_tag,
+                                  mock_agent_state=mock_agent_state)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
     judgment = await judge_action_execution(test_case, agent_resp, calibrate)
@@ -384,7 +389,9 @@ async def run_pii_leakage(test_case: dict, calibrate: bool, test_id: str = "", v
 async def run_policy_compliance(test_case: dict, calibrate: bool, test_id: str = "", version_tag: str = "") -> tuple[dict, dict]:
     messages = _parse_conversation(test_case.get("conversation"))
     mock_context = _parse_json_field(test_case.get("mock_account_state"))
-    agent_resp = _call_agent_full(messages, mock_context, test_id=test_id, version_tag=version_tag)
+    mock_agent_state = _parse_json_field(test_case.get("mock_agent_state"))
+    agent_resp = _call_agent_full(messages, mock_context, test_id=test_id, version_tag=version_tag,
+                                  mock_agent_state=mock_agent_state)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
     judgment = await judge_policy_compliance(test_case, agent_resp, calibrate)
