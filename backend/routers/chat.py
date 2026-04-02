@@ -226,6 +226,11 @@ class TestChatRequest(BaseModel):
         - messages: conversation history [{"role": "customer"/"agent", "content": str}]
         - mock_context: injected as customer_context in state (replaces DB lookup)
         - customer_id: any string; used as customer_id in state
+        - mock_agent_state: pre-load agent state fields as if prior turns already ran.
+          Supported keys: actions_taken, action_results, service_call_count,
+          retrieved_context, consecutive_blocks, last_clarification_source,
+          customer_context. Merged over initial_state after defaults are set,
+          so any key present here overrides the default.
 
     Output guard test mode (test_output_guard=True):
         - agent_response: the response to evaluate
@@ -239,6 +244,7 @@ class TestChatRequest(BaseModel):
     customer_id: str = "test-customer"
     messages: List[dict] = Field(default_factory=list)
     mock_context: dict = Field(default_factory=dict)
+    mock_agent_state: dict = Field(default_factory=dict)
     # Output guard test mode
     test_output_guard: bool = False
     agent_response: str = ""
@@ -368,6 +374,18 @@ async def test_chat(
         "context_summary": "",
         "consecutive_blocks": 0,
     }
+
+    # Pre-load agent state from prior turns. Only allowed keys are merged to
+    # prevent accidental override of routing fields (pending_service etc.).
+    _ALLOWED_MOCK_STATE_KEYS = {
+        "actions_taken", "action_results", "service_call_count",
+        "retrieved_context", "consecutive_blocks", "last_clarification_source",
+        "customer_context",
+    }
+    if body.mock_agent_state:
+        for key, value in body.mock_agent_state.items():
+            if key in _ALLOWED_MOCK_STATE_KEYS:
+                initial_state[key] = value
 
     from backend.agents.graph import graph  # noqa: PLC0415
 
