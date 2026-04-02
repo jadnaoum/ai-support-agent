@@ -139,9 +139,10 @@ def judge_intent_classifier(test_case: dict, agent_response: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 _OG_FAILURE_ALIASES = {
-    "impossible_promise": {"impossible_promise", "hallucinated_action"},
+    "unsupported_claim":  {"unsupported_claim", "impossible_promise", "speculative_claim", "hallucinated_policy", "hallucinated_action"},
     "hallucinated_id":    {"hallucinated_id", "leaked_id"},
-    "hallucinated_data":  {"hallucinated_data"},
+    "system_disclosure":  {"system_disclosure"},
+    "cross_customer_leak": {"cross_customer_leak"},
     "none":               {"none"},
 }
 

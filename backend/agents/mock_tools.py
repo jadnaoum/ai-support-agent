@@ -5,8 +5,8 @@ Called by action_service when config["configurable"]["mock_account_state"] is se
 Returns deterministic tool responses from mock order data without touching the database.
 Production code never imports this module.
 
-Tools covered: track_order, check_cancel_eligibility, check_refund_eligibility,
-check_return_eligibility, cancel_order, process_refund, initiate_return.
+Tools covered: track_order, check_cancel_eligibility, check_return_eligibility,
+cancel_order, initiate_return, get_refund_status.
 """
 import uuid
 from datetime import datetime, timezone
@@ -86,12 +86,12 @@ def _cancel_eligibility(status: str) -> dict:
         return {"eligible": False, "reason": "shipped",
                 "details": "This order has shipped and cannot be cancelled. "
                            "You can return it for a refund once it arrives.",
-                "available_action": "check_refund_eligibility"}
+                "available_action": "check_return_eligibility"}
     if status == "delivered":
         return {"eligible": False, "reason": "delivered",
                 "details": "Delivered orders cannot be cancelled. "
                            "Please request a return/refund instead.",
-                "available_action": "check_refund_eligibility"}
+                "available_action": "initiate_return"}
     return {"eligible": True, "reason": None,
             "details": "This order can be cancelled.", "available_action": None}
 
@@ -132,35 +132,6 @@ def _return_eligibility(o: dict, reason: str, now: datetime) -> dict:
                     "available_action": None}
     return {"eligible": True, "reason": None,
             "details": "This order is eligible for a return.", "available_action": None,
-            "check_kb": True}
-
-
-def _refund_eligibility(o: dict, reason: str, now: datetime) -> dict:
-    """Refund eligibility for check_refund_eligibility / process_refund."""
-    if reason and reason.lower() in ("defective", "broken", "damaged"):
-        return {"eligible": False, "reason": "requires_escalation",
-                "details": "Defective and damaged item claims require review by our support team.",
-                "available_action": None}
-    status = o.get("status", "placed")
-    if status == "refunded":
-        return {"eligible": False, "reason": "already_refunded",
-                "details": "This order has already been fully refunded.", "available_action": None}
-    if status == "return_in_progress":
-        return {"eligible": False, "reason": "return_in_progress",
-                "details": "A return for this order is already in progress. "
-                           "Your refund will be processed after we receive the item.",
-                "available_action": None}
-    if status == "delivered":
-        return {"eligible": False, "reason": "return_required",
-                "details": "Item must be returned before a refund can be processed. "
-                           "Please ship the item back using a prepaid return label.",
-                "available_action": "initiate_return"}
-    if status not in ("returned", "cancelled"):
-        return {"eligible": False, "reason": "wrong_status",
-                "details": f"Orders with status '{status}' are not eligible for a refund yet.",
-                "available_action": None}
-    return {"eligible": True, "reason": None,
-            "details": "This order is eligible for a refund.", "available_action": None,
             "check_kb": True}
 
 
@@ -218,27 +189,6 @@ def _mock_check_cancel_eligibility(params: dict, mock: dict) -> dict:
     return {"success": True, "eligible_orders": eligible}
 
 
-def _mock_check_refund_eligibility(params: dict, mock: dict, now: datetime) -> dict:
-    order_id = params.get("order_id")
-    reason = params.get("reason")
-    if order_id:
-        o, err = _get_order(mock, order_id)
-        if err:
-            return err
-        check = _refund_eligibility(o, reason, now)
-        return {"success": True, "order_id": str(o["id"]), **check}
-
-    orders = mock.get("orders", [])
-    if not orders:
-        return {"success": False, "error": "No orders found for this account."}
-    eligible = []
-    for o in orders:
-        check = _refund_eligibility(o, reason, now)
-        if check["eligible"]:
-            eligible.append({"order_id": str(o["id"]), "status": o.get("status"), **check})
-    return {"success": True, "eligible_orders": eligible}
-
-
 def _mock_check_return_eligibility(params: dict, mock: dict, now: datetime) -> dict:
     order_id = params.get("order_id")
     reason = params.get("reason")
@@ -285,58 +235,12 @@ def _mock_cancel_order(params: dict, mock: dict, actions_taken: list, now: datet
                 "details": {"order_id": oid, "order_total": float(o.get("total", 0.0)),
                             "items": _item_names(o)}}
 
+    refund_amount = float(o.get("total", 0.0))
     return {"success": True, "order_id": oid,
-            "message": f"Order cancelled successfully. A refund of "
-                       f"${float(o.get('total', 0.0)):.2f} will be processed to your "
-                       "original payment method within 3–5 business days.",
-            "refund_amount": float(o.get("total", 0.0))}
-
-
-def _mock_process_refund(params: dict, mock: dict, actions_taken: list, now: datetime) -> dict:
-    reason = params.get("reason")
-    if not reason:
-        return {"success": False, "reason": "reason_required",
-                "details": f"Please provide a reason for the refund. "
-                           f"Valid values: {', '.join(REASON_VALUES)}."}
-    if reason not in _REASON_MAP:
-        return {"success": False, "error": "invalid_reason",
-                "message": f"Reason must be one of: {REASON_VALUES}. Received: {reason}"}
-
-    o, err = _get_order(mock, params.get("order_id"))
-    if err:
-        return err
-    oid = str(o["id"])
-    total = float(o.get("total", 0.0))
-
-    check = _refund_eligibility(o, reason, now)
-    if not check["eligible"]:
-        if check["reason"] == "requires_escalation":
-            return {"success": False, "status": "rejected", "reason": "requires_escalation",
-                    "error": check["details"]}
-        return {"success": False, "status": "rejected", "reason": check["reason"],
-                "error": check["details"], "available_action": check["available_action"]}
-
-    risk_score = float(params.get("risk_score", 0.0) or 0.0)
-    amount = params.get("amount")
-    refund_amount = min(float(amount), total) if amount and float(amount) > 0 else total
-
-    if not _has_prior_confirmation(actions_taken, "process_refund", oid):
-        processing_time = ("5-10 business days"
-                           if (risk_score > 0.7 or refund_amount > 50)
-                           else "3-5 business days")
-        return {"success": False, "confirmation_required": True,
-                "details": {"order_id": oid, "refund_amount": refund_amount,
-                            "reason": reason, "processing_time": processing_time}}
-
-    if risk_score > 0.7 or refund_amount > 50:
-        return {"success": True, "order_id": oid, "refund_amount": refund_amount,
-                "status": "pending_review",
-                "message": "Your refund request has been submitted and is under review. "
-                           "A member of our team will follow up shortly."}
-    return {"success": True, "order_id": oid, "refund_amount": refund_amount,
-            "status": "approved",
-            "message": f"Refund of ${refund_amount:.2f} approved. "
-                       "Funds will appear on your statement within 3–5 business days."}
+            "refund_id": "mock-refund-id",
+            "refund_amount": refund_amount,
+            "message": f"Order cancelled successfully. A refund of ${refund_amount:.2f} "
+                       "has been issued to your original payment method."}
 
 
 def _mock_initiate_return(params: dict, mock: dict, actions_taken: list, now: datetime) -> dict:
@@ -363,10 +267,45 @@ def _mock_initiate_return(params: dict, mock: dict, actions_taken: list, now: da
         return {"success": False, "confirmation_required": True,
                 "details": {"order_id": oid, "items": _item_names(o), "reason": reason}}
 
+    total = float(o.get("total", 0.0))
+    if total > 50:
+        return {"success": True, "order_id": oid,
+                "refund_id": "mock-refund-id",
+                "pending_review": True}
+
     label_id = f"RETURN-{str(uuid.uuid4())[:8].upper()}"
     return {"success": True, "order_id": oid, "return_label": label_id,
+            "refund_id": "mock-refund-id",
             "message": f"Return initiated. A prepaid return label ({label_id}) has been "
                        "emailed to you. Once we receive your item, your refund will be processed."}
+
+
+def _mock_get_refund_status(params: dict, mock: dict) -> dict:
+    order_id = params.get("order_id")
+    refunds = mock.get("refunds", [])
+    if order_id:
+        # Verify the order exists in mock data
+        o, err = _get_order(mock, order_id)
+        if err:
+            return err
+        refunds = [r for r in refunds if str(r.get("order_id", "")) == str(order_id)]
+    if not refunds:
+        return {"success": True, "refunds": [], "check_kb": True}
+    return {
+        "success": True,
+        "check_kb": True,
+        "refunds": [
+            {
+                "refund_id": str(r.get("refund_id", "mock-refund-id")),
+                "order_id": str(r.get("order_id", "")),
+                "amount": float(r.get("amount", 0.0)),
+                "status": r.get("status", "approved"),
+                "reason": r.get("reason", "other"),
+                "created_at": r.get("created_at"),
+            }
+            for r in refunds
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -384,11 +323,10 @@ def mock_tool_call(tool_name: str, params: dict, mock: dict,
     dispatch = {
         "track_order":               lambda: _mock_track_order(params, mock),
         "check_cancel_eligibility":  lambda: _mock_check_cancel_eligibility(params, mock),
-        "check_refund_eligibility":  lambda: _mock_check_refund_eligibility(params, mock, now),
         "check_return_eligibility":  lambda: _mock_check_return_eligibility(params, mock, now),
         "cancel_order":              lambda: _mock_cancel_order(params, mock, actions_taken, now),
-        "process_refund":            lambda: _mock_process_refund(params, mock, actions_taken, now),
         "initiate_return":           lambda: _mock_initiate_return(params, mock, actions_taken, now),
+        "get_refund_status":         lambda: _mock_get_refund_status(params, mock),
     }
 
     fn = dispatch.get(tool_name)

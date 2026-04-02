@@ -3,14 +3,12 @@ Output guardrail — runs after the conversation agent generates a response,
 before the response is sent to the customer.
 
 LLM-based check using LITELLM_GUARD_MODEL (Sonnet by default):
-Detects hallucinations, impossible promises, and policy violations that
+Detects hallucinations, unsupported claims, and policy violations that
 regex patterns cannot catch reliably. Checks for:
-  1. impossible_promise  — claims an action was done when the tool wasn't called
+  1. unsupported_claim   — impossible promises, speculative guarantees, or invented policy details
   2. hallucinated_id     — fabricated order ID / tracking number / UUID
-  3. hallucinated_policy — invented policy details not in the KB
-  4. system_disclosure   — leaking system prompt or internal instructions
-  5. cross_customer_leak — mentioning another customer's data
-  6. speculative_claim   — presenting uncertain outcomes as guarantees
+  3. system_disclosure   — leaking system prompt or internal instructions
+  4. cross_customer_leak — mentioning another customer's data
 
 Returns a dict:
   {"safe": True}

@@ -45,6 +45,10 @@ Refunds are issued to the original payment method:
 
 You will receive an email confirmation when your refund has been issued.
 
+**Cancellations:** When you cancel an order, a refund is issued automatically to your original payment method.
+
+**Returns:** Your refund is issued automatically once we inspect and accept the returned item. Returns on orders over €50 are subject to a brief review before the return label is issued — our team will follow up within 1–2 business days.
+
 ## Defective or Damaged Items
 
 If you received a defective or damaged item, contact us immediately — you do not need to wait for the standard return window. We will either:

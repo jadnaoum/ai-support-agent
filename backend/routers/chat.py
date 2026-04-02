@@ -287,8 +287,10 @@ async def test_chat(
     if body.test_output_guard:
         from backend.guardrails.output_guard import check_output  # noqa: PLC0415
 
-        # Translate tools_called [{"tool": "cancel_order", "args": {...}}]
-        # into the actions_taken format that the output guard reads
+        # Translate tools_called [{"tool": "cancel_order", "args": {...}, "result": {...}}]
+        # into the actions_taken / action_results format that the output guard reads.
+        # "result" is optional in the test schema — omitting it means the tool ran but
+        # returned nothing (treated as an empty dict).
         synthetic_actions_taken = [
             {
                 "action": t.get("tool", ""),
@@ -296,6 +298,10 @@ async def test_chat(
                 "params": t.get("args", {}),
                 "success": True,
             }
+            for t in body.tools_called
+        ]
+        synthetic_action_results = [
+            t.get("result", {})
             for t in body.tools_called
         ]
         # Build known order IDs into customer_context so the guard can find them
@@ -309,7 +315,7 @@ async def test_chat(
                 ]
             },
             "retrieved_context": [],
-            "action_results": [],
+            "action_results": synthetic_action_results,
             "confidence": 1.0,
             "requires_escalation": False,
             "escalation_reason": "",

@@ -79,20 +79,20 @@ async def test_response_with_known_id_passes(mock_complete):
 
 @patch("backend.guardrails.output_guard.litellm.acompletion", new_callable=AsyncMock)
 async def test_impossible_promise_is_blocked(mock_complete):
-    mock_complete.return_value = make_llm_response("fail", "impossible_promise", "Agent claimed cancellation without calling cancel_order.")
+    mock_complete.return_value = make_llm_response("fail", "unsupported_claim", "Agent claimed cancellation without calling cancel_order.")
     from backend.guardrails.output_guard import check_output
     result = await check_output("I've cancelled your order successfully.", make_state())
     assert result["safe"] is False
-    assert result["reason"] == "impossible_promise"
+    assert result["reason"] == "unsupported_claim"
 
 
 @patch("backend.guardrails.output_guard.litellm.acompletion", new_callable=AsyncMock)
 async def test_refund_claim_without_tool_is_blocked(mock_complete):
-    mock_complete.return_value = make_llm_response("fail", "impossible_promise", "process_refund was not called.")
+    mock_complete.return_value = make_llm_response("fail", "unsupported_claim", "process_refund was not called.")
     from backend.guardrails.output_guard import check_output
     result = await check_output("Your refund has been processed.", make_state())
     assert result["safe"] is False
-    assert result["reason"] == "impossible_promise"
+    assert result["reason"] == "unsupported_claim"
 
 
 @patch("backend.guardrails.output_guard.litellm.acompletion", new_callable=AsyncMock)
@@ -133,20 +133,20 @@ async def test_system_disclosure_is_blocked(mock_complete):
 
 @patch("backend.guardrails.output_guard.litellm.acompletion", new_callable=AsyncMock)
 async def test_hallucinated_policy_is_blocked(mock_complete):
-    mock_complete.return_value = make_llm_response("fail", "hallucinated_policy", "Return window of 90 days not in KB.")
+    mock_complete.return_value = make_llm_response("fail", "unsupported_claim", "Return window of 90 days not in KB.")
     from backend.guardrails.output_guard import check_output
     result = await check_output("You have 90 days to return your item.", make_state())
     assert result["safe"] is False
-    assert result["reason"] == "hallucinated_policy"
+    assert result["reason"] == "unsupported_claim"
 
 
 @patch("backend.guardrails.output_guard.litellm.acompletion", new_callable=AsyncMock)
 async def test_speculative_claim_is_blocked(mock_complete):
-    mock_complete.return_value = make_llm_response("fail", "speculative_claim", "Agent guaranteed delivery date.")
+    mock_complete.return_value = make_llm_response("fail", "unsupported_claim", "Agent guaranteed delivery date.")
     from backend.guardrails.output_guard import check_output
     result = await check_output("It will definitely arrive by Thursday.", make_state())
     assert result["safe"] is False
-    assert result["reason"] == "speculative_claim"
+    assert result["reason"] == "unsupported_claim"
 
 
 # ---------------------------------------------------------------------------

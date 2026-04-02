@@ -44,11 +44,11 @@ project-root/
 │   │   └── escalation.py        # Escalation logic: logs reason, preserves context, returns handoff message
 │   ├── tools/
 │   │   ├── registry.py          # Tool registry: defines available actions, params, permissions
-│   │   ├── order_tools.py       # track_order, cancel_order, process_refund
-│   │   └── customer_tools.py    # get_customer_context, get_risk_score
+│   │   ├── order_tools.py       # track_order, cancel_order, check_cancel_eligibility, check_return_eligibility, initiate_return, get_refund_status
+│   │   └── customer_tools.py    # get_customer_context
 │   ├── guardrails/
 │   │   ├── input_guard.py       # Prompt injection detection, off-topic classification
-│   │   └── output_guard.py      # Hallucination check, confidence threshold, promise validation
+│   │   └── output_guard.py      # Hallucination check, unsupported claims, ID validation
 │   ├── db/
 │   │   ├── models.py            # SQLAlchemy models
 │   │   ├── session.py           # DB session management
@@ -106,7 +106,7 @@ All tables in one PostgreSQL instance. pgvector extension enabled.
 | created_at | TIMESTAMP | |
 | metadata | JSONB | Flexible field for additional customer attributes |
 
-Risk score is NOT stored. It is computed on the fly from refund history, complaint frequency, and escalation history when customer context is loaded. This avoids dependency on an external system keeping the score updated. Compute function lives in `backend/tools/customer_tools.py`.
+Risk score is NOT stored and is not currently used by any tool logic. The compute function remains in `backend/tools/customer_tools.py` for future use if needed.
 
 ### products
 | Column | Type | Notes |
@@ -151,7 +151,7 @@ Note: categories `gift_cards`, `digital`, `personalized`, `perishable`, and `haz
 | customer_id | UUID | FK → customers (denormalized for fast risk score queries) |
 | amount | DECIMAL | Refund amount (may be partial) |
 | reason | VARCHAR | defective, changed_mind, wrong_item, late_delivery, other |
-| status | VARCHAR | requested, approved, rejected, processed |
+| status | VARCHAR | approved, pending_review, processed |
 | initiated_by | VARCHAR | customer, agent, system |
 | conversation_id | UUID | FK → conversations, NULL if initiated outside chat |
 | created_at | TIMESTAMP | |
@@ -264,7 +264,7 @@ CREATE INDEX idx_kb_chunks_document ON kb_chunks(document_id);
 class AgentState(TypedDict):
     messages: list           # Full conversation history
     customer_id: str         # Current customer
-    customer_context: dict   # Loaded from DB: purchase history, risk score
+    customer_context: dict   # Loaded from DB: customer name only. Order data accessed via tools.
     retrieved_context: list  # KB chunks returned by knowledge service (cleared each turn)
     action_results: list     # Results from action service calls this turn
     confidence: float        # Conversation agent's confidence in its response
@@ -310,39 +310,55 @@ There is no separate supervisor/triage node. The conversation agent handles inte
 
 Define actions as structured config. Each tool specifies: name, description (for LLM), parameters with types, required permissions, and the function to execute.
 
-Tool descriptions live in `prompts/production.yaml` (`tool_track_order_description`, `tool_cancel_order_description`, `tool_process_refund_description`) and are loaded into the registry at startup. The `intent_prompt` (also in `production.yaml`) includes a **Tool guidance** section with per-tool preconditions, edge cases, and anti-patterns that guide the LLM's tool selection and parameter extraction. This is the primary mechanism for shaping tool-call behavior without code changes.
+Tool descriptions live in `prompts/production.yaml` (`tool_track_order_description`, `tool_cancel_order_description`, `tool_get_refund_status_description`, etc.) and are loaded into the registry at startup. The `intent_prompt` (also in `production.yaml`) includes a **Tool catalog** section with per-tool purpose, customer signals, and parameter extraction rules that guide the LLM's tool selection. This is the primary mechanism for shaping tool-call behavior without code changes.
 
 ### v1 tools (agent-callable)
 | Tool | Parameters | What it does |
 |---|---|---|
 | track_order | order_id (optional) | Returns order status and item details. Uses most recent order if order_id omitted |
-| check_refund_eligibility | order_id (optional) | Read-only. With order_id: checks if that order is refund-eligible. Without: returns all refund-eligible orders for the customer. Applies final sale, non-returnable category, and return window rules. Returns structured result with reason codes. Shares validation logic with `process_refund` via common internal function |
 | check_cancel_eligibility | order_id (optional) | Read-only. With order_id: checks if that order is cancellable. Without: returns all cancellable orders for the customer. Applies order status rules. Returns structured result with reason codes. Shares validation logic with `cancel_order` via common internal function |
-| cancel_order | order_id, reason | Cancels order if status is `placed`. Rejects shipped, delivered, cancelled, returned, and refunded orders. **Confirmation gate applies** (see below) |
-| process_refund | order_id, amount, reason | Initiates refund for a delivered or cancelled order. Enforces final sale, non-returnable category, and return window rules. Auto-approves or flags for human review based on risk score and refund amount. **Confirmation gate applies** (see below) |
+| cancel_order | order_id, reason | Cancels order if status is `placed`. Rejects shipped, delivered, cancelled, returned, and refunded orders. **Auto-refund:** on successful cancellation, creates a Refund record with status `approved` and includes refund amount and processing timeline in the response. **Confirmation gate applies** (see below) |
+| check_return_eligibility | order_id (optional), reason | Read-only. With order_id: checks if that order is return-eligible. Without: returns all return-eligible orders for the customer. Applies final sale, non-returnable category, return window rules (30 days standard, 14 days electronics), and defective item escalation. Returns `check_kb: true` when eligible so the agent queries KB for condition-related policies (unused, tags, packaging, restocking fees). Shares validation logic with `initiate_return` via common internal function |
+| initiate_return | order_id, reason | Starts the return process for a delivered order. Validates eligibility, then applies confirmation gate. On execution: orders >€50 get `pending_review` status (human review before return label is issued); orders ≤€50 get immediate approval with prepaid return label. Refund is processed automatically after warehouse receives and inspects the returned item. **Confirmation gate applies** (see below) |
+| get_refund_status | order_id (optional) | Read-only. Looks up refund records for the customer (optionally filtered by order). Returns refund amount, status (approved/pending_review/processed), reason, and date. Includes `check_kb: true` so the agent queries KB for payment-method-specific processing timelines |
 
-**Security note:** `get_order_history`, `get_customer_context`, and `get_risk_score` are NOT agent-callable tools. Customer context and order history are loaded by the API layer and injected into agent state before the graph runs. The agent-callable tools above (track, cancel, refund) must validate that the order_id belongs to the current customer from state — reject any order that doesn't match.
+**Security note:** `get_order_history` and `get_customer_context` are NOT agent-callable tools. Customer context (name only) is loaded by the API layer and injected into agent state before the graph runs. Order data is accessed exclusively through agent-callable tools. All tools validate that the order_id belongs to the current customer from state — reject any order that doesn't match.
 
-**Eligibility tool response format:** Both `check_refund_eligibility` and `check_cancel_eligibility` return structured results. When checking a specific order:
+**Eligibility tool response format:** `check_return_eligibility` and `check_cancel_eligibility` return structured results. When checking a specific order:
 ```json
 {
-  "eligible": false,
-  "reason": "return_required",
+  "eligible": true,
+  "reason": null,
   "details": "Order delivered 12 days ago, within 30-day return window",
-  "available_action": "initiate_return"
+  "available_action": null,
+  "check_kb": true
 }
 ```
-When called without order_id, returns a list of all eligible orders with the same structure per order. The `available_action` field is a hint for the LLM — it references domain actions only, never orchestration mechanics.
+When called without order_id, returns a list of all eligible orders with the same structure per order. The `available_action` field is a hint for the LLM — it references domain actions only, never orchestration mechanics. The `check_kb` flag tells the agent to query the KB for policy conditions the tool cannot verify (item condition, packaging, restocking fees) before responding to the customer.
 
 **Confirmation gate mechanism:** State-changing tools check `actions_taken` in agent state for a prior `confirmation_required` entry matching the same tool + order_id. This is a structural state lookup — the tool does not parse conversation history or interpret customer responses. The LLM decides whether to re-invoke based on the customer's reply. The confirmation gate eliminates the need for "ask for confirmation" instructions in the prompt.
 
-**`process_refund` eligibility rules (enforced in order):**
-1. **Final sale** — reject if any product in the order has `final_sale=True`
-2. **Non-returnable category** — reject if any product's category is `gift_cards`, `digital`, `personalized`, `perishable`, or `hazardous`
-3. **Return window** — reject if `(now - delivered_at) > product.return_window_days`. Bypass entirely if reason is `defective` (KB policy: defective items have no return window)
-4. **Pending review** — set refund status to `pending_review` (instead of `approved`) if `risk_score > 0.7` OR `refund_amount > 50`. Triggers escalation in the conversation agent.
+**`initiate_return` flow:**
+1. **Eligibility** — same rules as `check_return_eligibility` (final sale, non-returnable category, return window, defective escalation)
+2. **Confirmation gate** — first call returns `confirmation_required` with return details
+3. **On execution (confirmed):**
+   - Orders >€50: creates Refund record with `pending_review`, returns review notification (human approves and sends return label)
+   - Orders ≤€50: creates Refund record with `approved`, generates prepaid return label
+4. **Refund** — processed automatically after warehouse receives and inspects the returned item
 
-**`risk_score` is NOT an LLM parameter.** It is injected by `action_service` from `state["customer_context"]["risk_score"]` after null-stripping, so the LLM cannot supply or override it. This follows the same principle as `get_customer_context` — sensitive customer data is always injected by the API layer, never queried by the agent.
+**`cancel_order` auto-refund:** On successful cancellation, creates a Refund record with status `approved` and includes refund amount and processing timeline ("within 3-5 business days") in the response. No separate refund step needed.
+
+**Refund routing — "I want a refund":** There is no direct refund tool. The agent calls `check_return_eligibility` first — the tool checks order status internally and returns the appropriate result:
+- Eligible (delivered, within window) → returns eligible + check_kb, agent presents return option
+- Not delivered → rejects with reason, agent explains (if not shipped, loop may offer cancellation via available_action)
+- Already returned/cancelled → rejects, agent pivots to get_refund_status via loop decision
+- Defective/damaged reason → returns requires_escalation, agent escalates
+For "where's my refund?" questions, the agent uses `get_refund_status` directly.
+
+**`check_kb` flag:** Returned by `check_return_eligibility` and `get_refund_status` when eligible. Signals the agent to query the KB before responding:
+- For returns: condition requirements (unused, tags, packaging), restocking fees, category-specific windows
+- For refund status: payment-method-specific processing timelines (credit card 3-5 days, PayPal 1-3 days, store credit instant)
+The tool knows its own limitations; policy content stays in the KB as single source of truth.
 
 **Implementation note:** v1 tools are mock implementations. Each tool should validate parameters, log the action to audit, and return a realistic confirmation response — but NOT connect to any external e-commerce API or build real payment/shipping integrations. The value is in the tool registry pattern, parameter validation, and audit trail, not the underlying operations. Keep the mock logic simple and deterministic (e.g., cancel_order checks order status, returns success/failure accordingly). Do not over-engineer the tools themselves.
 
@@ -408,7 +424,7 @@ Create synthetic e-commerce KB documents covering:
 
 ### Output guardrails (run after agent response, before sending to customer)
 - LLM-based check using `LITELLM_GUARD_MODEL` (Sonnet by default; swap to a cheaper model via config once validated). This is a separate model config from `LITELLM_MODEL` used by all other LLM calls (intent classifier, loop decision, response generator, input guard, redirect generator). Prompt lives in `prompts/production.yaml` (`output_guard_prompt`). Prompt lives in `prompts/production.yaml` (`output_guard_prompt`).
-- Checks for six failure categories: `impossible_promise` (claimed an action was done when the tool wasn't called — covers cancel, refund, track, and escalation; escalation claims are checked against `escalation_handler` in `tools_called`; conditional offers to escalate do not trigger this rule), `hallucinated_id` (fabricated order ID / UUID not in context), `hallucinated_policy` (invented return window or policy detail not in KB), `system_disclosure` (leaked system prompt or internal instructions), `cross_customer_leak` (another customer's data), `speculative_claim` (guarantees the agent cannot make).
+- Checks for four failure categories: `unsupported_claim` (states something not supported by the evidence — includes claiming an action was completed without tool confirmation, policy details not in KB, predictions beyond tool results, fabricated statistics or timelines), `hallucinated_id` (fabricated order ID / UUID not in context), `system_disclosure` (leaked system prompt or internal instructions), `cross_customer_leak` (another customer's data).
 - Fails closed on any LLM or parse error — blocks the response rather than letting unvalidated content through.
 - If the guard fails, the response is replaced with an escalation handoff and an `audit_logs` entry is written: `action="output_guard_blocked"`, `agent_type="output_guard"`, `input_data={"draft_response": ...}`, `output_data={"failure_reason": ...}`.
 - If confidence < 0.7 (configurable), escalate instead of responding (confidence gate runs before the output guard).
@@ -480,7 +496,7 @@ Standalone evaluation suite that tests the agent end-to-end via its API. Lives a
 |---|---|---|---|
 | Input Guard | Is the message safe, injection, abusive, or off-topic? And does the agent escalate when expected? | Single customer message | Label: safe / prompt_injection / abusive / off_topic. For abusive cases: also checks `expected_escalation_reason` column — guard must classify as `abusive` AND agent must have `requires_escalation=True` with matching `escalation_reason`. |
 | Intent Classifier | What does the customer want? | Customer message (sometimes with conversation history) | Intent: knowledge_query / action_request / escalation_request / general / needs_clarification + confidence |
-| Output Guard | Is the agent's response truthful and safe? | Agent response + tools called + known IDs | Verdict: pass / block + failure type: hallucinated_action / leaked_id / policy_violation / none |
+| Output Guard | Is the agent's response truthful and safe? | Agent response + tools called + known IDs | Verdict: pass / block + failure type: unsupported_claim / hallucinated_id / system_disclosure / cross_customer_leak / none |
 
 **Behavioral evals (80 cases, sheets 4-7)** — LLM-as-judge with rubrics. Tests whether the agent does the right thing and says it the right way.
 
@@ -537,7 +553,7 @@ JUDGE_MODEL_BEHAVIORAL = env("EVAL_JUDGE_BEHAVIORAL", "claude-sonnet-4-20250514"
 JUDGE_MODEL_CALIBRATION = env("EVAL_JUDGE_CALIBRATION", "claude-opus-4-20250115")
 ```
 
-**Classification judge (Haiku)** — Used for sheets 1-3. All three classification sheets are fully programmatic — no LLM calls. Input Guard: compares agent's classification label against expected label. Intent Classifier: compares inferred intent against expected intent. Output Guard: checks that both the verdict (pass/block) AND the failure_type (hallucinated_action/leaked_id/policy_violation/none) match expected values — both must match for a Pass. Returns failure_reason `wrong_verdict` or `wrong_failure_type` to distinguish the mismatch.
+**Classification judge (Haiku)** — Used for sheets 1-3. All three classification sheets are fully programmatic — no LLM calls. Input Guard: compares agent's classification label against expected label. Intent Classifier: compares classified intent against expected intent. Output Guard: checks that both the verdict (pass/block) AND the failure_type (unsupported_claim/hallucinated_id/system_disclosure/cross_customer_leak/none) match expected values — both must match for a Pass. Returns failure_reason `wrong_verdict` or `wrong_failure_type` to distinguish the mismatch.
 
 **Behavioral/safety judge (Sonnet)** — Used for sheets 4-11. The judge receives: the test case context, the agent's actual response, the expected behavior description, and the Pass/Fail rubric with failure_reason enums. It returns a structured JSON verdict:
 
@@ -637,7 +653,7 @@ Some sheets have additional per-run columns for sheet-specific data (e.g., Escal
 
 This means you can open any test case sheet and see the full history of that case across all runs, reading left to right. Failure reasons are filterable and groupable for post-run analysis.
 
-**Response column normalization:** The response column shows sheet-appropriate content, not always the raw agent response. Input Guard shows the guard classification label (safe/prompt_injection/abusive/off_topic). Output Guard shows the guard verdict and failure type (e.g., 'pass/none', 'block/hallucinated_action'). All other sheets show the agent's customer-facing response text.
+**Response column normalization:** The response column shows sheet-appropriate content, not always the raw agent response. Input Guard shows the guard classification label (safe/prompt_injection/abusive/off_topic). Output Guard shows the guard verdict and failure type (e.g., 'pass/none', 'block/unsupported_claim'). All other sheets show the agent's customer-facing response text.
 
 ### Regressions sheet (in detailed results file)
 
@@ -662,7 +678,7 @@ When the runner calls the test endpoint, it passes the `test_id` (e.g. `OG-017`)
 
 The eval runner needs to simulate the API layer's context injection without requiring a real database. For each test case, the runner injects mock data that would normally come from the DB:
 
-- **`mock_account_state`** — Replaces what `get_customer_context` and order queries would return. Injected into the agent state as `customer_context`.
+- **`mock_account_state`** — Feeds the mock tool layer. When present, action service tools return responses based on this mock data instead of querying the database. The agent accesses order data through tool calls — same path as production. Customer name is injected into `customer_context` if provided.
 - **`tools_called`** (output guard only) — Represents what tools actually returned during the turn. Injected into the guard's evaluation context.
 - **`reference_articles`** (KB retrieval only) — JSON array of KB article titles. The runner fetches actual article content from the DB by title (deterministic lookup, not similarity search) and passes it to the judge as `reference_content` for grading. This is judge-side context only — it does not affect what the agent retrieves.
 - **`simulated_failure`** (graceful failure only) — Overrides tool responses with error states (500, timeout, 404).
@@ -694,9 +710,9 @@ Build in this order. Each phase should be working and testable before moving to 
 ### Phase 3: Full agent system
 11. Conversation agent: replace hardcoded supervisor with a single customer-facing agent that classifies intent, decides which services to call, and generates all customer responses
 12. Knowledge service: refactor existing knowledge agent into a non-customer-facing service that returns raw KB chunks to the conversation agent
-13. Action service with tool registry (track_order, cancel_order, process_refund) — returns action results to conversation agent, does not generate customer-facing text
+13. Action service with tool registry (track_order, cancel_order, check_cancel_eligibility, check_return_eligibility, initiate_return, get_refund_status) — returns action results to conversation agent, does not generate customer-facing text
 14. Escalation logic: conversation agent decides when to escalate, escalation handler logs reason and context
-15. Customer context loading (risk score, purchase history)
+15. Customer context loading (customer name injected into agent state)
 16. Input/output guardrails
 
 ### Phase 4: Frontend
@@ -732,7 +748,7 @@ Build in this order. Each phase should be working and testable before moving to 
 - **Prompts live in the agent files as constants.** No separate prompt files for now, but keep them at the top of each file, clearly labeled, easy to extract later.
 - **Use async throughout.** FastAPI routes, DB queries, LLM calls — all async.
 - **Environment variables for all config.** LLM model, API keys, DB connection string, confidence thresholds. Nothing hardcoded.
-- **Customer context is injected by the API layer, never queried by the agent.** The `chat.py` router resolves the authenticated customer from the session, loads their context (profile, order history, risk score), and injects it into the agent state BEFORE the graph runs. The conversation agent and all services receive `customer_context` as read-only state — they must NEVER have tools that accept an arbitrary `customer_id` parameter. This prevents prompt injection attacks from tricking the agent into querying other customers' data. `get_customer_context` and `get_risk_score` are called by the API layer only, not registered as agent-callable tools.
+- **Customer context is injected by the API layer, never queried by the agent.** The `chat.py` router resolves the authenticated customer from the session, loads their name, and injects it into the agent state BEFORE the graph runs. The conversation agent receives the customer name as read-only context. Order data is accessed exclusively through agent-callable tools. Tools must NEVER accept an arbitrary `customer_id` parameter — customer_id is injected from state by the action service, not supplied by the LLM. This prevents prompt injection attacks from tricking the agent into querying other customers' data.
 - **Eval runner is fully decoupled from agent internals.** The runner calls the agent via HTTP API only — no importing agent modules, no direct function calls. If the agent's internal structure changes, the runner should not need to change.
 - **Eval judge calls go through LiteLLM.** Same rule as the rest of the project. Judge model strings are configured as environment variables in `evals/config.py`.
 - **Test mode endpoint is gated by `APP_ENV=test`.** The `POST /api/chat/test` endpoint must not be accessible in production. It accepts mock context that bypasses DB lookups — exposing it in production would allow arbitrary context injection.

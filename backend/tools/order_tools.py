@@ -7,7 +7,7 @@ parameter validation, and audit trail.
 """
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.models import Order, OrderItem, Product, Refund
@@ -54,13 +54,13 @@ def _check_cancel_eligibility_sync(order) -> dict:
         return {
             "eligible": False, "reason": "shipped",
             "details": "This order has shipped and cannot be cancelled. You can return it for a refund once it arrives.",
-            "available_action": "check_refund_eligibility",
+            "available_action": "check_return_eligibility",
         }
     if order.status == "delivered":
         return {
             "eligible": False, "reason": "delivered",
             "details": "Delivered orders cannot be cancelled. Please request a return/refund instead.",
-            "available_action": "check_refund_eligibility",
+            "available_action": "initiate_return",
         }
     # placed — eligible
     return {
@@ -69,113 +69,6 @@ def _check_cancel_eligibility_sync(order) -> dict:
         "available_action": None,
     }
 
-
-def _check_refund_eligibility_sync(order, products, reason=None, now=None) -> dict:
-    """
-    Pure function — no DB calls. Returns eligibility result for a located order.
-    If reason is provided, factors it in (defective → requires_escalation).
-    Shape: {"eligible": bool, "reason": str|None, "details": str, "available_action": str|None}
-    """
-    if now is None:
-        now = datetime.now(timezone.utc)
-
-    # Defective/damaged claims require human review — flag for escalation regardless of order state.
-    if reason and reason.lower() in ("defective", "broken", "damaged"):
-        return {
-            "eligible": False, "reason": "requires_escalation",
-            "details": (
-                "Defective and damaged item claims require review by our support team. "
-                "Please escalate so a team member can assess the issue."
-            ),
-            "available_action": None,
-        }
-
-    if order.status == "refunded":
-        return {
-            "eligible": False, "reason": "already_refunded",
-            "details": "This order has already been fully refunded.",
-            "available_action": None,
-        }
-
-    # Return in progress — item is on its way back; refund will be issued after warehouse receives it.
-    # Refund timeline lives in the KB (returns_and_refunds.md), not here.
-    if order.status == "return_in_progress":
-        return {
-            "eligible": False, "reason": "return_in_progress",
-            "details": (
-                "A return for this order is already in progress. "
-                "Your refund will be processed after we receive the item at our warehouse."
-            ),
-            "available_action": None,
-        }
-
-    if order.status == "delivered":
-        return {
-            "eligible": False, "reason": "return_required",
-            "details": (
-                "Item must be returned before a refund can be processed. "
-                "Please ship the item back using a prepaid return label, "
-                "and a refund will be issued once we receive it."
-            ),
-            "available_action": "initiate_return",
-        }
-
-    if order.status not in ("returned", "cancelled", "return_in_progress"):
-        return {
-            "eligible": False, "reason": "wrong_status",
-            "details": f"Orders with status '{order.status}' are not eligible for a refund yet.",
-            "available_action": None,
-        }
-
-    if products:
-        if any(p.final_sale for p in products):
-            return {
-                "eligible": False, "reason": "final_sale",
-                "details": (
-                    "One or more items in this order are marked as Final Sale and are not "
-                    "eligible for returns or refunds."
-                ),
-                "available_action": None,
-            }
-
-        for p in products:
-            if p.category in _NON_RETURNABLE_CATEGORIES:
-                return {
-                    "eligible": False, "reason": "non_returnable_category",
-                    "details": (
-                        f"This order contains a non-returnable item ({p.name}). "
-                        "Gift cards, digital products, personalized items, perishable goods, "
-                        "and hazardous materials cannot be returned."
-                    ),
-                    "available_action": None,
-                }
-
-        # Return window — only applies to returned orders (cancelled orders were never delivered).
-        if order.status == "returned":
-            delivered_date = order.delivered_at or order.updated_at
-            if delivered_date:
-                if delivered_date.tzinfo is None:
-                    delivered_date = delivered_date.replace(tzinfo=timezone.utc)
-                days_since = (now - delivered_date).days
-                min_window = min(p.return_window_days for p in products)
-                if days_since > min_window:
-                    return {
-                        "eligible": False, "reason": "outside_return_window",
-                        "details": (
-                            f"The return window for this order has passed "
-                            f"({min_window} days for this item type). "
-                            "If your item is defective, please contact us — "
-                            "defective items are handled separately."
-                        ),
-                        "available_action": None,
-                    }
-
-    return {
-        "eligible": True, "reason": None,
-        "details": "This order is eligible for a refund.",
-        "available_action": None,
-        "check_kb": True,
-    }
 
 
 def _check_return_eligibility_sync(order, products, reason=None, now=None) -> dict:
@@ -395,60 +288,6 @@ async def check_cancel_eligibility(
     return {"success": True, "eligible_orders": eligible_orders}
 
 
-async def check_refund_eligibility(
-    db: AsyncSession,
-    customer_id: str,
-    order_id: str = None,
-    reason: str = None,
-    actions_taken: list = None,
-) -> dict:
-    """
-    Read-only: check whether an order (or all customer orders) is eligible for a refund.
-    Never modifies state. Pass reason if known — defective claims return requires_escalation
-    instead of eligible, so the agent can escalate before raising customer expectations.
-    """
-    if order_id:
-        result = await db.execute(select(Order).where(Order.id == order_id))
-        order = result.scalar_one_or_none()
-        if not order:
-            return {"success": False, "error": f"Order {order_id} not found."}
-        if str(order.customer_id) != customer_id:
-            return {"success": False, "error": "That order does not belong to your account."}
-        items_result = await db.execute(
-            select(Product)
-            .join(OrderItem, OrderItem.product_id == Product.id)
-            .where(OrderItem.order_id == order.id)
-        )
-        products = items_result.scalars().all()
-        check = _check_refund_eligibility_sync(order, products, reason=reason)
-        return {"success": True, "order_id": str(order.id), **check}
-
-    # No order_id — return all refund-eligible orders for this customer
-    result = await db.execute(
-        select(Order)
-        .where(Order.customer_id == customer_id)
-        .order_by(Order.created_at.desc())
-    )
-    orders = result.scalars().all()
-    if not orders:
-        return {"success": False, "error": "No orders found for this account."}
-
-    eligible_orders = []
-    for order in orders:
-        items_result = await db.execute(
-            select(Product)
-            .join(OrderItem, OrderItem.product_id == Product.id)
-            .where(OrderItem.order_id == order.id)
-        )
-        products = items_result.scalars().all()
-        check = _check_refund_eligibility_sync(order, products, reason=reason)
-        if check["eligible"]:
-            eligible_orders.append({
-                "order_id": str(order.id),
-                "status": order.status,
-                **check,
-            })
-    return {"success": True, "eligible_orders": eligible_orders}
 
 
 async def check_return_eligibility(
@@ -580,15 +419,47 @@ async def initiate_return(
             },
         }
 
-    # 5. Execute — flip status and generate mocked prepaid return label
+    # 5. Execute — flip status and create refund record.
+    # Orders over €50 enter pending_review (human authorises before label is issued).
     order.status = "return_in_progress"
-    label_id = f"RETURN-{str(uuid.uuid4())[:8].upper()}"
-    await db.commit()
+    resolved_reason = _REASON_MAP.get(reason, "other")
 
+    if float(order.total_amount) > 50:
+        refund = Refund(
+            id=str(uuid.uuid4()),
+            order_id=resolved_order_id,
+            customer_id=customer_id,
+            amount=float(order.total_amount),
+            reason=resolved_reason,
+            status="pending_review",
+            initiated_by="agent",
+        )
+        db.add(refund)
+        await db.commit()
+        return {
+            "success": True,
+            "order_id": resolved_order_id,
+            "refund_id": str(refund.id),
+            "pending_review": True,
+        }
+
+    label_id = f"RETURN-{str(uuid.uuid4())[:8].upper()}"
+    refund = Refund(
+        id=str(uuid.uuid4()),
+        order_id=resolved_order_id,
+        customer_id=customer_id,
+        amount=float(order.total_amount),
+        reason=resolved_reason,
+        status="approved",
+        initiated_by="agent",
+    )
+    db.add(refund)
+    await db.commit()
     return {
         "success": True,
         "order_id": resolved_order_id,
         "return_label": label_id,
+        "refund_id": str(refund.id),
         "message": (
             f"Return initiated. A prepaid return label ({label_id}) has been emailed to you. "
             "Once we receive your item, your refund will be processed."
@@ -673,47 +544,40 @@ async def cancel_order(
             },
         }
 
-    # 5. Execute
+    # 5. Execute — cancel order and issue refund immediately.
     order.status = "cancelled"
+    refund_amount = float(order.total_amount)
+    refund = Refund(
+        id=str(uuid.uuid4()),
+        order_id=resolved_order_id,
+        customer_id=customer_id,
+        amount=refund_amount,
+        reason=_REASON_MAP.get(reason, "other"),
+        status="approved",
+        initiated_by="agent",
+    )
+    db.add(refund)
     await db.commit()
 
     return {
         "success": True,
         "order_id": resolved_order_id,
+        "refund_id": str(refund.id),
+        "refund_amount": refund_amount,
         "message": (
-            f"Order cancelled successfully. A refund of ${float(order.total_amount):.2f} "
-            "will be processed to your original payment method within 3–5 business days."
+            f"Order cancelled successfully. A refund of ${refund_amount:.2f} "
+            "has been issued to your original payment method."
         ),
-        "refund_amount": float(order.total_amount),
     }
 
 
-async def process_refund(
+async def get_refund_status(
     db: AsyncSession,
     customer_id: str,
     order_id: str = None,
-    amount: float = None,
-    reason: str = None,
-    risk_score: float = 0.0,  # injected by action_service from customer_context — NOT LLM-provided
     actions_taken: list = None,
 ) -> dict:
-    """Initiate a refund. Sequence: reason → eligibility → balance → confirmation gate → execute."""
-    # 1. Reason required
-    if not reason:
-        return {
-            "success": False,
-            "reason": "reason_required",
-            "details": f"Please provide a reason for the refund. Valid values: {', '.join(REASON_VALUES)}.",
-        }
-
-    if reason not in _REASON_MAP:
-        return {
-            "success": False,
-            "error": "invalid_reason",
-            "message": f"Reason must be one of: {REASON_VALUES}. Received: {reason}",
-        }
-
-    # 2. Locate order
+    """Read-only: look up refund records for this customer (optionally filtered by order)."""
     if order_id:
         result = await db.execute(select(Order).where(Order.id == order_id))
         order = result.scalar_one_or_none()
@@ -721,121 +585,35 @@ async def process_refund(
             return {"success": False, "error": f"Order {order_id} not found."}
         if str(order.customer_id) != customer_id:
             return {"success": False, "error": "That order does not belong to your account."}
-    else:
-        result = await db.execute(
-            select(Order)
-            .where(Order.customer_id == customer_id)
-            .order_by(Order.created_at.desc())
-            .limit(1)
-        )
-        order = result.scalar_one_or_none()
-        if not order:
-            return {"success": False, "error": "No orders found for this account."}
 
-    resolved_order_id = str(order.id)
-
-    # 3. Load products and run eligibility check (reason-aware)
-    items_result = await db.execute(
-        select(Product)
-        .join(OrderItem, OrderItem.product_id == Product.id)
-        .where(OrderItem.order_id == order.id)
+    query = (
+        select(Refund)
+        .where(Refund.customer_id == customer_id)
+        .order_by(Refund.created_at.desc())
     )
-    products = items_result.scalars().all()
+    if order_id:
+        query = query.where(Refund.order_id == order_id)
 
-    eligibility = _check_refund_eligibility_sync(order, products, reason=reason)
-    if not eligibility["eligible"]:
-        if eligibility["reason"] == "requires_escalation":
-            return {
-                "success": False,
-                "status": "rejected",
-                "reason": "requires_escalation",
-                "error": eligibility["details"],
-            }
-        return {
-            "success": False,
-            "status": "rejected",
-            "reason": eligibility["reason"],
-            "error": eligibility["details"],
-            "available_action": eligibility["available_action"],
-        }
+    result = await db.execute(query)
+    refunds = result.scalars().all()
 
-    # 4. Compute remaining refundable balance (used by both gate and execution)
-    already_refunded_result = await db.execute(
-        select(func.coalesce(func.sum(Refund.amount), 0))
-        .where(Refund.order_id == order.id)
-        .where(Refund.status.in_(("approved", "pending_review", "processed")))
-    )
-    already_refunded = float(already_refunded_result.scalar())
-    remaining = round(float(order.total_amount) - already_refunded, 2)
+    if not refunds:
+        return {"success": True, "refunds": [], "check_kb": True}
 
-    if remaining <= 0:
-        return {"success": False, "error": "This order has already been fully refunded."}
-
-    refund_amount = (
-        min(float(amount), remaining)
-        if amount and float(amount) > 0
-        else remaining
-    )
-
-    # 5. Confirmation gate — first call returns projected details for customer to confirm
-    if not _has_prior_confirmation(actions_taken, "process_refund", resolved_order_id):
-        processing_time = (
-            "5-10 business days" if (risk_score > 0.7 or refund_amount > 50) else "3-5 business days"
-        )
-        return {
-            "success": False,
-            "confirmation_required": True,
-            "details": {
-                "order_id": resolved_order_id,
-                "refund_amount": refund_amount,
-                "reason": reason,
-                "processing_time": processing_time,
-            },
-        }
-
-    # 6. Execute — map to DB column value via module-level _REASON_MAP
-    db_reason = _REASON_MAP.get(reason, "other")
-
-    if risk_score > 0.7 or refund_amount > 50:
-        refund_status = "pending_review"
-        message = (
-            "Your refund request has been submitted and is under review. "
-            "A member of our team will follow up with you shortly."
-        )
-    else:
-        refund_status = "approved"
-        message = (
-            f"Refund of ${refund_amount:.2f} approved. It will appear on your original "
-            "payment method within 3–5 business days."
-        )
-
-    refund = Refund(
-        id=str(uuid.uuid4()),
-        order_id=resolved_order_id,
-        customer_id=customer_id,
-        amount=refund_amount,
-        reason=db_reason,
-        status=refund_status,
-        initiated_by="agent",
-    )
-    db.add(refund)
-
-    # Mark order fully refunded once the balance is exhausted.
-    # Round both sides to 2 dp to avoid float comparison errors on monetary amounts.
-    if round(already_refunded + refund_amount, 2) >= round(float(order.total_amount), 2):
-        order.status = "refunded"
-
-    await db.commit()
-
-    remaining_after = round(remaining - refund_amount, 2)
     return {
         "success": True,
-        "order_id": resolved_order_id,
-        "refund_id": str(refund.id),
-        "amount": refund_amount,
-        "remaining_balance": remaining_after,
-        "status": refund_status,
-        "message": message,
+        "check_kb": True,
+        "refunds": [
+            {
+                "refund_id": str(r.id),
+                "order_id": str(r.order_id),
+                "amount": float(r.amount),
+                "status": r.status,
+                "reason": r.reason,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in refunds
+        ],
     }
 
 

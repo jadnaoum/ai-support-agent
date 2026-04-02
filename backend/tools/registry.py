@@ -10,11 +10,10 @@ from typing import Callable
 from backend.tools.order_tools import (
     track_order,
     cancel_order,
-    process_refund,
     check_cancel_eligibility,
-    check_refund_eligibility,
     check_return_eligibility,
     initiate_return,
+    get_refund_status,
 )
 from backend.tools.constants import REASON_VALUES
 from prompts.loader import get_prompt
@@ -49,16 +48,6 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
         },
         handler=cancel_order,
     ),
-    "process_refund": ToolDefinition(
-        name="process_refund",
-        description=get_prompt("tool_process_refund_description"),
-        parameters={
-            "order_id": {"type": "str", "required": False, "description": "Order ID to refund. Omit to refund most recent order."},
-            "amount": {"type": "float", "required": False, "description": "Partial refund amount. Omit for full refund."},
-            "reason": {"type": "str", "required": True, "description": f"Refund reason: {_REASON_LIST}."},
-        },
-        handler=process_refund,
-    ),
     "check_cancel_eligibility": ToolDefinition(
         name="check_cancel_eligibility",
         description=get_prompt("tool_check_cancel_eligibility_description"),
@@ -66,15 +55,6 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
             "order_id": {"type": "str", "required": False, "description": "Order ID to check. Omit to check most recent order."},
         },
         handler=check_cancel_eligibility,
-    ),
-    "check_refund_eligibility": ToolDefinition(
-        name="check_refund_eligibility",
-        description=get_prompt("tool_check_refund_eligibility_description"),
-        parameters={
-            "order_id": {"type": "str", "required": False, "description": "Order ID to check. Omit to check most recent order."},
-            "reason": {"type": "str", "required": False, "description": "Refund reason if known — defective claims return requires_escalation instead of eligible."},
-        },
-        handler=check_refund_eligibility,
     ),
     "check_return_eligibility": ToolDefinition(
         name="check_return_eligibility",
@@ -93,5 +73,18 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
             "reason": {"type": "str", "required": True, "description": f"Return reason: {_REASON_LIST}."},
         },
         handler=initiate_return,
+    ),
+    "get_refund_status": ToolDefinition(
+        name="get_refund_status",
+        # TODO: move to prompts/production.yaml as tool_get_refund_status_description
+        description=(
+            "Look up the status of a refund for this customer. Use when a customer asks "
+            "where their refund is, whether it has been processed, or when they will receive "
+            "their money back. Returns refund amount, status, reason, and date created."
+        ),
+        parameters={
+            "order_id": {"type": "str", "required": False, "description": "Order ID to check refund for. Omit to return all refunds for this customer."},
+        },
+        handler=get_refund_status,
     ),
 }

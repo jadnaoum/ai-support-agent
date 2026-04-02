@@ -471,15 +471,6 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 "confidence": top_similarity,
             }
 
-    # Escalate if any process_refund result came back as pending_review.
-    # A human agent must follow up — the conversation agent should not handle this silently.
-    for action_result in state.get("action_results") or []:
-        if action_result.get("status") == "pending_review":
-            return {
-                **await _do_escalate("policy_exception", state, config),
-                "confidence": retrieved[0]["similarity"] if retrieved else state.get("confidence", 1.0),
-            }
-
     # Loop decision: if the last service result signals more may be needed and we're under
     # the call limit, ask the LLM whether to make another call before responding.
     # Clean successes (no error, no rejection reason, no available_action) skip this entirely.
