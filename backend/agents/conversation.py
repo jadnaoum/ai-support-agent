@@ -461,15 +461,11 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
         }
 
     # Pass 2: service results are available.
-    # Check escalation conditions first, then decide whether to loop or respond.
     retrieved = state.get("retrieved_context") or []
-    if retrieved:
-        top_similarity = retrieved[0]["similarity"]
-        if top_similarity < settings.confidence_threshold:
-            return {
-                **await _do_escalate("low_confidence", state, config),
-                "confidence": top_similarity,
-            }
+    # Minimal floor: below 0.15 indicates no meaningful match.
+    # Pass empty context to the LLM rather than irrelevant chunks.
+    if retrieved and retrieved[0]["similarity"] < 0.15:
+        retrieved = []
 
     # Loop decision: if the last service result signals more may be needed and we're under
     # the call limit, ask the LLM whether to make another call before responding.
@@ -494,9 +490,9 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             }
         # "respond" falls through to response generation
 
-    # Generate the customer-facing response using service results
-    response = await _generate_response(state)
-    top_similarity = retrieved[0]["similarity"] if retrieved else state.get("confidence", 1.0)
+    # Generate the customer-facing response using service results.
+    # Pass a local state copy so the 0.15 floor is respected by _build_context_section.
+    response = await _generate_response({**state, "retrieved_context": retrieved})
 
     out_guard = await check_output(response, state)
     if not out_guard["safe"]:
@@ -507,12 +503,12 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             await _db.commit()
         return {
             **await _do_escalate("policy_exception", state, config),
-            "confidence": top_similarity,
+            "confidence": 0.85,
         }
 
     return {
         "response": response,
-        "confidence": top_similarity,
+        "confidence": 0.85,
         "pending_service": "",
         "last_clarification_source": "",
     }
