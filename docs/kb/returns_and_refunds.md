@@ -51,12 +51,12 @@ You will receive an email confirmation when your refund has been issued.
 
 ## Defective or Damaged Items
 
-If you received a defective or damaged item, contact us immediately — you do not need to wait for the standard return window. We will either:
+If your item arrived damaged or developed a defect within the return window, contact us immediately — you do not need to wait for the standard return window to close. We will either:
 
 - Send a **replacement** at no cost (typically ships within 1–2 business days), or
 - Issue a **full refund** including original shipping charges
 
-Please include a photo of the damage when contacting support to expedite your claim.
+Photos of the damage are recommended to help expedite your claim but are not required to start the process. If your item developed a defect after the return window has closed but is still within the warranty period, see our warranty claim process instead — photos are required for visual defect warranty claims.
 
 ## Partial Refunds
 

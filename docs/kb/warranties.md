@@ -63,6 +63,8 @@ The warranty does **not** cover damage caused by:
 
 ## How to File a Warranty Claim
 
+Warranty claims apply when a defect appears after the return window has closed but the item is still within its warranty period. If your item is still within the return window, contact support about a defective item return instead — photo requirements and resolution options differ.
+
 To file a warranty claim:
 
 1. **Contact support** via chat or email with the following information:
