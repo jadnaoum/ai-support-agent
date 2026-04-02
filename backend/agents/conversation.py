@@ -467,6 +467,17 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
     if retrieved and retrieved[0]["similarity"] < 0.15:
         retrieved = []
 
+    # Unhandled action errors (DB failures, timeouts, unexpected exceptions) — escalate
+    # immediately rather than letting the LLM improvise from incomplete data.
+    # Structured rejections (ineligible, confirmation_required, requires_escalation) do
+    # not set unhandled_error and are handled normally by the response generator.
+    action_results = state.get("action_results") or []
+    if action_results and action_results[-1].get("unhandled_error"):
+        return {
+            **await _do_escalate("repeated_failure", state, config),
+            "confidence": 0.85,
+        }
+
     # Loop decision: if the last service result signals more may be needed and we're under
     # the call limit, ask the LLM whether to make another call before responding.
     # Clean successes (no error, no rejection reason, no available_action) skip this entirely.

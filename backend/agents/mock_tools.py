@@ -101,7 +101,7 @@ def _return_eligibility(o: dict, reason: str, now: datetime) -> dict:
     if reason and reason.lower() in ("defective", "broken", "damaged"):
         return {"eligible": False, "reason": "requires_escalation",
                 "details": "Defective and damaged item claims require review by our support team.",
-                "available_action": None}
+                "available_action": None, "check_kb": True}
     status = o.get("status", "placed")
     if status == "return_in_progress":
         return {"eligible": False, "reason": "already_in_progress",

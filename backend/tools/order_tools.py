@@ -94,6 +94,7 @@ def _check_return_eligibility_sync(order, products, reason=None, now=None) -> di
                 "appropriate resolution (replacement or refund)."
             ),
             "available_action": None,
+            "check_kb": True,
         }
 
     if order.status == "return_in_progress":

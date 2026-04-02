@@ -39,17 +39,21 @@ async def action_service_node(state: AgentState, config: dict) -> dict:
                 combined_actions,
             )
         else:
-            tool = TOOL_REGISTRY[tool_name]
-            # Always inject db and customer_id; tools ignore extra kwargs via their signatures
-            try:
-                result = await tool.handler(
-                    db=db,
-                    customer_id=state.get("customer_id", ""),
-                    actions_taken=combined_actions,
-                    **params,
-                )
-            except Exception as e:
-                result = {"success": False, "error": f"Action failed: {str(e)}"}
+            customer_id = state.get("customer_id", "")
+            if not customer_id:
+                result = {"success": False, "error": "No customer account context is available."}
+            else:
+                tool = TOOL_REGISTRY[tool_name]
+                # Always inject db and customer_id; tools ignore extra kwargs via their signatures
+                try:
+                    result = await tool.handler(
+                        db=db,
+                        customer_id=customer_id,
+                        actions_taken=combined_actions,
+                        **params,
+                    )
+                except Exception as e:
+                    result = {"success": False, "error": f"Action failed: {str(e)}", "unhandled_error": True}
 
     # Resolve the order_id that was actually used (may differ from params when LLM omitted it).
     # Note: some tools return "details" as a plain string (e.g. reason_required gate) — guard against that.
