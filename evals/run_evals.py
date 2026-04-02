@@ -472,13 +472,15 @@ def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float,
     """
     Append columns to a test sheet for this run.
 
-    Standard 4 columns:
+    Standard 6 columns:
       Row 1: merged group label (version tag)
-      Row 2: "{tag} ($X.XXX)", "{tag} response", "{tag} reasoning", "{tag} failure_reason"
-      Row 3+: PASS/FAIL (color-coded), response text, judge reasoning, failure_reason
+      Row 2: "{tag} ($X.XXX)", "{tag} response", "{tag} reasoning", "{tag} failure_reason",
+             "{tag} latency_s", "{tag} cost_usd"
+      Row 3+: PASS/FAIL (color-coded), response text, judge reasoning, failure_reason,
+              latency in seconds, per-case cost in USD
 
     extra_cols: optional list of (header_suffix, agent_resp_key) tuples appended after
-      the standard 4. E.g. [("escalation_summary", "context_summary")] adds a 5th column
+      the standard 6. E.g. [("escalation_summary", "context_summary")] adds a 7th column
       whose values come from agent_response["context_summary"].
 
     Sheet layout: row 1 = group labels, row 2 = headers, row 3+ = data.
@@ -487,7 +489,7 @@ def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float,
     from openpyxl.utils import get_column_letter
 
     extra_cols = extra_cols or []
-    n_cols = 4 + len(extra_cols)
+    n_cols = 6 + len(extra_cols)
 
     col = _true_last_col(ws) + 1
     fill_map  = {"pass": FILL_PASS, "fail": FILL_FAIL}
@@ -506,6 +508,8 @@ def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float,
         f"{tag} response",
         f"{tag} reasoning",
         f"{tag} failure_reason",
+        f"{tag} latency_s",
+        f"{tag} cost_usd",
     ] + [f"{tag} {suffix}" for suffix, _ in extra_cols]
     for offset, title in enumerate(headers):
         cell = ws.cell(2, col + offset, title)
@@ -537,8 +541,11 @@ def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float,
         failure_reason = result.get("failure_reason") if verdict == "fail" else None
         ws.cell(row, col + 3, failure_reason or "")
 
+        ws.cell(row, col + 4, round(case.get("latency_s", 0.0), 2))
+        ws.cell(row, col + 5, round(case.get("cost_usd", 0.0), 5))
+
         for j, (_, key) in enumerate(extra_cols):
-            ws.cell(row, col + 4 + j, str(agent_resp.get(key) or ""))
+            ws.cell(row, col + 6 + j, str(agent_resp.get(key) or ""))
 
 
 # ---------------------------------------------------------------------------
@@ -1166,6 +1173,7 @@ async def _run_judge_only(wb, tag: str, desc: str, target_sheets: list,
                 "result":         judgment,
                 "agent_response": agent_resp,
                 "latency_s":      latency,
+                "cost_usd":       judgment.get("cost_usd", 0.0),
             })
 
             if delay > 0:
@@ -1430,6 +1438,7 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
                 "result": judgment,
                 "agent_response": agent_resp,
                 "latency_s": latency,
+                "cost_usd": case_cost,
             })
 
             # Accumulate full agent state for sidecar (only for non-error responses)
