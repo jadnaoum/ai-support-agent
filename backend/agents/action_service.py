@@ -25,13 +25,18 @@ async def action_service_node(state: AgentState, config: dict) -> dict:
     if not tool_name or tool_name not in TOOL_REGISTRY:
         result = {"success": False, "error": f"Unknown action: '{tool_name}'."}
     else:
+        # Combine prior-turn and current-turn actions for the confirmation gate.
+        # prior_turn_actions holds confirmation_required entries from previous turns.
+        # actions_taken holds entries added within the current graph traversal.
+        combined_actions = (state.get("prior_turn_actions") or []) + (state.get("actions_taken") or [])
+
         mock = (config.get("configurable") or {}).get("mock_account_state")
         if mock:
             from backend.agents.mock_tools import mock_tool_call  # noqa: PLC0415
             result = mock_tool_call(
                 tool_name, params, mock,
                 state.get("customer_id", ""),
-                state.get("actions_taken") or [],
+                combined_actions,
             )
         else:
             tool = TOOL_REGISTRY[tool_name]
@@ -40,7 +45,7 @@ async def action_service_node(state: AgentState, config: dict) -> dict:
                 result = await tool.handler(
                     db=db,
                     customer_id=state.get("customer_id", ""),
-                    actions_taken=state.get("actions_taken") or [],
+                    actions_taken=combined_actions,
                     **params,
                 )
             except Exception as e:

@@ -2,7 +2,7 @@ import uuid
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 
@@ -135,6 +135,9 @@ async def stream_response(
         customer_context = {}
 
     # 5. Build initial agent state
+    # 5a. Load persisted turn state before building initial_state
+    prior_turn_state = conversation.turn_state or {}
+
     initial_state: AgentState = {
         "messages": messages_for_state,
         "customer_id": str(conversation.customer_id),
@@ -144,22 +147,17 @@ async def stream_response(
         "confidence": 0.0,
         "requires_escalation": False,
         "escalation_reason": "",
-        "actions_taken": [],
+        "actions_taken": [],        # always empty at turn start — service_ran gate depends on this
+        "prior_turn_actions": prior_turn_state.get("actions_taken", []),  # cross-turn confirmation gate
         "response": "",
         "pending_service": "",
         "pending_action": {},
         "inferred_intent": "",
-        "last_clarification_source": "",
+        "last_clarification_source": prior_turn_state.get("last_clarification_source", ""),
         "context_summary": "",
-        "consecutive_blocks": 0,
+        "consecutive_blocks": prior_turn_state.get("consecutive_blocks", 0),
+        "service_call_count": 0,
     }
-
-    # 5a. Merge persisted turn state from prior turns (confirmation gate,
-    #     block counter, clarification cap).
-    prior_turn_state = conversation.turn_state or {}
-    for key in ("actions_taken", "consecutive_blocks", "last_clarification_source"):
-        if key in prior_turn_state:
-            initial_state[key] = prior_turn_state[key]
 
     # Lazy import — avoids LangGraph compile() running at module load time,
     # which conflicts with pytest-asyncio's event loop.
@@ -215,14 +213,21 @@ async def stream_response(
 
             # Persist turn state for next turn (or clear it on escalation).
             # Done in the same commit as the message — if either fails, both roll back.
+            # Uses a direct UPDATE rather than mutating the ORM object to avoid
+            # SQLAlchemy change-tracking issues inside the generator closure.
             if final_output.get("requires_escalation"):
-                conversation.turn_state = None
+                new_turn_state = None
             else:
-                conversation.turn_state = {
+                new_turn_state = {
                     "actions_taken": final_output.get("actions_taken", []),
                     "consecutive_blocks": final_output.get("consecutive_blocks", 0),
                     "last_clarification_source": final_output.get("last_clarification_source", ""),
                 }
+            await db.execute(
+                sa_update(Conversation)
+                .where(Conversation.id == conversation_id)
+                .values(turn_state=new_turn_state)
+            )
             await db.commit()
 
             yield ServerSentEvent(data="", event="done")
@@ -344,6 +349,7 @@ async def test_chat(
             "requires_escalation": False,
             "escalation_reason": "",
             "actions_taken": synthetic_actions_taken,
+            "prior_turn_actions": [],
             "response": "",
             "pending_service": "",
             "pending_action": {},
@@ -384,6 +390,7 @@ async def test_chat(
         "requires_escalation": False,
         "escalation_reason": "",
         "actions_taken": [],
+        "prior_turn_actions": [],
         "response": "",
         "pending_service": "",
         "pending_action": {},
@@ -391,18 +398,23 @@ async def test_chat(
         "last_clarification_source": "",
         "context_summary": "",
         "consecutive_blocks": 0,
+        "service_call_count": 0,
     }
 
     # Pre-load agent state from prior turns. Only allowed keys are merged to
     # prevent accidental override of routing fields (pending_service etc.).
+    # mock_agent_state["actions_taken"] maps to prior_turn_actions so that the
+    # service_ran gate (which checks actions_taken) is not triggered by historical entries.
     _ALLOWED_MOCK_STATE_KEYS = {
-        "actions_taken", "action_results", "service_call_count",
+        "action_results", "service_call_count",
         "retrieved_context", "consecutive_blocks", "last_clarification_source",
         "customer_context",
     }
     if body.mock_agent_state:
         for key, value in body.mock_agent_state.items():
-            if key in _ALLOWED_MOCK_STATE_KEYS:
+            if key == "actions_taken":
+                initial_state["prior_turn_actions"] = value
+            elif key in _ALLOWED_MOCK_STATE_KEYS:
                 initial_state[key] = value
 
     from backend.agents.graph import graph  # noqa: PLC0415
