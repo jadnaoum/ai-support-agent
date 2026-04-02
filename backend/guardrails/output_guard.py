@@ -86,10 +86,12 @@ def _build_guard_context(response: str, state: AgentState) -> str:
                 ids.add(match.group())
     known_ids = ", ".join(sorted(ids)) if ids else "(none)"
 
-    # KB content retrieved this turn (cap at ~2000 chars to keep prompt size bounded)
+    # KB content retrieved this turn. No character cap — chunks are bounded to top-5
+    # by the knowledge service, and the guard must see all retrieved content to
+    # correctly verify claims without false-positive unsupported_claim failures.
     chunks = state.get("retrieved_context") or []
     kb_parts = [c.get("chunk_text", "") for c in chunks]
-    kb_content = ("\n\n---\n\n".join(kb_parts))[:2000] or "(none)"
+    kb_content = "\n\n---\n\n".join(kb_parts) or "(none)"
 
     return OUTPUT_GUARD_PROMPT.format(
         response=response,

@@ -494,7 +494,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
     # Pass a local state copy so the 0.15 floor is respected by _build_context_section.
     response = await _generate_response({**state, "retrieved_context": retrieved})
 
-    out_guard = await check_output(response, state)
+    out_guard = await check_output(response, {**state, "retrieved_context": retrieved})
     if not out_guard["safe"]:
         _db = config.get("configurable", {}).get("db")
         _conv_id = config.get("configurable", {}).get("conversation_id", "")
