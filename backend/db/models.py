@@ -112,6 +112,7 @@ class Conversation(Base):
     started_at = Column(DateTime(timezone=True), server_default=func.now())
     ended_at = Column(DateTime(timezone=True), nullable=True)
     summary = Column(Text, nullable=True)
+    turn_state = Column(JSONB, nullable=True)
     messages_purged = Column(Boolean, default=False)
     csat_score = Column(Integer, nullable=True)  # 1-5
     csat_comment = Column(Text, nullable=True)

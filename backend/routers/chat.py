@@ -154,6 +154,13 @@ async def stream_response(
         "consecutive_blocks": 0,
     }
 
+    # 5a. Merge persisted turn state from prior turns (confirmation gate,
+    #     block counter, clarification cap).
+    prior_turn_state = conversation.turn_state or {}
+    for key in ("actions_taken", "consecutive_blocks", "last_clarification_source"):
+        if key in prior_turn_state:
+            initial_state[key] = prior_turn_state[key]
+
     # Lazy import — avoids LangGraph compile() running at module load time,
     # which conflicts with pytest-asyncio's event loop.
     from backend.agents.graph import graph  # noqa: PLC0415
@@ -205,6 +212,17 @@ async def stream_response(
                 routing_decision=", ".join(services_called) if services_called else "direct_response",
                 confidence=final_output.get("confidence", 0.0),
             ))
+
+            # Persist turn state for next turn (or clear it on escalation).
+            # Done in the same commit as the message — if either fails, both roll back.
+            if final_output.get("requires_escalation"):
+                conversation.turn_state = None
+            else:
+                conversation.turn_state = {
+                    "actions_taken": final_output.get("actions_taken", []),
+                    "consecutive_blocks": final_output.get("consecutive_blocks", 0),
+                    "last_clarification_source": final_output.get("last_clarification_source", ""),
+                }
             await db.commit()
 
             yield ServerSentEvent(data="", event="done")

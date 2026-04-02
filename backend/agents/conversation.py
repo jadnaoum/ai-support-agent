@@ -53,18 +53,18 @@ async def _classify_intent(state: AgentState) -> tuple[str, float, dict]:
     Returns (intent, confidence, action_details).
     action_details is {"tool": ..., "params": {...}} for action_request, {} otherwise.
     """
-    last_message = ""
-    for msg in reversed(state["messages"]):
-        if msg["role"] == "customer":
-            last_message = msg["content"]
-            break
-
     try:
+        role_map = {"customer": "user", "agent": "assistant"}
+        history_turns = [
+            {"role": role_map[m["role"]], "content": m["content"]}
+            for m in state["messages"][-10:]
+            if m["role"] in role_map
+        ]
         result = await litellm.acompletion(
             model=settings.litellm_model,
             messages=[
                 {"role": "system", "content": INTENT_PROMPT},
-                {"role": "user", "content": last_message},
+                *history_turns,
             ],
             stream=False,
         )
