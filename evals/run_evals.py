@@ -549,6 +549,45 @@ def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float,
 
 
 # ---------------------------------------------------------------------------
+# Targeted case overwrite helpers (--cases mode)
+# ---------------------------------------------------------------------------
+
+def _find_tag_col(ws, tag: str) -> "int | None":
+    """Return the verdict column index for an existing tag on a test sheet, or None."""
+    for c in range(1, ws.max_column + 1):
+        h = ws.cell(2, c).value
+        if h and str(h).startswith(f"{tag} ($"):
+            return c
+    return None
+
+
+def _overwrite_case_cells(ws, verdict_col: int, row: int, case: dict, extra_cols: list = None):
+    """Overwrite result cells for a single case in an existing run column."""
+    extra_cols = extra_cols or []
+    fill_map  = {"pass": FILL_PASS, "fail": FILL_FAIL}
+    label_map = {"pass": "PASS", "fail": "FAIL"}
+
+    result     = case.get("result", {})
+    agent_resp = case.get("agent_response", {})
+    verdict    = result.get("verdict", "fail")
+
+    verdict_cell = ws.cell(row, verdict_col, label_map.get(verdict, "FAIL"))
+    verdict_cell.fill = fill_map.get(verdict, FILL_FAIL)
+
+    ws.cell(row, verdict_col + 1, str(agent_resp.get("response", "") or "")[:500])
+    ws.cell(row, verdict_col + 2, result.get("reasoning", ""))
+
+    failure_reason = result.get("failure_reason") if verdict == "fail" else None
+    ws.cell(row, verdict_col + 3, failure_reason or "")
+
+    ws.cell(row, verdict_col + 4, round(case.get("latency_s", 0.0), 2))
+    ws.cell(row, verdict_col + 5, round(case.get("cost_usd", 0.0), 5))
+
+    for j, (_, key) in enumerate(extra_cols):
+        ws.cell(row, verdict_col + 6 + j, str(agent_resp.get(key) or ""))
+
+
+# ---------------------------------------------------------------------------
 # Analysis sheet
 # ---------------------------------------------------------------------------
 
@@ -578,18 +617,11 @@ def _build_analysis_sheet(wb):
     #   +0 verdict  +1 response  +2 reasoning  +3 failure_reason
     #   +4 latency_s  +5 cost_usd
     sheet_cols: dict = {}      # {sheet_name: {tag: (verdict_ltr, fr_ltr, lat_ltr, cost_ltr)}}
-    sheet_skip_col: dict = {}  # {sheet_name: skip_col_letter | None}
     for sheet_name in SHEET_NAMES:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
         sheet_cols[sheet_name] = {}
-        sheet_skip_col[sheet_name] = None
-        for c in range(1, ws.max_column + 1):
-            v = ws.cell(2, c).value
-            if v == "skip":
-                sheet_skip_col[sheet_name] = get_column_letter(c)
-                break
         for tag in all_tags_ordered:
             for c in range(1, ws.max_column + 1):
                 v = ws.cell(2, c).value
@@ -649,15 +681,6 @@ def _build_analysis_sheet(wb):
             return None
         verdict_col = tag_map[tag][0]
         sn          = sheet_name.replace("'", "''")
-        skip_col    = sheet_skip_col.get(sheet_name)
-        if skip_col:
-            return (
-                f"=IFERROR("
-                f"COUNTIF('{sn}'!{verdict_col}3:{verdict_col}{ROW_LIMIT},\"PASS\")"
-                f"/(COUNTA('{sn}'!A3:A{ROW_LIMIT})"
-                f"-COUNTIF('{sn}'!{skip_col}3:{skip_col}{ROW_LIMIT},\"TRUE\"))"
-                f",0)"
-            )
         return (
             f"=IFERROR("
             f"COUNTIF('{sn}'!{verdict_col}3:{verdict_col}{ROW_LIMIT},\"PASS\")"
@@ -981,8 +1004,8 @@ def _static_col_width(header: str) -> tuple:
     h = str(header).lower().strip()
     # Exact matches
     exact = {
-        "test_id": (10, False), "difficulty": (10, False), "skip": (10, False),
-        "notes": (20, True),
+        "test_id": (10, False), "difficulty": (10, False),
+        "notes": (20, True), "mock_agent_state": (30, True), "mock_account_state": (30, True),
     }
     if h in exact:
         return exact[h]
@@ -1209,17 +1232,30 @@ def _classify_run_tags(wb) -> tuple:
     return all_tags_ordered, baseline_tags, targeted_runs
 
 
+def _remove_skip_column(ws):
+    """Delete the 'skip' column from a test sheet if present."""
+    for c in range(1, ws.max_column + 1):
+        if str(ws.cell(2, c).value or "").strip().lower() == "skip":
+            ws.delete_cols(c)
+            return
+
+
 def _reformat_workbook(wb):
     """
     Apply all visual formatting to the workbook without running evals.
     Used by --reformat mode and after runs to ensure consistent styling.
-    Adds notes columns, applies static col widths, hides old run columns,
-    rebuilds Analysis, and sets zoom to 100% on all sheets.
+    Removes skip columns, adds notes columns, applies static col widths,
+    hides old run columns, rebuilds Analysis, and sets zoom to 100% on all sheets.
     """
     for sheet_name in SHEET_NAMES:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
+        _remove_skip_column(ws)
+        # Clear any stale auto_filter and unhide all rows — test sheets never need filtering
+        ws.auto_filter.ref = None
+        for r in range(1, ws.max_row + 1):
+            ws.row_dimensions[r].hidden = False
         _add_notes_column(ws)
         # Find latest tag on this sheet (most recently added run)
         latest_tag = None
@@ -1619,7 +1655,8 @@ def _estimate_cost_per_call(model: str, prompt_tokens: int, completion_tokens: i
     return prompt_tokens * prices["input"] + completion_tokens * prices["output"]
 
 
-def _estimate_run_cost(wb, target_sheets: list, calibrate: bool) -> tuple:
+def _estimate_run_cost(wb, target_sheets: list, calibrate: bool,
+                       cases_filter: "set | None" = None) -> tuple:
     """
     Estimate total cost before running.
     Returns (total_cost, breakdown) where breakdown is a list of
@@ -1632,17 +1669,13 @@ def _estimate_run_cost(wb, target_sheets: list, calibrate: bool) -> tuple:
         if sheet_name not in wb.sheetnames or sheet_name not in SHEET_CALL_PROFILE:
             continue
         _ws = wb[sheet_name]
-        _hdrs = [_ws.cell(2, c).value for c in range(1, _ws.max_column + 1)]
-        _skip_col = next((i + 1 for i, h in enumerate(_hdrs) if h == "skip"), None)
         n_cases = 0
         for _r in range(3, _ws.max_row + 1):
-            if not _ws.cell(_r, 1).value:
+            tid = _ws.cell(_r, 1).value
+            if not tid:
                 break
-            if _skip_col:
-                _val = str(_ws.cell(_r, _skip_col).value or "").strip().upper()
-                if _val in ("TRUE", "1", "YES"):
-                    continue
-            n_cases += 1
+            if cases_filter is None or tid in cases_filter:
+                n_cases += 1
         profile = SHEET_CALL_PROFILE[sheet_name]
 
         agent_cost = 0.0
@@ -1699,7 +1732,8 @@ def _print_cost_estimate(breakdown: list, total: float, yes: bool = False) -> bo
 
 async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
                     yes: bool = False, delay: float = 5.0,
-                    judge_only: bool = False, from_tag: str = ""):
+                    judge_only: bool = False, from_tag: str = "",
+                    cases_filter: "set | None" = None):
     # 1. Load workbook
     if not os.path.exists(TEST_CASES_FILE):
         sys.exit(f"Test cases file not found: {TEST_CASES_FILE}")
@@ -1734,7 +1768,8 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
         )
 
     # 3. Pre-run cost estimate + confirmation
-    estimated_total, cost_breakdown = _estimate_run_cost(wb, target_sheets, calibrate)
+    estimated_total, cost_breakdown = _estimate_run_cost(wb, target_sheets, calibrate,
+                                                         cases_filter=cases_filter)
     if not _print_cost_estimate(cost_breakdown, estimated_total, yes=yes):
         print("Aborted.")
         return
@@ -1746,10 +1781,9 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
     sheet_tokens: dict[str, int] = {}     # actual tokens per sheet
     run_responses: dict = {}              # sidecar: test_id → full agent state
 
-    # Initialise Run History and capture run_id before the loop so per-sheet
-    # rows can be written incrementally as each sheet completes.
-    rh_ws  = _ensure_run_history_sheet(wb)
-    run_id = _true_last_row(rh_ws)
+    # Initialise Run History (skipped in --cases mode — no history entry is written)
+    rh_ws  = None if cases_filter is not None else _ensure_run_history_sheet(wb)
+    run_id = _true_last_row(rh_ws) if rh_ws is not None else 0
 
     for sheet_name in target_sheets:
         if sheet_name not in _SHEET_RUNNERS:
@@ -1758,8 +1792,20 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
 
         runner = _SHEET_RUNNERS[sheet_name]
         ws = wb[sheet_name]
-        total_rows = sum(1 for r in range(3, ws.max_row + 1) if ws.cell(r, 1).value)
-        print(f"[{sheet_name}] Running {total_rows} cases...")
+
+        # In --cases mode, find the existing verdict column for this tag
+        if cases_filter is not None:
+            verdict_col = _find_tag_col(ws, tag)
+            if verdict_col is None:
+                print(f"[{sheet_name}] No existing column for tag '{tag}' — run a full eval first. Skipping.")
+                continue
+
+        total_rows = sum(
+            1 for r in range(3, ws.max_row + 1)
+            if ws.cell(r, 1).value and (cases_filter is None or ws.cell(r, 1).value in cases_filter)
+        )
+        mode_label = f"{total_rows} cases (overwrite)" if cases_filter is not None else f"{total_rows} cases"
+        print(f"[{sheet_name}] Running {mode_label}...")
 
         case_results = []
         scores = []
@@ -1773,9 +1819,7 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
             if not test_id:
                 break
 
-            if str(test_case.get("skip", "")).strip().upper() in ("TRUE", "1", "YES"):
-                print(f"  [{test_id}] SKIP")
-                case_results.append({"test_id": test_id, "skipped": True})
+            if cases_filter is not None and test_id not in cases_filter:
                 continue
 
             t0 = time.time()
@@ -1843,32 +1887,50 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
         all_results[sheet_name]      = case_results
         print(f"  → Pass rate: {pass_rate * 100:.1f}%  |  agent: ${sheet_agent_cost:.4f}  judge: ${sheet_judge_cost:.4f}  total: ${sheet_total_cost:.4f}\n")
 
-        _append_run_column(ws, tag, case_results, sheet_total_cost,
-                           extra_cols=_SHEET_EXTRA_COLS.get(sheet_name))
-        _add_notes_column(ws)
-        _apply_column_visibility(ws, tag)
+        if cases_filter is not None:
+            # Overwrite mode: write directly into existing cells, build row index on the fly
+            row_map = {}
+            for _r in range(3, ws.max_row + 1):
+                _tid = ws.cell(_r, 1).value
+                if not _tid:
+                    break
+                row_map[_tid] = _r
+            extra_cols = _SHEET_EXTRA_COLS.get(sheet_name) or []
+            for c in case_results:
+                _row = row_map.get(c["test_id"])
+                if _row:
+                    _overwrite_case_cells(ws, verdict_col, _row, c, extra_cols)
+        else:
+            _append_run_column(ws, tag, case_results, sheet_total_cost,
+                               extra_cols=_SHEET_EXTRA_COLS.get(sheet_name))
+            _add_notes_column(ws)
+            _apply_column_visibility(ws, tag)
 
-        # Incremental persistence — save this sheet's results immediately so a
-        # mid-run crash doesn't lose completed work.
+        # Incremental persistence
         pass_count  = sum(1 for r in case_results
                           if not r.get("skipped") and r.get("result", {}).get("verdict") == "pass")
         total_count = sum(1 for r in case_results if not r.get("skipped"))
-        _write_run_history_row(rh_ws, run_id, tag, desc, sheet_name,
-                               pass_rate, sheet_total_cost, sheet_agent_tokens, calibrate)
         wb.save(TEST_CASES_FILE)
-        _save_sidecar(tag, run_responses)
-        print(f"[{sheet_name}] Complete: {pass_count}/{total_count} passed ({pass_rate * 100:.1f}%) — saved to Run History")
 
-    # 5. Write OVERALL row to Run History
-    overall_scores = list(sheet_pass_rates.values())
-    overall_pass   = sum(overall_scores) / len(overall_scores) if overall_scores else 0.0
-    overall_tokens = sum(sheet_tokens.values())
-    overall_cost   = sum(sheet_costs.values())
-    _write_run_history_row(rh_ws, run_id, tag, desc, "OVERALL",
-                           overall_pass, overall_cost, overall_tokens, calibrate)
+        if cases_filter is None:
+            _write_run_history_row(rh_ws, run_id, tag, desc, sheet_name,
+                                   pass_rate, sheet_total_cost, sheet_agent_tokens, calibrate)
+            _save_sidecar(tag, run_responses)
+            print(f"[{sheet_name}] Complete: {pass_count}/{total_count} passed ({pass_rate * 100:.1f}%) — saved to Run History")
+        else:
+            print(f"[{sheet_name}] Complete: {pass_count}/{total_count} passed ({pass_rate * 100:.1f}%) — results overwritten in existing column")
 
-    # 6. Rebuild Analysis sheet, apply formatting, then save
-    _reformat_workbook(wb)
+    if cases_filter is None:
+        # 5. Write OVERALL row to Run History
+        overall_scores = list(sheet_pass_rates.values())
+        overall_pass   = sum(overall_scores) / len(overall_scores) if overall_scores else 0.0
+        overall_tokens = sum(sheet_tokens.values())
+        overall_cost   = sum(sheet_costs.values())
+        _write_run_history_row(rh_ws, run_id, tag, desc, "OVERALL",
+                               overall_pass, overall_cost, overall_tokens, calibrate)
+
+        # 6. Rebuild Analysis sheet, apply formatting, then save
+        _reformat_workbook(wb)
 
     wb.save(TEST_CASES_FILE)
     print(f"Updated {TEST_CASES_FILE} with results.")
@@ -1946,6 +2008,12 @@ def main():
         help="Override the judge model. 'opus' uses claude-opus-4-6 for all judge calls "
              "(equivalent to --calibrate).",
     )
+    parser.add_argument(
+        "--cases", default="",
+        help="Comma-separated list of test IDs to re-run (e.g. 'KB-001,KB-004'). "
+             "Results overwrite the existing column for --tag; no new column is created "
+             "and Run History is not updated.",
+    )
     args = parser.parse_args()
 
     # --reformat mode: apply all formatting without running evals
@@ -1963,12 +2031,14 @@ def main():
         parser.error("--tag is required unless --reformat is used.")
 
     sheets_filter = [s.strip() for s in args.sheets.split(",") if s.strip()] if args.sheets else []
+    cases_filter  = {s.strip() for s in args.cases.split(",") if s.strip()} if args.cases else None
     calibrate = args.calibrate or (args.judge_model.lower() == "opus")
 
     asyncio.run(run_evals(
         args.tag, args.desc, sheets_filter, calibrate,
         yes=args.yes, delay=args.delay,
         judge_only=args.judge_only, from_tag=args.from_tag,
+        cases_filter=cases_filter,
     ))
 
 

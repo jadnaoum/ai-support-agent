@@ -5,10 +5,17 @@ Receives a structured action request from the conversation agent (tool name + pa
 executes it via the tool registry, and returns results to the conversation agent.
 Does NOT generate any customer-facing text.
 """
+import re
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.agents.state import AgentState
 from backend.tools.registry import TOOL_REGISTRY
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 
 async def action_service_node(state: AgentState, config: dict) -> dict:
@@ -40,8 +47,8 @@ async def action_service_node(state: AgentState, config: dict) -> dict:
             )
         else:
             customer_id = state.get("customer_id", "")
-            if not customer_id:
-                result = {"success": False, "error": "No customer account context is available."}
+            if not customer_id or not _UUID_RE.match(customer_id):
+                result = {"success": False, "error": "No valid customer account context is available."}
             else:
                 tool = TOOL_REGISTRY[tool_name]
                 # Always inject db and customer_id; tools ignore extra kwargs via their signatures

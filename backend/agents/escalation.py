@@ -19,45 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.models import Escalation, Conversation
 
-# HANDOFF MESSAGES — one per escalation reason; edit here to tune tone
-_HANDOFF_MESSAGES = {
-    "customer_requested": (
-        "Of course — I'm connecting you with a human agent right away. "
-        "Please hold on and someone from our support team will be with you shortly."
-    ),
-    "low_confidence": (
-        "I want to make sure you get the best possible help with this. "
-        "I'm transferring you to a specialist who can assist you further. "
-        "Please hold on."
-    ),
-    "repeated_failure": (
-        "I'm sorry I haven't been able to resolve this for you. "
-        "I'm connecting you with a member of our support team now. "
-        "Please hold on."
-    ),
-    "policy_exception": (
-        "This request needs a review by our support team. "
-        "I'm connecting you with a specialist who can help."
-    ),
-    "unable_to_clarify": (
-        "I wasn't able to get enough detail to handle this for you, "
-        "so I'm connecting you with a human agent who can ask the right questions and help you directly. "
-        "Please hold on."
-    ),
-    "repeated_blocks": (
-        "It looks like we've been going in circles and I haven't been able to help. "
-        "Let me connect you with a member of our support team who can assist you directly. "
-        "Please hold on."
-    ),
-    "abusive_input": (
-        "I'm going to connect you with a member of our support team who can help you directly. "
-        "Please hold on."
-    ),
-}
-_HANDOFF_DEFAULT = (
-    "I'm transferring you to a human agent who can better assist you. "
-    "Please hold on."
-)
+_HANDOFF_MESSAGE = "This one needs a human — let me connect you with someone who can help."
 
 
 def build_context_summary(
@@ -153,4 +115,4 @@ async def handle_escalation(reason: str, context: dict) -> str:
             conversation.status = "escalated"
         await db.commit()
 
-    return _HANDOFF_MESSAGES.get(reason, _HANDOFF_DEFAULT)
+    return _HANDOFF_MESSAGE
