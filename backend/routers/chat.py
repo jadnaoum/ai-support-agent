@@ -157,6 +157,7 @@ async def stream_response(
         "context_summary": "",
         "consecutive_blocks": prior_turn_state.get("consecutive_blocks", 0),
         "service_call_count": 0,
+        "classifier_reasoning": "",
     }
 
     # Lazy import — avoids LangGraph compile() running at module load time,
@@ -296,6 +297,8 @@ class TestChatResponse(BaseModel):
     # These are rough estimates (chars ÷ 4) since we can't hook into graph internals.
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    # Debug fields — only populated when debug_classifier: true is set in mock_context
+    classifier_reasoning: str = ""
 
 
 @router.post("/chat/test", response_model=TestChatResponse)
@@ -380,10 +383,16 @@ async def test_chat(
                 input_guard_reason=guard_result.get("reason", ""),
             )
 
+    mock_context = body.mock_context or {}
+    # customer_context only carries the customer name — order data is accessed exclusively
+    # via tool calls through configurable["mock_account_state"]. Injecting the full mock
+    # into customer_context would contaminate the agent's state vs. production behaviour.
+    customer_ctx = {"name": mock_context.get("name") or "Test Customer"} if mock_context else {}
+
     initial_state: AgentState = {
         "messages": body.messages,
         "customer_id": body.customer_id,
-        "customer_context": body.mock_context,
+        "customer_context": customer_ctx,
         "retrieved_context": [],
         "action_results": [],
         "confidence": 0.0,
@@ -399,6 +408,7 @@ async def test_chat(
         "context_summary": "",
         "consecutive_blocks": 0,
         "service_call_count": 0,
+        "classifier_reasoning": "",
     }
 
     # Pre-load agent state from prior turns. Only allowed keys are merged to
@@ -431,9 +441,12 @@ async def test_chat(
 
     # conversation_id="" — escalation handler skips DB writes when absent
     # mock_account_state — present only when mock_context provided; feeds mock tool layer
+    # debug_classifier — present only when mock_context sets debug_classifier: true
     configurable: dict = {"db": db, "conversation_id": ""}
     if body.mock_context:
         configurable["mock_account_state"] = body.mock_context
+        if body.mock_context.get("debug_classifier"):
+            configurable["debug_classifier"] = True
     config = {
         "configurable": configurable,
         "tags": tags,
@@ -460,6 +473,7 @@ async def test_chat(
         requires_escalation=final_state.get("requires_escalation", False),
         escalation_reason=final_state.get("escalation_reason", ""),
         context_summary=final_state.get("context_summary", ""),
+        classifier_reasoning=final_state.get("classifier_reasoning", ""),
         input_guard_blocked=False,
         input_guard_reason="",
         prompt_tokens=prompt_tokens,

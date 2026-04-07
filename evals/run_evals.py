@@ -317,7 +317,10 @@ async def run_output_guard(test_case: dict, calibrate: bool, test_id: str = "", 
 
 async def run_kb_retrieval(test_case: dict, calibrate: bool, test_id: str = "", version_tag: str = "") -> tuple[dict, dict]:
     messages = _parse_conversation(test_case.get("conversation"))
-    agent_resp = _call_agent_full(messages, {}, test_id=test_id, version_tag=version_tag)
+    mock_context = _parse_json_field(test_case.get("mock_account_state"))
+    mock_agent_state = _parse_json_field(test_case.get("mock_agent_state"))
+    agent_resp = _call_agent_full(messages, mock_context, test_id=test_id, version_tag=version_tag,
+                                  mock_agent_state=mock_agent_state)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
     # Fetch actual KB article content by title and inject it for the judge.

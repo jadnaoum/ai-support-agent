@@ -47,12 +47,14 @@ def _build_context_section(state: AgentState) -> str:
     return "\n".join(parts)
 
 
-async def _classify_intent(state: AgentState) -> tuple[str, float, dict]:
+async def _classify_intent(state: AgentState, config: dict = None) -> tuple[str, float, dict, str]:
     """
     Call LLM to classify the customer's latest message.
-    Returns (intent, confidence, action_details).
+    Returns (intent, confidence, action_details, reasoning).
     action_details is {"tool": ..., "params": {...}} for action_request, {} otherwise.
+    reasoning is non-empty only when debug_classifier is set in configurable.
     """
+    debug = bool((config or {}).get("configurable", {}).get("debug_classifier"))
     try:
         role_map = {"customer": "user", "agent": "assistant"}
         history_turns = [
@@ -60,10 +62,13 @@ async def _classify_intent(state: AgentState) -> tuple[str, float, dict]:
             for m in state["messages"][-10:]
             if m["role"] in role_map
         ]
+        system_prompt = INTENT_PROMPT
+        if debug:
+            system_prompt += "\nInclude a 'reasoning' field explaining your classification in 1-2 sentences."
         result = await litellm.acompletion(
             model=settings.litellm_model,
             messages=[
-                {"role": "system", "content": INTENT_PROMPT},
+                {"role": "system", "content": system_prompt},
                 *history_turns,
             ],
             stream=False,
@@ -92,9 +97,10 @@ async def _classify_intent(state: AgentState) -> tuple[str, float, dict]:
             action_details = {
                 "clarification_prompt": parsed.get("clarification_prompt", "Could you provide a bit more detail so I can help you?"),
             }
-        return intent, confidence, action_details
+        reasoning = parsed.get("reasoning", "") if debug else ""
+        return intent, confidence, action_details, reasoning
     except Exception:
-        return "general", 0.5, {}
+        return "general", 0.5, {}, ""
 
 
 async def _generate_response(state: AgentState) -> str:
@@ -323,7 +329,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
 
         # Message passed the guard — reset the consecutive block counter
         emotion = guard.get("emotion", "")
-        intent, confidence, action_details = await _classify_intent(state)
+        intent, confidence, action_details, classifier_reasoning = await _classify_intent(state, config)
 
         # --- Emotion path ---
         # High negative emotion + unclear intent + no clarifying question asked yet this
@@ -372,6 +378,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 "last_clarification_source": "",
                 "consecutive_blocks": 0,
                 "service_call_count": 1,
+                "classifier_reasoning": classifier_reasoning,
             }
 
         if intent == "action_request":
@@ -383,6 +390,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 "last_clarification_source": "",
                 "consecutive_blocks": 0,
                 "service_call_count": 1,
+                "classifier_reasoning": classifier_reasoning,
             }
 
         if intent == "escalation_request":
@@ -419,6 +427,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                     "last_clarification_source": "intent",
                     "consecutive_blocks": 0,
                     "service_call_count": 0,
+                    "classifier_reasoning": classifier_reasoning,
                 }
             # Output guard blocked the clarifying question — log and escalate
             _db = config.get("configurable", {}).get("db")
@@ -478,10 +487,25 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             "confidence": 0.85,
         }
 
+    # Structural check: if the last action result carries check_kb: True and KB hasn't been
+    # queried yet this turn, route to knowledge_service immediately — no LLM decision needed.
+    # This fires for defective/damaged item claims where the action tool signals that KB
+    # policy content should be retrieved before the agent responds or escalates.
+    service_call_count = state.get("service_call_count", 0)
+    if (
+        action_results
+        and action_results[-1].get("check_kb")
+        and not state.get("retrieved_context")
+        and service_call_count < settings.service_call_limit
+    ):
+        return {
+            "pending_service": "knowledge",
+            "service_call_count": service_call_count + 1,
+        }
+
     # Loop decision: if the last service result signals more may be needed and we're under
     # the call limit, ask the LLM whether to make another call before responding.
     # Clean successes (no error, no rejection reason, no available_action) skip this entirely.
-    service_call_count = state.get("service_call_count", 0)
     if service_call_count < settings.service_call_limit and _service_needs_loop(state):
         next_step = await _classify_next_step(state)
         if next_step.get("next") == "knowledge":

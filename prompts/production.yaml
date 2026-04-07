@@ -144,10 +144,18 @@ intent_prompt: |
   </selection_principles>
 
   <clarification_rules>
-  Use needs_clarification only when the customer's intent itself is genuinely
-  ambiguous — meaning their message could reasonably map to two or more
-  different categories or actions, and choosing wrong would send them down an
-  incorrect path.
+  - Use needs_clarification only when the customer's intent itself is genuinely 
+    ambiguous — meaning their message could reasonably map to two or more
+    different categories or actions, and choosing wrong would send them down an
+    incorrect path.
+  
+  - Clear situation, multiple resolution paths — the customer has
+    described what happened and is asking about their options or what
+    can be done. The fact that multiple tools or actions could apply
+    does not make the intent ambiguous — it makes it a knowledge_query.
+    The KB describes available resolution paths. The classifier's job
+    is to determine what the customer wants to know, not which tool
+    to call.
 
   Genuine ambiguity (use needs_clarification):
   - "I have a problem with my order" — could be damage, wrong item, want to

@@ -203,10 +203,15 @@ def _mock_check_return_eligibility(params: dict, mock: dict, now: datetime) -> d
     if not orders:
         return {"success": False, "error": "No orders found for this account."}
     eligible = []
+    escalation = None
     for o in orders:
         check = _return_eligibility(o, reason, now)
         if check["eligible"]:
             eligible.append({"order_id": str(o["id"]), "status": o.get("status"), **check})
+        elif check.get("check_kb"):
+            escalation = {"order_id": str(o["id"]), "status": o.get("status"), **check}
+    if escalation and not eligible:
+        return {"success": True, **escalation}
     return {"success": True, "eligible_orders": eligible}
 
 

@@ -20,3 +20,4 @@ class AgentState(TypedDict):
     context_summary: str               # Plain-text summary of customer messages at time of escalation
     consecutive_blocks: int            # Number of consecutive input-guard blocks this conversation; resets to 0 on any unblocked turn
     service_call_count: int            # Number of service calls initiated this turn; reset to 0 at turn start, checked against service_call_limit
+    classifier_reasoning: str         # Debug only: LLM's explanation of its intent classification (empty unless debug_classifier is set in mock_context)
