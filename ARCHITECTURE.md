@@ -266,6 +266,59 @@ Escalation is a decision the conversation agent makes — not a separate service
 
 ---
 
+## Knowledge Management Architecture
+
+### Source of Truth
+Business rules and policy values live in a structured config (`policies.yaml`). 
+This is the single source of truth. All other layers consume from it.
+
+### Three Layers
+
+**Policy Config** — Structured data (return windows, warranty periods, 
+eligibility thresholds, fee amounts). Consumed by tools and used to 
+validate KB content. Machine-readable, version-controlled.
+
+**Tools** — Read policy config for deterministic enforcement. Also contain 
+operational rules that should never be exposed to customers (exception 
+thresholds, retention offers, approval limits). Tool logic is the only 
+place sensitive business rules live — the LLM never sees them in text form.
+
+**Knowledge Base** — Explains policies in natural language. Contains only 
+information that is safe for customers to know. Optimized for RAG retrieval: 
+single topic per section, fact-first, explicit applicability, customer 
+vocabulary. Validated against policy config to prevent drift.
+
+### Agent vs Customer Content
+One set of facts, two presentation layers:
+- **Agent-facing KB** — optimized for RAG. Clean headers, no fluff, 
+  structured for chunking. Embedded and searched by the AI agent.
+- **Customer-facing help center** — optimized for reading. Friendlier tone, 
+  more context. Rendered from the same policy config.
+
+The agent never sees the customer-facing version. Customers never see the 
+agent-facing version. Neither contains sensitive operational rules.
+
+### Separation of Concerns
+- **KB** = what the customer is entitled to know (policy, process, timelines)
+- **Tools** = what the agent can do (enforce rules, route requests, collect data)
+- **Prompt** = how the agent communicates (tone, principles, behavior)
+
+KB content is always informational — it tells the agent what to explain. 
+Tool responses are always actionable — they tell the agent what to do. 
+When a tool returns `requires_escalation`, the agent presents relevant KB 
+policy to the customer, then hands off. The agent cannot act on KB content 
+alone without a corresponding tool instruction.
+
+### KB Authoring Principles
+1. One topic per section under a `##` header
+2. First sentence is the policy fact — no preamble
+3. State when and to whom each policy applies
+4. Use customer vocabulary alongside internal terms
+5. No duplication across articles — each fact in one place
+6. Sections = chunks — the authoring guide is the chunking specification
+7. After editing, re-ingest and run evals before deploying
+8. Validate against policy config to catch drift
+
 ## Future-ready considerations (not in v1, but designed for)
 
 - **Multi-channel:** Webhook router designed to accommodate Slack, WhatsApp, JIRA integrations

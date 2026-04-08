@@ -18,12 +18,25 @@ async def knowledge_service_node(state: AgentState, config: dict) -> dict:
     """LangGraph node: embed query → pgvector search → return raw chunks."""
     db: AsyncSession = config["configurable"]["db"]
 
-    # Extract the last customer message as the search query
-    query = ""
-    for msg in reversed(state["messages"]):
-        if msg["role"] == "customer":
-            query = msg["content"]
-            break
+    # For defective item claims the action tool sets a granular reason value.
+    # Use a focused query rather than the raw customer message — defective claim
+    # queries otherwise land on unrelated chunks due to low semantic overlap.
+    _DEFECTIVE_QUERIES = {
+        "defective_within_return_window": "defective damaged item return policy within return window refund replacement",
+        "defective_within_warranty": "warranty claim defective product outside return window warranty coverage repair",
+        "defective_no_coverage": "defective item outside warranty and return window options available",
+    }
+    last_action = (state.get("action_results") or [{}])[-1]
+    reason = last_action.get("reason", "")
+    if reason in _DEFECTIVE_QUERIES:
+        query = _DEFECTIVE_QUERIES[reason]
+    else:
+        # Extract the last customer message as the search query
+        query = ""
+        for msg in reversed(state["messages"]):
+            if msg["role"] == "customer":
+                query = msg["content"]
+                break
 
     # Embed the query and run vector search
     try:

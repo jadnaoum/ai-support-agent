@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from backend.tools.order_tools import _has_prior_confirmation, _REASON_MAP, REASON_VALUES
 
 _DEFAULT_RETURN_WINDOW_DAYS = 30
+_ELECTRONICS_RETURN_WINDOW_DAYS = 14
+_DEFAULT_WARRANTY_MONTHS = 12
 
 
 # ---------------------------------------------------------------------------
@@ -96,12 +98,34 @@ def _cancel_eligibility(status: str) -> dict:
             "details": "This order can be cancelled.", "available_action": None}
 
 
+def _order_return_window_days(o: dict) -> int:
+    """Return the applicable return window for an order based on item categories."""
+    items = o.get("items") or []
+    if any(i.get("category", "").lower() == "electronics" for i in items):
+        return _ELECTRONICS_RETURN_WINDOW_DAYS
+    return _DEFAULT_RETURN_WINDOW_DAYS
+
+
+def _defective_reason(o: dict, now: datetime) -> str:
+    """Return the granular defective reason based on delivery date vs windows."""
+    dt = _delivery_date(o)
+    if not dt:
+        return "defective_within_return_window"
+    days_since = (now - dt).days
+    return_window = _order_return_window_days(o)
+    if days_since <= return_window:
+        return "defective_within_return_window"
+    if days_since <= _DEFAULT_WARRANTY_MONTHS * 30:
+        return "defective_within_warranty"
+    return "defective_no_coverage"
+
+
 def _return_eligibility(o: dict, reason: str, now: datetime) -> dict:
     """Return eligibility for initiate_return / check_return_eligibility."""
     if reason and reason.lower() in ("defective", "broken", "damaged"):
-        return {"eligible": False, "reason": "requires_escalation",
+        return {"eligible": False, "reason": _defective_reason(o, now),
                 "details": "Defective and damaged item claims require review by our support team.",
-                "available_action": None, "check_kb": True}
+                "available_action": None, "check_kb": True, "requires_escalation": True}
     status = o.get("status", "placed")
     if status == "return_in_progress":
         return {"eligible": False, "reason": "already_in_progress",
@@ -123,10 +147,11 @@ def _return_eligibility(o: dict, reason: str, now: datetime) -> dict:
     dt = _delivery_date(o)
     if dt:
         days_since = (now - dt).days
-        if days_since > _DEFAULT_RETURN_WINDOW_DAYS:
+        return_window = _order_return_window_days(o)
+        if days_since > return_window:
             return {"eligible": False, "reason": "outside_return_window",
                     "details": f"The return window for this order has passed "
-                               f"({_DEFAULT_RETURN_WINDOW_DAYS} days). "
+                               f"({return_window} days). "
                                "If your item is defective, please contact us — "
                                "defective items are handled separately.",
                     "available_action": None}
@@ -257,8 +282,13 @@ def _mock_initiate_return(params: dict, mock: dict, actions_taken: list, now: da
 
     check = _return_eligibility(o, reason, now)
     if not check["eligible"]:
-        return {"success": False, "reason": check["reason"],
-                "error": check["details"], "available_action": check["available_action"]}
+        result = {"success": False, "reason": check["reason"],
+                  "error": check["details"], "available_action": check["available_action"]}
+        if check.get("requires_escalation"):
+            result["requires_escalation"] = True
+        if check.get("check_kb"):
+            result["check_kb"] = True
+        return result
 
     if not reason:
         return {"success": False, "reason": "reason_required",

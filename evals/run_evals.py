@@ -556,8 +556,8 @@ def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float,
 # ---------------------------------------------------------------------------
 
 def _find_tag_col(ws, tag: str) -> "int | None":
-    """Return the verdict column index for an existing tag on a test sheet, or None."""
-    for c in range(1, ws.max_column + 1):
+    """Return the verdict column index for the last (most recent) matching tag on a test sheet, or None."""
+    for c in range(ws.max_column, 0, -1):
         h = ws.cell(2, c).value
         if h and str(h).startswith(f"{tag} ($"):
             return c

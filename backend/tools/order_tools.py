@@ -77,7 +77,8 @@ def _check_return_eligibility_sync(order, products, reason=None, now=None) -> di
     Gate sequence for initiate_return: eligibility → reason → confirmation (reason does not affect
     eligibility here — defective claims escalate rather than routing through the return flow,
     because defective items require human judgment on replacement vs. refund).
-    Shape: {"eligible": bool, "reason": str|None, "details": str, "available_action": str|None}
+    Shape: {"eligible": bool, "reason": str|None, "details": str, "available_action": str|None,
+            "check_kb": bool (defective only), "requires_escalation": bool (defective only)}
     """
     if now is None:
         now = datetime.now(timezone.utc)
@@ -86,8 +87,26 @@ def _check_return_eligibility_sync(order, products, reason=None, now=None) -> di
     # A customer returning a broken item expects a refund or replacement, not just a label.
     # Human judgment is needed; do not route through the standard return flow.
     if reason and reason.lower() in ("defective", "broken", "damaged"):
+        defective_reason = "defective_within_return_window"
+        delivered_date = order.delivered_at or order.updated_at
+        if delivered_date and products:
+            if delivered_date.tzinfo is None:
+                delivered_date = delivered_date.replace(tzinfo=timezone.utc)
+            days_since = (now - delivered_date).days
+            min_window = min(p.return_window_days for p in products)
+            if days_since > min_window:
+                max_warranty = max(
+                    (p.warranty_months for p in products if p.warranty_months),
+                    default=None,
+                )
+                defective_reason = (
+                    "defective_within_warranty"
+                    if max_warranty and days_since <= max_warranty * 30
+                    else "defective_no_coverage"
+                )
         return {
-            "eligible": False, "reason": "requires_escalation",
+            "eligible": False,
+            "reason": defective_reason,
             "details": (
                 "Defective and damaged item claims require review by our support team. "
                 "Please escalate so a team member can assess the issue and arrange the "
@@ -95,6 +114,7 @@ def _check_return_eligibility_sync(order, products, reason=None, now=None) -> di
             ),
             "available_action": None,
             "check_kb": True,
+            "requires_escalation": True,
         }
 
     if order.status == "return_in_progress":
@@ -386,12 +406,17 @@ async def initiate_return(
 
     eligibility = _check_return_eligibility_sync(order, products, reason=reason)
     if not eligibility["eligible"]:
-        return {
+        result = {
             "success": False,
             "reason": eligibility["reason"],
             "error": eligibility["details"],
             "available_action": eligibility["available_action"],
         }
+        if eligibility.get("requires_escalation"):
+            result["requires_escalation"] = True
+        if eligibility.get("check_kb"):
+            result["check_kb"] = True
+        return result
 
     # 3. Reason required (order is eligible — now collect reason)
     if not reason:
