@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     # Environment
     app_env: str = "development"  # set to "test" to enable test-only endpoints
 
+    # Search config
+    hybrid_search_enabled: bool = True
+
     # Agent config
     confidence_threshold: float = 0.7
     max_context_messages: int = 50

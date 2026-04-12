@@ -4,6 +4,7 @@ from sqlalchemy import (
     Column, String, Integer, Float, Boolean, Text, DateTime,
     ForeignKey, Numeric, Index
 )
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, relationship
 from sqlalchemy.sql import func
@@ -214,6 +215,7 @@ class KBChunk(Base):
     chunk_text = Column(Text, nullable=False)
     chunk_index = Column(Integer, nullable=False)
     embedding = Column(Vector(1536), nullable=True)
+    chunk_tsv = Column(TSVECTOR, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     document = relationship("KBDocument", back_populates="chunks")

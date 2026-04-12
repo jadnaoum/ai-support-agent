@@ -1,35 +1,35 @@
 # Business Limitations
 
-Some things are not available through any channel — not through support, not through your account portal, not through any other path. This page lists those hard limits so you get a direct answer rather than being sent somewhere that also can't help.
+These are hard limits that apply across all channels — support, account portal, and self-service. No one can override them.
 
-## Can a cancellation be undone or reversed?
+## Order Modifications After Placement
 
-No. Once an order is cancelled, it cannot be reinstated. The customer must place a new order.
+Orders cannot be modified once placed. Items cannot be added, removed, or swapped. The only option is to cancel the order (if it hasn't shipped) and place a new one. Support cannot edit the contents of an existing order.
 
-## Can I modify my order after placing it?
+## Combining Separate Orders
 
-No. Once an order is placed, items cannot be added, removed, or swapped. The only option is to cancel the order (if it hasn't shipped yet) and place a new one with the correct items. Support cannot edit the contents of an existing order.
+Separate orders cannot be merged into one order or one shipment record. Each order is processed independently with its own tracking number. If both orders are unshipped, we can try to coordinate timing, but they remain separate orders.
 
-## Can I combine two separate orders into one?
+## Direct Exchanges
 
-No. Separate orders cannot be merged into a single order or consolidated into one shipment record. Each order is processed independently. If both orders are still unshipped, we can try to coordinate timing so they ship together, but they will remain separate orders and separate tracking numbers.
+We do not process direct exchanges. To get a different size, color, or item, return the original for a refund and place a new order. See the Returns and Refunds article for how to start a return.
 
-## Can I exchange an item for a different one?
+## Reversing a Cancellation
 
-No. We do not process direct exchanges. If you need a different size, color, or item, return the original for a refund and place a new order for the item you want. See our Returns and Refunds policy for how to start a return.
+Once an order is cancelled, it cannot be reinstated. A new order must be placed.
 
-## Can a promo code be applied after I've already placed my order?
+## Retroactive Promo Codes
 
-No. Promo codes must be entered at checkout before the order is confirmed. They cannot be applied retroactively — not through support and not through your account. If you missed applying a code, the only option is to cancel the order (if unshipped) and re-place it using the code at checkout.
+Promo codes must be entered at checkout before the order is confirmed. They cannot be applied after an order is placed — not by support and not through your account. If you missed a code, the only option is to cancel (if unshipped) and re-place the order with the code applied.
 
-## Can support apply my store credit to an existing order?
+## Retroactive Store Credit
 
-No. Store credit can be applied to an order at checkout, but support cannot add it to an order that has already been placed. If you intended to use store credit, cancel the existing order (if unshipped) and place a new one with the credit applied at checkout.
+Store credit must be applied at checkout. Support cannot add it to an already-placed order. If you forgot to apply store credit, cancel the order (if unshipped) and re-place it with the credit applied.
 
-## Can I get an extended warranty?
+## Extended Warranties
 
-No. We do not offer extended warranty plans for any product. All warranty coverage follows the standard terms listed in our Warranties article. If your product fails after the warranty period, contact us — we review out-of-warranty situations case by case and may offer discounted replacements.
+We do not offer extended warranty plans for any product. All coverage follows the standard terms in the Warranties article. If your product fails after the warranty period, contact us — we review out-of-warranty situations case by case and may offer discounted replacements.
 
-## Can I split my payment across two credit cards?
+## Splitting Payment Across Two Cards
 
-No. A single order cannot be split across two or more credit or debit cards. You can combine one card with store credit or a gift card, but not two separate payment cards. This is a system limitation that support cannot override.
+A single order cannot be split across two credit or debit cards. You can combine one card with store credit or a gift card, but not two separate payment cards. This is a system limitation that support cannot override.

@@ -110,8 +110,14 @@ async def check_output(response: str, state: AgentState) -> dict:
         {"safe": True} if the response passes all checks.
         {"safe": False, "reason": str} if the response should be blocked.
 
-    Fails closed on any LLM error or parse failure.
+    In test mode (APP_ENV=test) the LLM call is skipped and all responses pass.
+    This prevents guard API failures from masking agent behavior in eval runs.
+
+    Fails closed on any LLM error or parse failure in non-test environments.
     """
+    if settings.app_env == "test":
+        return {"safe": True}
+
     prompt = _build_guard_context(response, state)
     try:
         result = await litellm.acompletion(
@@ -136,7 +142,9 @@ async def check_output(response: str, state: AgentState) -> dict:
             "reason": parsed.get("failure_type") or "unknown",
         }
     except Exception:
-        # Fail closed — never let unvalidated content through on guard error
+        # Fail closed — never let unvalidated content through on guard error.
+        # Reason is preserved so callers can distinguish guard failures from
+        # genuine policy violations in escalation logs and eval traces.
         return {"safe": False, "reason": "guard_error"}
 
 

@@ -1513,7 +1513,10 @@ async def _run_judge_only(wb, tag: str, desc: str, target_sheets: list,
         if s in wb.sheetnames:
             ws = wb[s]
             if _find_sheet_tag_cols(ws, from_tag):
-                total_cases += ws.max_row - 2
+                # Count only rows with a non-empty test_id to avoid ghost rows
+                total_cases += sum(
+                    1 for r in range(3, ws.max_row + 1) if ws.cell(r, 1).value
+                )
 
     judge_label = "Opus" if calibrate else "Sonnet"
     print(f"\nJudge-only mode: re-judging up to {total_cases} cases from '{from_tag}' using {judge_label}")
@@ -1552,12 +1555,19 @@ async def _run_judge_only(wb, tag: str, desc: str, target_sheets: list,
 
         for row_idx in range(3, ws.max_row + 1):
             test_case = _row_to_dict(ws, row_idx)
-            test_id   = test_case.get("test_id", f"row-{row_idx}")
+            test_id   = test_case.get("test_id")
+            if not test_id:
+                break
 
             stored_verdict = str(ws.cell(row_idx, tag_cols["verdict"]).value or "").upper()
             stored_fr      = str(ws.cell(row_idx, tag_cols["failure_reason"]).value or "").lower()
-            if stored_verdict == "SKIP" or stored_fr == "api_timeout":
-                print(f"  [{test_id}] SKIP (baseline: {stored_verdict or stored_fr})")
+            # Skip cases that don't need re-judging:
+            # - SKIP / api_timeout: intentionally excluded from the run
+            # - PASS or FAIL with a real failure reason: judge already produced a verdict
+            # Only re-judge cases where the judge itself errored (judge_error)
+            needs_rejudge = stored_fr == "judge_error"
+            if not needs_rejudge:
+                print(f"  [{test_id}] SKIP (baseline: {stored_verdict or stored_fr or 'no prior result'})")
                 case_results.append({"test_id": test_id, "skipped": True})
                 continue
 
@@ -1796,12 +1806,9 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
         runner = _SHEET_RUNNERS[sheet_name]
         ws = wb[sheet_name]
 
-        # In --cases mode, find the existing verdict column for this tag
+        # In --cases mode, find the existing verdict column for this tag (may be None for new tags)
         if cases_filter is not None:
             verdict_col = _find_tag_col(ws, tag)
-            if verdict_col is None:
-                print(f"[{sheet_name}] No existing column for tag '{tag}' — run a full eval first. Skipping.")
-                continue
 
         total_rows = sum(
             1 for r in range(3, ws.max_row + 1)
@@ -1890,7 +1897,7 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
         all_results[sheet_name]      = case_results
         print(f"  → Pass rate: {pass_rate * 100:.1f}%  |  agent: ${sheet_agent_cost:.4f}  judge: ${sheet_judge_cost:.4f}  total: ${sheet_total_cost:.4f}\n")
 
-        if cases_filter is not None:
+        if cases_filter is not None and verdict_col is not None:
             # Overwrite mode: write directly into existing cells, build row index on the fly
             row_map = {}
             for _r in range(3, ws.max_row + 1):
@@ -1920,8 +1927,10 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
                                    pass_rate, sheet_total_cost, sheet_agent_tokens, calibrate)
             _save_sidecar(tag, run_responses)
             print(f"[{sheet_name}] Complete: {pass_count}/{total_count} passed ({pass_rate * 100:.1f}%) — saved to Run History")
-        else:
+        elif verdict_col is not None:
             print(f"[{sheet_name}] Complete: {pass_count}/{total_count} passed ({pass_rate * 100:.1f}%) — results overwritten in existing column")
+        else:
+            print(f"[{sheet_name}] Complete: {pass_count}/{total_count} passed ({pass_rate * 100:.1f}%) — new column created for tag '{tag}'")
 
     if cases_filter is None:
         # 5. Write OVERALL row to Run History

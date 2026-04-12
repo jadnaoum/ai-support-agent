@@ -69,6 +69,30 @@ def _item_names(o: dict) -> list:
     return []
 
 
+def _order_meta(o: dict, now: datetime) -> dict:
+    """Extract human-readable context fields from a mock order for inclusion in tool results.
+
+    Surfaces the intermediate values the tool already computes so the agent
+    never has to interpret an enum value to understand the outcome.
+    """
+    items = o.get("items") or []
+    first_item = items[0] if items else {}
+    product_name = first_item.get("name") or o.get("item") or "Unknown item"
+    category = first_item.get("category", "unknown")
+
+    dt = _delivery_date(o)
+    days_since = (now - dt).days if dt else None
+    return_window = _order_return_window_days(o)
+
+    return {
+        "product_name": product_name,
+        "category": category,
+        "days_since_delivery": days_since,
+        "return_window_days": return_window,
+        "warranty_months": _DEFAULT_WARRANTY_MONTHS,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Per-status eligibility helpers (inline — avoids ORM dependency)
 # ---------------------------------------------------------------------------
@@ -76,26 +100,32 @@ def _item_names(o: dict) -> list:
 def _cancel_eligibility(status: str) -> dict:
     if status == "cancelled":
         return {"eligible": False, "reason": "already_cancelled",
-                "details": "This order is already cancelled.", "available_action": None}
+                "details": "This order is already cancelled.", "available_action": None,
+                "detail": "Order is already cancelled."}
     if status == "refunded":
         return {"eligible": False, "reason": "refunded",
-                "details": "This order has already been refunded.", "available_action": None}
+                "details": "This order has already been refunded.", "available_action": None,
+                "detail": "Order has already been refunded."}
     if status == "returned":
         return {"eligible": False, "reason": "returned",
                 "details": "This order has already been returned and cannot be cancelled.",
-                "available_action": None}
+                "available_action": None,
+                "detail": "Order has already been returned."}
     if status == "shipped":
         return {"eligible": False, "reason": "shipped",
                 "details": "This order has shipped and cannot be cancelled. "
                            "You can return it for a refund once it arrives.",
-                "available_action": "check_return_eligibility"}
+                "available_action": "check_return_eligibility",
+                "detail": "Order has shipped — cancellation not possible. Return available after delivery."}
     if status == "delivered":
         return {"eligible": False, "reason": "delivered",
                 "details": "Delivered orders cannot be cancelled. "
                            "Please request a return/refund instead.",
-                "available_action": "initiate_return"}
+                "available_action": "initiate_return",
+                "detail": "Order delivered — cancellation not possible. Return/refund available instead."}
     return {"eligible": True, "reason": None,
-            "details": "This order can be cancelled.", "available_action": None}
+            "details": "This order can be cancelled.", "available_action": None,
+            "detail": f"Order is eligible for cancellation (status: {status})."}
 
 
 def _order_return_window_days(o: dict) -> int:
@@ -122,40 +152,91 @@ def _defective_reason(o: dict, now: datetime) -> str:
 
 def _return_eligibility(o: dict, reason: str, now: datetime) -> dict:
     """Return eligibility for initiate_return / check_return_eligibility."""
+    meta = _order_meta(o, now)
+    days_since = meta["days_since_delivery"]
+    return_window = meta["return_window_days"]
+    warranty_months = meta["warranty_months"]
+    product_name = meta["product_name"]
+    category = meta["category"]
+
     if reason and reason.lower() in ("defective", "broken", "damaged"):
-        return {"eligible": False, "reason": _defective_reason(o, now),
-                "details": "Defective and damaged item claims require review by our support team.",
-                "available_action": None, "check_kb": True, "requires_escalation": True}
+        defective_reason = _defective_reason(o, now)
+        if defective_reason == "defective_within_return_window":
+            detail = (
+                f"Defective item within the {return_window}-day return window "
+                f"({days_since} days since delivery). "
+                f"Replacement or full refund available."
+            )
+        elif defective_reason == "defective_within_warranty":
+            detail = (
+                f"Outside the {return_window}-day return window "
+                f"({days_since} days since delivery). "
+                f"Within {warranty_months}-month warranty period. "
+                f"Warranty claim applies."
+            )
+        else:
+            detail = (
+                f"Outside the {return_window}-day return window "
+                f"({days_since} days since delivery) "
+                f"and outside {warranty_months}-month warranty. No coverage."
+            )
+        return {
+            "eligible": False,
+            "reason": defective_reason,
+            **meta,
+            "detail": detail,
+            "details": "Defective and damaged item claims require review by our support team.",
+            "available_action": None,
+            "check_kb": True,
+            "requires_escalation": True,
+        }
+
     status = o.get("status", "placed")
     if status == "return_in_progress":
         return {"eligible": False, "reason": "already_in_progress",
+                **meta,
+                "detail": f"A return is already in progress for {product_name}.",
                 "details": "A return has already been initiated for this order. "
                            "Check your email for the prepaid return label.",
                 "available_action": None}
     if status == "returned":
         return {"eligible": False, "reason": "already_returned",
+                **meta,
+                "detail": f"{product_name} has already been returned.",
                 "details": "This order has already been returned.", "available_action": None}
     if status == "refunded":
         return {"eligible": False, "reason": "already_refunded",
+                **meta,
+                "detail": f"{product_name} has already been refunded.",
                 "details": "This order has already been refunded.", "available_action": None}
     if status != "delivered":
         return {"eligible": False, "reason": "wrong_status",
+                **meta,
+                "detail": f"Cannot return — order status is '{status}', not delivered.",
                 "details": f"Only delivered orders can be returned. "
                            f"This order has status '{status}'.",
                 "available_action": None}
+
     # Return window check
-    dt = _delivery_date(o)
-    if dt:
-        days_since = (now - dt).days
-        return_window = _order_return_window_days(o)
-        if days_since > return_window:
-            return {"eligible": False, "reason": "outside_return_window",
-                    "details": f"The return window for this order has passed "
-                               f"({return_window} days). "
-                               "If your item is defective, please contact us — "
-                               "defective items are handled separately.",
-                    "available_action": None}
+    if days_since is not None and days_since > return_window:
+        return {"eligible": False, "reason": "outside_return_window",
+                **meta,
+                "detail": (
+                    f"Return window closed. {return_window}-day window expired "
+                    f"({days_since} days since delivery)."
+                ),
+                "details": f"The return window for this order has passed "
+                           f"({return_window} days). "
+                           "If your item is defective, please contact us — "
+                           "defective items are handled separately.",
+                "available_action": None}
+
     return {"eligible": True, "reason": None,
+            **meta,
+            "detail": (
+                f"{product_name} ({category}) is eligible for return. "
+                f"{days_since} days since delivery, within {return_window}-day window."
+            ),
             "details": "This order is eligible for a return.", "available_action": None,
             "check_kb": True}
 
@@ -177,13 +258,22 @@ def _mock_track_order(params: dict, mock: dict) -> dict:
     elif o.get("item"):
         items = [{"product": o["item"], "quantity": 1, "price": float(o.get("total", 0.0))}]
 
+    status = o.get("status", "placed")
+    product_names = ", ".join(i["product"] for i in items) or "Unknown item"
+    detail = f"{product_names} — status: {status}."
+    if o.get("delivered_date"):
+        detail += f" Delivered {o['delivered_date']}."
+    elif o.get("eta"):
+        detail += f" Estimated delivery: {o['eta']}."
+
     result = {
         "success": True,
         "order_id": str(o.get("id", "")),
-        "status": o.get("status", "placed"),
+        "status": status,
         "total": float(o.get("total", 0.0)),
         "placed_at": o.get("placed_at") or o.get("placed_date"),
         "items": items,
+        "detail": detail,
     }
     if o.get("tracking"):
         result["tracking_number"] = o["tracking"]
@@ -201,7 +291,11 @@ def _mock_check_cancel_eligibility(params: dict, mock: dict) -> dict:
         if err:
             return err
         check = _cancel_eligibility(o.get("status", "placed"))
-        return {"success": True, "order_id": str(o["id"]), **check}
+        product_name = (_item_names(o) or ["Unknown item"])[0]
+        return {"success": True, "order_id": str(o["id"]),
+                "product_name": product_name,
+                "order_status": o.get("status", "placed"),
+                **check}
 
     orders = mock.get("orders", [])
     if not orders:
@@ -210,7 +304,10 @@ def _mock_check_cancel_eligibility(params: dict, mock: dict) -> dict:
     for o in orders:
         check = _cancel_eligibility(o.get("status", "placed"))
         if check["eligible"]:
-            eligible.append({"order_id": str(o["id"]), "status": o.get("status"), **check})
+            product_name = (_item_names(o) or ["Unknown item"])[0]
+            eligible.append({"order_id": str(o["id"]),
+                             "product_name": product_name,
+                             "order_status": o.get("status"), **check})
     return {"success": True, "eligible_orders": eligible}
 
 
@@ -248,8 +345,13 @@ def _mock_cancel_order(params: dict, mock: dict, actions_taken: list, now: datet
 
     check = _cancel_eligibility(o.get("status", "placed"))
     if not check["eligible"]:
+        product_name = (_item_names(o) or ["Unknown item"])[0]
         return {"success": False, "reason": check["reason"],
-                "error": check["details"], "available_action": check["available_action"]}
+                "product_name": product_name,
+                "order_status": o.get("status", "placed"),
+                "error": check["details"],
+                "detail": check["detail"],
+                "available_action": check["available_action"]}
 
     reason = params.get("reason")
     if not reason:
@@ -266,9 +368,12 @@ def _mock_cancel_order(params: dict, mock: dict, actions_taken: list, now: datet
                             "items": _item_names(o)}}
 
     refund_amount = float(o.get("total", 0.0))
+    product_name = (_item_names(o) or ["Unknown item"])[0]
     return {"success": True, "order_id": oid,
+            "product_name": product_name,
             "refund_id": "mock-refund-id",
             "refund_amount": refund_amount,
+            "detail": f"Order cancelled. Refund of ${refund_amount:.2f} issued to original payment method.",
             "message": f"Order cancelled successfully. A refund of ${refund_amount:.2f} "
                        "has been issued to your original payment method."}
 
@@ -283,7 +388,14 @@ def _mock_initiate_return(params: dict, mock: dict, actions_taken: list, now: da
     check = _return_eligibility(o, reason, now)
     if not check["eligible"]:
         result = {"success": False, "reason": check["reason"],
-                  "error": check["details"], "available_action": check["available_action"]}
+                  "error": check["details"],
+                  "detail": check.get("detail", ""),
+                  "available_action": check["available_action"]}
+        # Pass through all meta fields so the agent has full context on ineligibility
+        for k in ("product_name", "category", "days_since_delivery",
+                  "return_window_days", "warranty_months"):
+            if k in check:
+                result[k] = check[k]
         if check.get("requires_escalation"):
             result["requires_escalation"] = True
         if check.get("check_kb"):
@@ -303,14 +415,20 @@ def _mock_initiate_return(params: dict, mock: dict, actions_taken: list, now: da
                 "details": {"order_id": oid, "items": _item_names(o), "reason": reason}}
 
     total = float(o.get("total", 0.0))
+    product_name = (_item_names(o) or ["Unknown item"])[0]
     if total > 50:
         return {"success": True, "order_id": oid,
+                "product_name": product_name,
                 "refund_id": "mock-refund-id",
-                "pending_review": True}
+                "pending_review": True,
+                "detail": f"Return for {product_name} initiated. Order total ${total:.2f} requires manual review before refund is issued."}
 
     label_id = f"RETURN-{str(uuid.uuid4())[:8].upper()}"
-    return {"success": True, "order_id": oid, "return_label": label_id,
+    return {"success": True, "order_id": oid,
+            "product_name": product_name,
+            "return_label": label_id,
             "refund_id": "mock-refund-id",
+            "detail": f"Return initiated for {product_name}. Prepaid label {label_id} emailed.",
             "message": f"Return initiated. A prepaid return label ({label_id}) has been "
                        "emailed to you. Once we receive your item, your refund will be processed."}
 
@@ -319,27 +437,35 @@ def _mock_get_refund_status(params: dict, mock: dict) -> dict:
     order_id = params.get("order_id")
     refunds = mock.get("refunds", [])
     if order_id:
-        # Verify the order exists in mock data
         o, err = _get_order(mock, order_id)
         if err:
             return err
         refunds = [r for r in refunds if str(r.get("order_id", "")) == str(order_id)]
     if not refunds:
-        return {"success": True, "refunds": [], "check_kb": True}
+        return {"success": True, "refunds": [], "check_kb": True,
+                "detail": "No refunds found for this account."}
+
+    refund_list = []
+    for r in refunds:
+        amount = float(r.get("amount", 0.0))
+        status = r.get("status", "approved")
+        detail = f"Refund of ${amount:.2f} — status: {status}."
+        if r.get("created_at"):
+            detail += f" Requested {r['created_at']}."
+        refund_list.append({
+            "refund_id": str(r.get("refund_id", "mock-refund-id")),
+            "order_id": str(r.get("order_id", "")),
+            "amount": amount,
+            "status": status,
+            "reason": r.get("reason", "other"),
+            "created_at": r.get("created_at"),
+            "detail": detail,
+        })
+
     return {
         "success": True,
         "check_kb": True,
-        "refunds": [
-            {
-                "refund_id": str(r.get("refund_id", "mock-refund-id")),
-                "order_id": str(r.get("order_id", "")),
-                "amount": float(r.get("amount", 0.0)),
-                "status": r.get("status", "approved"),
-                "reason": r.get("reason", "other"),
-                "created_at": r.get("created_at"),
-            }
-            for r in refunds
-        ],
+        "refunds": refund_list,
     }
 
 

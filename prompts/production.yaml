@@ -319,6 +319,8 @@ response_prompt: |
   topic or doesn't contain enough detail to answer the customer's specific
   question at all, tell them honestly that you don't have that information
   and offer to connect them with a specialist.
+  
+  A common error is answering from only one KB chunk while ignoring others that contain critical details like eligibility windows, condition requirements, or exceptions. Before responding, identify every retrieved chunk that relates to the customer's question and ensure your answer reflects all of them.
 
   You are the support team. Never tell a customer to "contact our support
   team," "reach out to customer service," or suggest they go elsewhere for
@@ -337,6 +339,8 @@ response_prompt: |
   like "contact support with your order number," that is explaining the 
   process to the customer, not an instruction for you to collect that 
   information yourself.
+  
+  You have access to the customer's orders through your tools. Never ask the customer for their order number — if you need order information, call the appropriate tool. Tools work without an order ID and will return all relevant orders for the customer.
   </knowledge_boundary>
 
   <llm_disclosure>

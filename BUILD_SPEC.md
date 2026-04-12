@@ -225,6 +225,7 @@ Note: categories `gift_cards`, `digital`, `personalized`, `perishable`, and `haz
 | chunk_index | INT | Position within source document |
 | embedding | VECTOR(1536) | pgvector column, dimension matches embedding model |
 | created_at | TIMESTAMP | |
+| chunk_tsv | TSVECTOR | Populated via to_tsvector('english', chunk_text) on insert/update. GIN indexed. |
 
 ### Indexes
 Create these from day one — they support the core query patterns:
@@ -254,6 +255,9 @@ CREATE INDEX idx_kb_embedding ON kb_chunks USING hnsw (embedding vector_cosine_o
 
 -- KB: re-ingestion cleanup
 CREATE INDEX idx_kb_chunks_document ON kb_chunks(document_id);
+
+-- KB: keyword search for hybrid retrieval
+CREATE INDEX idx_kb_chunks_tsv ON kb_chunks USING gin (chunk_tsv);
 ```
 
 ---
@@ -390,10 +394,21 @@ The tool knows its own limitations; policy content stays in the KB as single sou
 
 Script at `backend/ingestion/ingest.py`. Run manually for demo.
 
-1. Read documents from `docs/kb/` directory (markdown, text, PDF)
-2. Split into chunks: 300-500 tokens per chunk, 50 token overlap between chunks
+1. Read documents from `docs/kb/` directory (markdown)
+2. Split on `##` headers — each section becomes one chunk. Prepend the article title (`#`) and section header (`##`) to each chunk before embedding, e.g. "Returns and Refunds > Condition Requirements for Returns\n\nTo qualify for a return..." This gives the embedding model article-level context without overlap windows.
 3. Generate embeddings via LiteLLM (using the configured embedding model)
-4. Upsert to `kb_articles` table in PostgreSQL with pgvector
+4. Populate `chunk_tsv` tsvector column via `to_tsvector('english', chunk_text)` for keyword search
+5. Upsert to `kb_chunks` table in PostgreSQL with pgvector
+
+## Retrieval strategy
+
+Hybrid search combining semantic similarity (pgvector cosine) and keyword matching (PostgreSQL tsvector + ts_rank), fused with Reciprocal Rank Fusion (RRF).
+
+**How it works:** For each query, two searches run in parallel — semantic (top 20 by cosine similarity) and keyword (top 20 by ts_rank). Results are fused using RRF: each chunk scores `sum(1 / (k + rank))` across both lists, where `k = 60`. Chunks appearing in only one list receive a default rank of `TOP_CANDIDATES + 1` (21) in the missing list, so they are penalized but not zeroed out. Top 6 results by fused score are returned.
+
+**Config:** `HYBRID_SEARCH_ENABLED` flag in `.env` (default: true). When false, falls back to semantic-only search. This enables A/B comparison in evals.
+
+**Logging:** Each returned chunk includes `rrf_score`, `semantic_rank`, and `keyword_rank` in LangSmith trace metadata for retrieval diagnostics.
 
 ### Demo KB content to generate
 Create synthetic e-commerce KB documents covering:

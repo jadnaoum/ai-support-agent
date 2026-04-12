@@ -60,12 +60,9 @@ async def ingest_file(db: AsyncSession, path: Path) -> int:
     db.add(doc)
     await db.flush()  # get doc.id
 
-    # Chunk the content.
-    # Lookup-table articles (one independent topic per H2 section) use heading-aware
-    # splitting so each limitation gets its own embedding rather than being diluted
-    # across a multi-topic token-bounded chunk.
-    heading_split_files = {"business_limitations.md"}
-    chunks = chunk_text(content, split_on_headings=(filename in heading_split_files))
+    # All KB articles use heading-aware splitting: each ## section becomes one chunk,
+    # prepended with "Article Title > Section Title" for embedding context.
+    chunks = chunk_text(content, split_on_headings=True)
     if not chunks:
         await db.commit()
         return 0
@@ -89,6 +86,16 @@ async def ingest_file(db: AsyncSession, path: Path) -> int:
         for i, (chunk, embedding) in enumerate(zip(chunks, embeddings))
     ]
     db.add_all(chunk_rows)
+    await db.flush()
+
+    # Populate tsvector for full-text (keyword) search
+    await db.execute(
+        text(
+            "UPDATE kb_chunks SET chunk_tsv = to_tsvector('english', chunk_text)"
+            " WHERE document_id = :doc_id"
+        ),
+        {"doc_id": doc.id},
+    )
     await db.commit()
 
     return len(chunk_rows)

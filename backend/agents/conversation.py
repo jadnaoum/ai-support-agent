@@ -453,7 +453,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 await log_output_guard_blocked(_db, _conv_id, response, out_guard["reason"])
                 await _db.commit()
             return {
-                **await _do_escalate("policy_exception", state, config),
+                **await _do_escalate(out_guard["reason"], state, config),
                 "confidence": confidence,
                 "inferred_intent": intent,
                 "consecutive_blocks": 0,
@@ -537,7 +537,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             await log_output_guard_blocked(_db, _conv_id, response, out_guard["reason"])
             await _db.commit()
         return {
-            **await _do_escalate("policy_exception", state, config),
+            **await _do_escalate(out_guard["reason"], state, config),
             "confidence": 0.85,
         }
 

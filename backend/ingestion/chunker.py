@@ -32,28 +32,41 @@ def chunk_text(
     # --- Heading-aware mode ---
     if split_on_headings:
         lines = text.splitlines()
-        title = ""
+
+        # Extract H1 title text (strip the leading "# ")
+        title_text = ""
         for line in lines:
             if line.startswith("# ") and not line.startswith("## "):
-                title = line.strip()
+                title_text = line[2:].strip()
                 break
 
         chunks: list[str] = []
-        current: list[str] = []
+        current_header = ""
+        current_body: list[str] = []
+        in_section = False
 
         for line in lines:
-            if line.startswith("## ") and current:
-                chunk = "\n".join(current).strip()
-                if chunk:
-                    chunks.append(chunk)
-                current = [title, line] if title else [line]
-            else:
-                current.append(line)
+            if line.startswith("## "):
+                # Finalize previous section
+                if in_section:
+                    body = "\n".join(current_body).strip()
+                    if body:
+                        prefix = f"{title_text} > {current_header}" if title_text else current_header
+                        chunks.append(f"{prefix}\n\n{body}")
+                current_header = line[3:].strip()
+                current_body = []
+                in_section = True
+            elif in_section:
+                current_body.append(line)
+            # Lines before the first ## (H1 title, preamble) are skipped —
+            # they carry no independent retrieval value and dilute embeddings.
 
-        if current:
-            chunk = "\n".join(current).strip()
-            if chunk:
-                chunks.append(chunk)
+        # Finalize last section
+        if in_section:
+            body = "\n".join(current_body).strip()
+            if body:
+                prefix = f"{title_text} > {current_header}" if title_text else current_header
+                chunks.append(f"{prefix}\n\n{body}")
 
         return [c for c in chunks if c]
 

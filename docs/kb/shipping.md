@@ -1,74 +1,93 @@
 # Shipping and Delivery
 
-We offer several shipping options to meet your needs and budget. All orders are processed from our fulfillment center in the continental United States.
+All orders ship from our fulfillment center in the continental United States.
 
 ## Shipping Options and Rates
 
 ### Standard Shipping
-- **Delivery time:** 5–7 business days
-- **Cost:** Free on orders over $50. $4.99 on orders under $50.
-- Available to all US addresses including PO boxes and military APO/FPO addresses.
+- 5–7 business days
+- Free on orders over $50, otherwise $4.99
+- Available to all US addresses including PO boxes and APO/FPO
 
 ### Express Shipping
-- **Delivery time:** 2–3 business days
-- **Cost:** $9.99 flat rate
-- Not available to PO boxes or APO/FPO addresses.
+- 2–3 business days
+- $9.99 flat rate
+- Not available to PO boxes or APO/FPO
 
 ### Overnight Shipping
-- **Delivery time:** 1 business day (next business day delivery)
-- **Cost:** $24.99 flat rate
-- Not available to PO boxes, APO/FPO addresses, Hawaii, Alaska, or US territories.
-- Order must be placed before 2:00 PM Eastern Time to ship same day.
+- Next business day delivery
+- $24.99 flat rate
+- Not available to PO boxes, APO/FPO, Hawaii, Alaska, or US territories
+- Order must be placed before 2:00 PM ET to ship same day
 
 ### International Shipping
-- **Delivery time:** 10–21 business days depending on destination country
-- **Cost:** Calculated at checkout based on destination and package weight
-- Customs duties and import taxes are the responsibility of the recipient and are not included in our shipping charges. These fees are collected by your local customs authority upon delivery.
+- 10–21 business days depending on destination
+- Cost calculated at checkout by destination and weight
+- Customs duties and import taxes are the recipient's responsibility and are not included in shipping charges
 
-## Order Processing
+## Order Processing Times
 
-Orders are processed Monday through Friday. The cutoff time for same-day processing is **2:00 PM Eastern Time**.
+Orders are processed Monday–Friday. Same-day processing cutoff is 2:00 PM Eastern Time.
 
-- Orders placed before 2:00 PM ET on a business day will ship the same day.
-- Orders placed after 2:00 PM ET will ship the next business day.
-- Orders placed on Friday after 2:00 PM ET, or on Saturday or Sunday, will ship on the following Monday.
-- Orders placed on federal holidays will ship on the next business day.
+- Before 2:00 PM ET on a business day → ships same day
+- After 2:00 PM ET → ships next business day
+- Friday after 2:00 PM ET, or weekends → ships Monday
+- Federal holidays → ships next business day
 
-Please note that processing time is separate from shipping transit time. An order placed on Thursday at 3:00 PM with Standard Shipping will ship Friday and arrive 5–7 business days after that.
+Processing time is separate from transit time. An order placed Thursday at 3:00 PM ET with Standard Shipping ships Friday and arrives 5–7 business days after that.
 
 ## Tracking Your Order
 
-Once your order ships, you will receive an automated email with your tracking number within **24 hours of shipment**. The email will include a direct link to the carrier's tracking page.
+A tracking email with a direct carrier link is sent within 24 hours of shipment. If you don't receive it, check spam or find tracking under Order History in your account. Tracking info may take up to 24 hours to appear on the carrier's site.
 
-If you don't receive a tracking email, check your spam folder. You can also find your tracking information by logging into your account and visiting Order History.
+## Stalled or Missing Tracking Updates
 
-Tracking information may take up to 24 hours to update on the carrier's website after you receive the tracking email.
+Tracking can pause for 2–3 days during transit, especially during high-volume periods. This is normal. If tracking hasn't updated for 7 or more business days and the estimated delivery date has passed, contact support.
 
-## Lost or Missing Packages
+## Lost Packages
 
-If your tracking shows delivered but you have not received your package:
+If tracking shows delivered but you haven't received it: check your property and with neighbors, confirm the shipping address, and wait one additional business day (carriers sometimes mark delivered early). If still missing, contact support.
 
-1. Check around your property and with neighbors.
-2. Confirm the shipping address on your order was correct.
-3. Wait one additional business day — carriers sometimes mark packages as delivered a day early.
-4. If still missing, contact our support team.
+For packages not moving in tracking for 10 or more business days, or confirmed lost by the carrier, we file a carrier claim and either reship or issue a full refund.
 
-For packages that have not moved in tracking for **10 or more business days**, or that the carrier confirms are lost, we will file a carrier claim on your behalf and either reship the order or issue a full refund.
+## Stolen Packages
+
+If your package was stolen after delivery:
+1. File a police report and get the report number.
+2. Contact support with your order number, delivery confirmation details, and police report number.
+3. We file a carrier claim on your behalf.
+4. Resolution typically takes 5–7 business days — we may reship or refund depending on the carrier investigation.
+
+We cannot process stolen package claims without a police report.
 
 ## Address Changes
 
-Address changes can only be made **before your order ships**. Once an order is in transit, we cannot redirect it. To request an address change, contact support immediately with your order number and the corrected address.
+Address changes are only possible before your order ships. Once in transit, we cannot redirect it. Contact support immediately with your order number and corrected address.
 
-If a package is returned to us due to an incorrect or undeliverable address, we will contact you to arrange reshipment. A reshipping fee may apply.
+If a package is returned to us due to an incorrect or undeliverable address, we'll contact you to arrange reshipment. A reshipping fee may apply.
 
-## PO Boxes and APO/FPO Addresses
+## PO Boxes and APO/FPO
 
-Standard shipping is available to PO boxes and US military APO/FPO addresses. Express and Overnight shipping are not available to these address types. International shipping restrictions may also apply to some APO/FPO destinations.
+Standard shipping is available to PO boxes and APO/FPO addresses. Express and Overnight are not. Some APO/FPO destinations may have international shipping restrictions.
+
+## US Territories
+
+We ship to all US territories (Puerto Rico, Guam, etc.) via Standard shipping. Express and Overnight are not available. Delivery times may be longer than mainland estimates.
 
 ## Signature Requirements
 
-Orders over $200 may require an adult signature upon delivery. You will be notified at checkout if your order requires a signature. If you are not available at the time of delivery, the carrier will leave a notice with instructions for rescheduling or picking up at a local facility.
+Orders over $200 may require an adult signature. You'll be notified at checkout. If you're unavailable, the carrier leaves instructions for rescheduling or pickup at a local facility.
 
 ## Shipping Damage
 
-If your package arrives visibly damaged, take photos before opening and contact us within **48 hours of delivery**. We will file a damage claim with the carrier and arrange for a replacement or refund.
+If your package arrives visibly damaged, take photos before opening and contact support within 48 hours of delivery. We'll file a damage claim and arrange a replacement or refund.
+
+## Gift Wrapping
+
+Gift wrapping is available at checkout for $4.99 per order. You can include a personalized message (up to 150 characters) at no extra cost. Gift-wrapped orders come in branded tissue paper inside a gift box with ribbon. The packing slip will not show prices.
+
+## Frequently Asked Questions — Shipping
+
+### My tracking hasn't moved in days. Is my package lost?
+
+Tracking pauses of 2–3 days are normal during transit. If it's been 7+ business days with no update and the delivery date has passed, contact support and we'll investigate with the carrier.

@@ -1,12 +1,11 @@
 # Product Warranties
 
-We stand behind the quality of the products we sell. Here's a complete overview of warranty coverage by product category.
+Warranty claims apply when a defect appears after the return window has closed but the item is still within its warranty period. If the item is still within the return window (30 days standard, 14 days electronics), see the Returns and Refunds article instead — the process and requirements are different.
 
-## Warranty Coverage by Category
+## Warranty Periods by Product
 
 ### Electronics
-
-| Product | Warranty Period |
+| Product | Warranty |
 |---|---|
 | Laptops | 12 months |
 | Smartphones | 12 months |
@@ -17,8 +16,7 @@ We stand behind the quality of the products we sell. Here's a complete overview 
 | Portable speakers | 6 months |
 
 ### Home Goods
-
-| Product | Warranty Period |
+| Product | Warranty |
 |---|---|
 | Coffee makers | 12 months |
 | Blenders and food processors | 12 months |
@@ -27,81 +25,55 @@ We stand behind the quality of the products we sell. Here's a complete overview 
 | Kitchen scales | 6 months |
 
 ### Accessories
-
-| Product | Warranty Period |
-|---|---|
-| Phone cases | No warranty (covered by return policy only) |
-| Laptop bags and sleeves | No warranty |
-| Screen protectors | No warranty |
-| USB hubs | 6 months |
+Phone cases, laptop bags/sleeves, and screen protectors have no warranty — they are covered only by the return policy.
 
 ### Clothing and Apparel
-
-Clothing items do not carry a warranty. They are covered only by our standard **30-day return policy**. Manufacturing defects discovered within 30 days of delivery are eligible for a full return or exchange.
+No warranty. Covered only by the standard 30-day return policy. Manufacturing defects within 30 days of delivery qualify for a full return.
 
 ## What the Warranty Covers
 
-Our warranty covers **manufacturing defects** — failures that occur during normal use as a result of defective materials or workmanship. Examples of covered issues include:
-
-- Device does not power on out of the box
-- Screen has dead pixels or display artifacts not caused by physical impact
-- Battery drains abnormally fast from the first week of use
-- Mechanical buttons or zippers that fail under normal use
-- Appliances that stop working within the warranty period under normal household use
+Manufacturing defects — failures during normal use caused by defective materials or workmanship. Examples: device won't power on, dead pixels not from impact, abnormal battery drain from first week, mechanical buttons or zippers failing under normal use, appliances stopping under normal household use.
 
 ## What the Warranty Does Not Cover
 
-The warranty does **not** cover damage caused by:
-
 - Physical damage (drops, cracks, dents, bent frames)
-- Liquid damage or water exposure (except for products rated waterproof)
+- Liquid damage (except products rated waterproof)
 - Unauthorized modifications or repairs
-- Use of non-approved accessories or power adapters
+- Non-approved accessories or power adapters
 - Normal wear and tear (scratches, worn finish, faded color)
-- Accidental damage of any kind
-- Damage from power surges or improper electrical connections
+- Accidental damage
+- Power surges or improper electrical connections
 
 ## How to File a Warranty Claim
 
-Warranty claims apply when a defect appears after the return window has closed but the item is still within its warranty period. If your item is still within the return window, contact support about a defective item return instead — photo requirements and resolution options differ.
+1. **Contact support** with: your order number, product name and model, description of the issue, and photos or video showing the problem (required for visual defects).
+2. **Tech team review** — our team reviews the claim within 48 business hours and follows up.
+3. **Resolution** — we will send a replacement (most common), issue a full refund if no replacement is available, or request the defective item back first (for high-value items).
 
-To file a warranty claim:
-
-1. **Contact support** via chat or email with the following information:
-   - Your order number
-   - The product name and model
-   - A description of the issue
-   - Photos or a short video showing the problem (required for visual defects)
-
-2. **Tech team review** — Our technical team will review your claim within **48 business hours** and follow up with next steps.
-
-3. **Resolution** — Depending on the issue, we will:
-   - Send a replacement unit (most common outcome for confirmed defects)
-   - Issue a full refund if a replacement is not available
-   - Request the defective item be returned before sending a replacement (for high-value items)
-
-Return shipping for warranty claims is covered by us — we will provide a prepaid label.
+Return shipping for warranty claims is covered by us with a prepaid label.
 
 ## Manufacturer vs. Store Warranty
 
-Some products come with a separate **manufacturer's warranty** in addition to our store warranty. In these cases, you may choose to contact the manufacturer directly for warranty service. The manufacturer warranty may offer additional coverage or longer terms.
+Some products include a separate manufacturer's warranty with potentially different coverage or longer terms. You can use either our store warranty or the manufacturer's during the applicable period.
 
-Our store warranty is always available as an alternative to the manufacturer warranty during the applicable coverage period.
+## Product Failure After Warranty Expires
 
-## Extended Warranty
-
-We do not currently offer extended warranty plans. Our standard warranty terms apply as listed above.
-
-## Warranty Claim Outside the Coverage Period
-
-If your product fails after the warranty period, contact support anyway. While we cannot guarantee coverage, we review out-of-warranty situations case by case and may offer discounted replacement options or repairs through our network of service partners.
+Contact support anyway. We review out-of-warranty situations case by case and may offer discounted replacements or repairs through our service partners.
 
 ## What Voids the Warranty
 
-The following actions void the warranty immediately:
-
 - Opening the device and modifying internal components
 - Flashing unofficial firmware or software
-- Attempting a self-repair that results in further damage
-- Removing, altering, or tampering with the serial number label
-- Using the product in an environment or manner outside of its intended use (e.g., using a home coffee maker in a commercial setting)
+- Self-repair that causes further damage
+- Removing, altering, or tampering with the serial number
+- Using the product outside its intended environment (e.g., home coffee maker in a commercial setting)
+
+## Frequently Asked Questions — Warranties
+
+### Can I get an extended warranty?
+
+No. We do not offer extended warranty plans. All coverage follows the standard terms listed above. If your product fails after the warranty period, contact us — we may offer discounted replacements.
+
+### My item is defective. Should I file a warranty claim or a return?
+
+If the item is still within its return window (30 days, or 14 days for electronics), start a return — see the Returns and Refunds article. Warranty claims are for defects discovered after the return window closes but within the warranty period.
