@@ -537,7 +537,7 @@ def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float,
         verdict_cell.fill = fill_map.get(verdict, FILL_FAIL)
 
         response_text = str(agent_resp.get("response", "") or "")
-        ws.cell(row, col + 1, response_text[:500])
+        ws.cell(row, col + 1, response_text)
 
         ws.cell(row, col + 2, result.get("reasoning", ""))
 
@@ -564,6 +564,15 @@ def _find_tag_col(ws, tag: str) -> "int | None":
     return None
 
 
+def _find_latest_sheet_tag(ws) -> "str | None":
+    """Return the tag name of the rightmost full-run column on a test sheet, or None."""
+    for c in range(ws.max_column, 0, -1):
+        h = ws.cell(2, c).value
+        if h and " ($" in str(h):
+            return str(h).rsplit(" ($", 1)[0]
+    return None
+
+
 def _overwrite_case_cells(ws, verdict_col: int, row: int, case: dict, extra_cols: list = None):
     """Overwrite result cells for a single case in an existing run column."""
     extra_cols = extra_cols or []
@@ -577,7 +586,7 @@ def _overwrite_case_cells(ws, verdict_col: int, row: int, case: dict, extra_cols
     verdict_cell = ws.cell(row, verdict_col, label_map.get(verdict, "FAIL"))
     verdict_cell.fill = fill_map.get(verdict, FILL_FAIL)
 
-    ws.cell(row, verdict_col + 1, str(agent_resp.get("response", "") or "")[:500])
+    ws.cell(row, verdict_col + 1, str(agent_resp.get("response", "") or ""))
     ws.cell(row, verdict_col + 2, result.get("reasoning", ""))
 
     failure_reason = result.get("failure_reason") if verdict == "fail" else None
@@ -1806,9 +1815,16 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
         runner = _SHEET_RUNNERS[sheet_name]
         ws = wb[sheet_name]
 
-        # In --cases mode, find the existing verdict column for this tag (may be None for new tags)
+        # In --cases mode, resolve tag to the latest full-run column on this sheet.
+        # If the given tag has no column here, auto-resolve to the most recent tag that does.
         if cases_filter is not None:
             verdict_col = _find_tag_col(ws, tag)
+            if verdict_col is None:
+                resolved_tag = _find_latest_sheet_tag(ws)
+                if resolved_tag:
+                    print(f"  [--cases] tag '{tag}' not found on '{sheet_name}' — using '{resolved_tag}'")
+                    tag = resolved_tag
+                    verdict_col = _find_tag_col(ws, tag)
 
         total_rows = sum(
             1 for r in range(3, ws.max_row + 1)
@@ -2039,12 +2055,15 @@ def main():
         print("Done.")
         return
 
-    if not args.tag:
-        parser.error("--tag is required unless --reformat is used.")
-
     sheets_filter = [s.strip() for s in args.sheets.split(",") if s.strip()] if args.sheets else []
     cases_filter  = {s.strip() for s in args.cases.split(",") if s.strip()} if args.cases else None
     calibrate = args.calibrate or (args.judge_model.lower() == "opus")
+
+    if not args.tag:
+        if cases_filter:
+            args.tag = "__auto__"  # sentinel; resolved per-sheet inside run_evals
+        else:
+            parser.error("--tag is required unless --reformat or --cases is used.")
 
     asyncio.run(run_evals(
         args.tag, args.desc, sheets_filter, calibrate,

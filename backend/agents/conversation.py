@@ -11,6 +11,8 @@ Two-pass design:
 import json
 import litellm
 
+LLM_TIMEOUT = 30  # seconds per LLM call — prevents hung API requests from stalling the graph
+
 from backend.config import get_settings
 from backend.agents.state import AgentState
 from backend.agents.escalation import handle_escalation, build_context_summary
@@ -72,6 +74,7 @@ async def _classify_intent(state: AgentState, config: dict = None) -> tuple[str,
                 *history_turns,
             ],
             stream=False,
+            request_timeout=LLM_TIMEOUT,
         )
         raw = result.choices[0].message.content.strip()
         # Strip markdown code fences if the LLM wraps the JSON
@@ -120,6 +123,7 @@ async def _generate_response(state: AgentState) -> str:
             messages=messages_for_llm,
             stream=False,
             num_retries=3,
+            request_timeout=LLM_TIMEOUT,
         )
         return result.choices[0].message.content
     except Exception:
@@ -139,6 +143,7 @@ async def _generate_redirect(block_count: int, category: str) -> str:
             model=settings.litellm_model,
             messages=[{"role": "system", "content": system}],
             stream=False,
+            request_timeout=LLM_TIMEOUT,
         )
         return result.choices[0].message.content.strip()
     except Exception:
@@ -167,6 +172,7 @@ async def _generate_emotion_clarification(state: AgentState, clarification_hint:
             messages=messages_for_llm,
             stream=False,
             num_retries=3,
+            request_timeout=LLM_TIMEOUT,
         )
         return result.choices[0].message.content
     except Exception:
@@ -218,6 +224,7 @@ async def _classify_next_step(state: AgentState) -> dict:
                 {"role": "user", "content": last_message},
             ],
             stream=False,
+            request_timeout=LLM_TIMEOUT,
         )
         raw = result.choices[0].message.content.strip()
         # Strip markdown code fences if the LLM wraps the JSON

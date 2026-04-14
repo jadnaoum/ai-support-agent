@@ -6,7 +6,7 @@ Returns deterministic tool responses from mock order data without touching the d
 Production code never imports this module.
 
 Tools covered: track_order, check_cancel_eligibility, check_return_eligibility,
-cancel_order, initiate_return, get_refund_status.
+check_missing_package, cancel_order, initiate_return, get_refund_status.
 """
 import uuid
 from datetime import datetime, timezone
@@ -89,7 +89,7 @@ def _order_meta(o: dict, now: datetime) -> dict:
         "category": category,
         "days_since_delivery": days_since,
         "return_window_days": return_window,
-        "warranty_months": _DEFAULT_WARRANTY_MONTHS,
+        "warranty_months": first_item.get("warranty_months") or _DEFAULT_WARRANTY_MONTHS,
     }
 
 
@@ -145,7 +145,10 @@ def _defective_reason(o: dict, now: datetime) -> str:
     return_window = _order_return_window_days(o)
     if days_since <= return_window:
         return "defective_within_return_window"
-    if days_since <= _DEFAULT_WARRANTY_MONTHS * 30:
+    items = o.get("items") or []
+    first_item = items[0] if items else {}
+    warranty_months = first_item.get("warranty_months") or _DEFAULT_WARRANTY_MONTHS
+    if days_since <= warranty_months * 30:
         return "defective_within_warranty"
     return "defective_no_coverage"
 
@@ -433,6 +436,72 @@ def _mock_initiate_return(params: dict, mock: dict, actions_taken: list, now: da
                        "emailed to you. Once we receive your item, your refund will be processed."}
 
 
+def _mock_check_missing_package(params: dict, mock: dict, now: datetime) -> dict:
+    o, err = _get_order(mock, params.get("order_id"))
+    if err:
+        return err
+
+    status = o.get("status", "placed")
+    if status != "delivered":
+        return {
+            "success": False,
+            "error": f"Order status is '{status}', not delivered. Missing package claims require a delivered order.",
+        }
+
+    items = o.get("items") or []
+    first_item = items[0] if items else {}
+    product_name = first_item.get("name") or o.get("item") or "Unknown item"
+    oid = str(o.get("id", ""))
+
+    dt = _delivery_date(o)
+    if dt:
+        delta = now - dt
+        total_days = delta.days
+        full_weeks, remainder = divmod(total_days, 7)
+        business_days = full_weeks * 5
+        start_weekday = dt.weekday()
+        for i in range(remainder):
+            if (start_weekday + i) % 7 < 5:
+                business_days += 1
+        delivered_date_str = dt.strftime("%Y-%m-%d")
+    else:
+        business_days = 1
+        delivered_date_str = "unknown"
+
+    if business_days < 1:
+        return {
+            "success": True,
+            "order_id": oid,
+            "product_name": product_name,
+            "delivered_date": delivered_date_str,
+            "business_days_since_delivery": business_days,
+            "status": "wait",
+            "requires_escalation": False,
+            "check_kb": True,
+            "detail": (
+                f"Order delivered {delivered_date_str}, less than 1 business day ago. "
+                "Carriers sometimes mark packages as delivered early. "
+                "Customer should wait one additional business day."
+            ),
+        }
+
+    return {
+        "success": True,
+        "order_id": oid,
+        "product_name": product_name,
+        "delivered_date": delivered_date_str,
+        "business_days_since_delivery": business_days,
+        "status": "file_claim",
+        "requires_escalation": True,
+        "check_kb": True,
+        "detail": (
+            f"Order delivered {delivered_date_str}, {business_days} business day(s) ago. "
+            "Eligible for carrier investigation — reship or full refund. "
+            "Requires specialist to file carrier claim."
+        ),
+    }
+
+
 def _mock_get_refund_status(params: dict, mock: dict) -> dict:
     order_id = params.get("order_id")
     refunds = mock.get("refunds", [])
@@ -485,6 +554,7 @@ def mock_tool_call(tool_name: str, params: dict, mock: dict,
         "track_order":               lambda: _mock_track_order(params, mock),
         "check_cancel_eligibility":  lambda: _mock_check_cancel_eligibility(params, mock),
         "check_return_eligibility":  lambda: _mock_check_return_eligibility(params, mock, now),
+        "check_missing_package":     lambda: _mock_check_missing_package(params, mock, now),
         "cancel_order":              lambda: _mock_cancel_order(params, mock, actions_taken, now),
         "initiate_return":           lambda: _mock_initiate_return(params, mock, actions_taken, now),
         "get_refund_status":         lambda: _mock_get_refund_status(params, mock),

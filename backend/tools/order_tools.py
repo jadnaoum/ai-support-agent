@@ -643,6 +643,104 @@ async def get_refund_status(
     }
 
 
+async def check_missing_package(
+    db: AsyncSession,
+    customer_id: str,
+    order_id: str = None,
+    actions_taken: list = None,
+) -> dict:
+    """
+    Read-only: check delivery timing for a missing package claim.
+    Returns wait (< 1 business day since delivery) or file_claim (≥ 1 business day).
+    """
+    if order_id:
+        result = await db.execute(select(Order).where(Order.id == order_id))
+        order = result.scalar_one_or_none()
+        if not order:
+            return {"success": False, "error": f"Order {order_id} not found."}
+        if str(order.customer_id) != customer_id:
+            return {"success": False, "error": "That order does not belong to your account."}
+    else:
+        result = await db.execute(
+            select(Order)
+            .where(Order.customer_id == customer_id)
+            .order_by(Order.created_at.desc())
+            .limit(1)
+        )
+        order = result.scalar_one_or_none()
+        if not order:
+            return {"success": False, "error": "No orders found for this account."}
+
+    if order.status != "delivered":
+        return {
+            "success": False,
+            "error": f"Order status is '{order.status}', not delivered. Missing package claims require a delivered order.",
+        }
+
+    items_result = await db.execute(
+        select(OrderItem, Product)
+        .join(Product, OrderItem.product_id == Product.id)
+        .where(OrderItem.order_id == order.id)
+    )
+    rows = items_result.fetchall()
+    product_name = rows[0].Product.name if rows else "Unknown item"
+
+    delivered_at = order.delivered_at or order.updated_at
+    now = datetime.now(timezone.utc)
+    if delivered_at:
+        if delivered_at.tzinfo is None:
+            delivered_at = delivered_at.replace(tzinfo=timezone.utc)
+        delta = now - delivered_at
+        # Business days: approximate as total days minus weekends
+        total_days = delta.days
+        full_weeks, remainder = divmod(total_days, 7)
+        business_days = full_weeks * 5
+        # Count remaining days, skipping weekends
+        start_weekday = delivered_at.weekday()
+        for i in range(remainder):
+            if (start_weekday + i) % 7 < 5:
+                business_days += 1
+        delivered_date_str = delivered_at.strftime("%Y-%m-%d")
+    else:
+        business_days = 1  # assume eligible if no date available
+        delivered_date_str = "unknown"
+
+    resolved_order_id = str(order.id)
+
+    if business_days < 1:
+        return {
+            "success": True,
+            "order_id": resolved_order_id,
+            "product_name": product_name,
+            "delivered_date": delivered_date_str,
+            "business_days_since_delivery": business_days,
+            "status": "wait",
+            "requires_escalation": False,
+            "check_kb": True,
+            "detail": (
+                f"Order delivered {delivered_date_str}, less than 1 business day ago. "
+                "Carriers sometimes mark packages as delivered early. "
+                "Customer should wait one additional business day."
+            ),
+        }
+
+    return {
+        "success": True,
+        "order_id": resolved_order_id,
+        "product_name": product_name,
+        "delivered_date": delivered_date_str,
+        "business_days_since_delivery": business_days,
+        "status": "file_claim",
+        "requires_escalation": True,
+        "check_kb": True,
+        "detail": (
+            f"Order delivered {delivered_date_str}, {business_days} business day(s) ago. "
+            "Eligible for carrier investigation — reship or full refund. "
+            "Requires specialist to file carrier claim."
+        ),
+    }
+
+
 # ── API-layer tools (not in TOOL_REGISTRY) ────────────────────────────────────
 # Called by chat.py at the API layer and injected as read-only state.
 # See .claude/rules/security.md for why these must never be added to the registry.

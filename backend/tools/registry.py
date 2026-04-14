@@ -12,6 +12,7 @@ from backend.tools.order_tools import (
     cancel_order,
     check_cancel_eligibility,
     check_return_eligibility,
+    check_missing_package,
     initiate_return,
     get_refund_status,
 )
@@ -73,6 +74,14 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
             "reason": {"type": "str", "required": True, "description": f"Return reason: {_REASON_LIST}."},
         },
         handler=initiate_return,
+    ),
+    "check_missing_package": ToolDefinition(
+        name="check_missing_package",
+        description=get_prompt("tool_check_missing_package_description"),
+        parameters={
+            "order_id": {"type": "str", "required": False, "description": "Order ID to check. Omit to use most recently delivered order."},
+        },
+        handler=check_missing_package,
     ),
     "get_refund_status": ToolDefinition(
         name="get_refund_status",

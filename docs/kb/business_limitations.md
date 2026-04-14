@@ -2,17 +2,13 @@
 
 These are hard limits that apply across all channels — support, account portal, and self-service. No one can override them.
 
-## Order Modifications After Placement
+## Changing an Order (Wrong Size, Wrong Item, Exchanges)
 
-Orders cannot be modified once placed. Items cannot be added, removed, or swapped. The only option is to cancel the order (if it hasn't shipped) and place a new one. Support cannot edit the contents of an existing order.
+Orders cannot be modified once placed — items, sizes, and quantities cannot be changed, and direct exchanges are not available. If the order has not shipped yet, cancel it and place a new one. If it has been delivered, return the item for a refund and place a new order.
 
 ## Combining Separate Orders
 
 Separate orders cannot be merged into one order or one shipment record. Each order is processed independently with its own tracking number. If both orders are unshipped, we can try to coordinate timing, but they remain separate orders.
-
-## Direct Exchanges
-
-We do not process direct exchanges. To get a different size, color, or item, return the original for a refund and place a new order. See the Returns and Refunds article for how to start a return.
 
 ## Reversing a Cancellation
 

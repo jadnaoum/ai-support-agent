@@ -104,6 +104,12 @@ intent_prompt: |
     Customer signal: Requesting to return an item. The customer wants to send it
     back, not just ask about the possibility.
     Extract: order_id, reason (one of: {reason_enum}; null if not stated)
+
+  check_missing_package
+    Purpose: Check delivery timing and determine next steps for a missing package.
+    Customer signal: Package marked delivered but not received, missing package,
+    stolen package, "where is my order" when tracking shows delivered.
+    Extract: order_id
   </tool_catalog>
 
   <selection_principles>
@@ -344,7 +350,8 @@ response_prompt: |
   process to the customer, not an instruction for you to collect that 
   information yourself.
   
-  You have access to the customer's orders through your tools. Never ask the customer for their order number — if you need order information, call the appropriate tool. Tools work without an order ID and will return all relevant orders for the customer.
+  Do not ask the customer for their order number. Answer from the KB 
+  content and tool results already in the context section.
   </knowledge_boundary>
 
   <llm_disclosure>
@@ -455,7 +462,7 @@ response_prompt: |
   specific answer rather than listing every possible scenario. The customer
   does not need a FAQ — they need their answer.
   
-  After answering the customer's question, end with either a concrete offer 
+  After answering the customer's question, end with either a concrete offer you can do right now 
   ('Would you like me to cancel that for you?') or a clear question that 
   moves the conversation forward ('Would you like to go ahead with the 
   return?'). Give the customer something to respond to.
@@ -639,6 +646,13 @@ tool_initiate_return_description: >
   return_in_progress and generates a prepaid return label. Does not process a refund —
   the refund is issued after the warehouse receives the item. Defective/damaged reasons
   escalate instead of proceeding through the standard return flow.
+
+tool_check_missing_package_description: >
+  Check delivery timing for a missing package claim. Returns whether the
+  customer should wait (delivered < 1 business day ago) or whether a carrier
+  claim should be filed (delivered ≥ 1 business day ago, requires escalation).
+  Use when the customer reports a package as missing or not received despite
+  tracking showing delivered.
 
 tool_get_refund_status_description: |
   Look up the status of a refund for an order. Use when a customer asks about
@@ -927,14 +941,15 @@ loop_decision_prompt: |
   Do not look up KB for information already present in the context.
 
   Make another tool call ("action") only when ALL of these are true:
-  - The result explicitly points to a different tool as the next step
-    (e.g. available_action: "initiate_return").
-  - The customer's original message already expressed intent for that
-    follow-up action (e.g. they asked for a refund AND to return the item).
-  - Calling the tool now would save the customer a round-trip rather than
-    presenting an option they'd obviously accept.
-  When in doubt between "action" and "respond", choose "respond" — let
-  the customer decide rather than acting on their behalf.
+  Make another tool call ("action") when any of these are true:
+  - The result includes an available_action hint pointing to a different tool.
+  - The KB result describes different paths depending on order state and a
+    tool call would resolve which path applies.
+  - The customer's question cannot be fully answered without data the tool
+    would provide.
+
+  When in doubt between "action" and "respond", prefer whichever gives the
+  customer a concrete answer in this turn.
   </decision_signals>
 
   <output_format>

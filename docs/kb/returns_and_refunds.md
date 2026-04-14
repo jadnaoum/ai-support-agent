@@ -86,3 +86,7 @@ Check the refund confirmation email for the exact amount and payment method. The
 ### Can I return a gift?
 
 Yes. Gift recipients can return items for store credit without the original purchaser. Contact support with the order number from the packing slip and we'll generate a return label.
+
+### Are customs duties refunded on international returns?
+
+No. Customs duties and import taxes are collected by your local customs authority, not by us. We cannot refund fees we did not collect.

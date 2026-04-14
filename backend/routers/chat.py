@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
@@ -166,14 +167,20 @@ async def stream_response(
 
     # 6. SSE event generator
     async def event_generator():
-        # Accumulate state updates across all nodes in the graph
-        final_output: dict = {}
         try:
             config = {"configurable": {"db": db, "conversation_id": conversation_id}}
-            async for chunk in graph.astream(initial_state, config=config, stream_mode="updates"):
-                for node_output in chunk.values():
-                    if isinstance(node_output, dict):
-                        final_output.update(node_output)
+            try:
+                final_output = await asyncio.wait_for(
+                    graph.ainvoke(initial_state, config=config),
+                    timeout=90,
+                )
+            except asyncio.TimeoutError:
+                yield ServerSentEvent(
+                    data="Something went wrong on our end — please try again in a moment.",
+                    event="token",
+                )
+                yield ServerSentEvent(data="", event="done")
+                return
 
             # Stream response word-by-word
             response_text = final_output.get("response", "")
@@ -452,7 +459,13 @@ async def test_chat(
         "tags": tags,
         "metadata": metadata,
     }
-    final_state = await graph.ainvoke(initial_state, config=config)
+    try:
+        final_state = await asyncio.wait_for(
+            graph.ainvoke(initial_state, config=config),
+            timeout=90,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="api_timeout")
 
     inferred_intent = final_state.get("inferred_intent") or "general"
 
