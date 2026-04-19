@@ -422,8 +422,11 @@ async def test_chat(
     # prevent accidental override of routing fields (pending_service etc.).
     # mock_agent_state["actions_taken"] maps to prior_turn_actions so that the
     # service_ran gate (which checks actions_taken) is not triggered by historical entries.
+    # action_results is intentionally excluded — it is always [] at turn start in production
+    # (cleared between turns). Injecting prior-turn results would give the agent context
+    # it would never have in a real conversation.
     _ALLOWED_MOCK_STATE_KEYS = {
-        "action_results", "service_call_count",
+        "service_call_count",
         "retrieved_context", "consecutive_blocks", "last_clarification_source",
         "customer_context",
     }

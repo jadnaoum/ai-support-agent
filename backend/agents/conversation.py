@@ -9,13 +9,16 @@ Two-pass design:
           then generate the customer-facing response.
 """
 import json
+import logging
 import litellm
+
+logger = logging.getLogger(__name__)
 
 LLM_TIMEOUT = 30  # seconds per LLM call — prevents hung API requests from stalling the graph
 
 from backend.config import get_settings
 from backend.agents.state import AgentState
-from backend.agents.escalation import handle_escalation, build_context_summary
+from backend.agents.escalation import handle_escalation, build_context_summary, run_escalation_side_effects
 from backend.guardrails.input_guard import check_input, log_blocked_attempt
 from backend.guardrails.output_guard import check_output, log_output_guard_blocked
 from prompts.loader import get_prompt
@@ -57,6 +60,7 @@ async def _classify_intent(state: AgentState, config: dict = None) -> tuple[str,
     reasoning is non-empty only when debug_classifier is set in configurable.
     """
     debug = bool((config or {}).get("configurable", {}).get("debug_classifier"))
+    raw = ""
     try:
         role_map = {"customer": "user", "agent": "assistant"}
         history_turns = [
@@ -87,7 +91,31 @@ async def _classify_intent(state: AgentState, config: dict = None) -> tuple[str,
         end = raw.rfind("}")
         if start != -1 and end != -1:
             raw = raw[start:end + 1]
-        parsed = json.loads(raw.strip())
+        try:
+            parsed = json.loads(raw.strip())
+        except Exception:
+            # Multiple JSON blocks (model self-correction): depth-count from first `{`
+            # to find the matching `}` and use only the first complete object.
+            first_start = raw.find("{")
+            if first_start != -1:
+                depth = 0
+                first_end = -1
+                for i, ch in enumerate(raw[first_start:], start=first_start):
+                    if ch == "{":
+                        depth += 1
+                    elif ch == "}":
+                        depth -= 1
+                        if depth == 0:
+                            first_end = i
+                            break
+                if first_end != -1:
+                    first_block = raw[first_start:first_end + 1]
+                    parsed = json.loads(first_block)
+                    logger.info("_classify_intent recovered first JSON block after parse failure")
+                else:
+                    raise
+            else:
+                raise
         intent = parsed.get("intent", "general")
         confidence = float(parsed.get("confidence", 0.8))
         action_details = {}
@@ -102,7 +130,8 @@ async def _classify_intent(state: AgentState, config: dict = None) -> tuple[str,
             }
         reasoning = parsed.get("reasoning", "") if debug else ""
         return intent, confidence, action_details, reasoning
-    except Exception:
+    except Exception as e:
+        logger.warning("_classify_intent parse failure (%s): raw=%r", type(e).__name__, raw)
         return "general", 0.5, {}, ""
 
 
@@ -220,7 +249,7 @@ async def _classify_next_step(state: AgentState) -> dict:
         result = await litellm.acompletion(
             model=settings.litellm_model,
             messages=[
-                {"role": "system", "content": LOOP_DECISION_PROMPT.format(context_section=context_section)},
+                {"role": "system", "content": LOOP_DECISION_PROMPT.replace("{context_section}", context_section)},
                 {"role": "user", "content": last_message},
             ],
             stream=False,
@@ -546,6 +575,42 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
         return {
             **await _do_escalate(out_guard["reason"], state, config),
             "confidence": 0.85,
+        }
+
+    # Tool-signalled escalation: the last action result carries requires_escalation=True
+    # (e.g. defective/damaged item claims). The LLM has already generated a KB-rich
+    # response with policy details and handoff language — keep that response and fire
+    # the backend side effects (DB record, conversation status) separately.
+    # Other escalation paths (abusive input, output guard, repeated failures, customer
+    # request) use _do_escalate() directly above and never reach this point.
+    if action_results and action_results[-1].get("requires_escalation"):
+        esc_reason = action_results[-1].get("reason") or "defective_item"
+        _db = config.get("configurable", {}).get("db")
+        _conv_id = config.get("configurable", {}).get("conversation_id", "")
+        summary = build_context_summary(
+            messages=state.get("messages") or [],
+            actions_taken=state.get("actions_taken") or [],
+            retrieved_context=retrieved,
+            reason=esc_reason,
+        )
+        await run_escalation_side_effects(esc_reason, {
+            "db": _db,
+            "conversation_id": _conv_id,
+            "confidence": state.get("confidence", 0.0),
+            "messages": state.get("messages") or [],
+            "context_summary": summary,
+        })
+        return {
+            "response": response,
+            "requires_escalation": True,
+            "escalation_reason": esc_reason,
+            "context_summary": summary,
+            "confidence": 0.85,
+            "pending_service": "",
+            "last_clarification_source": "",
+            "actions_taken": (state.get("actions_taken") or []) + [
+                {"service": "escalation_handler", "action": "escalate", "reason": esc_reason}
+            ],
         }
 
     return {

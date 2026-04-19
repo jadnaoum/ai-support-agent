@@ -17,9 +17,10 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import requests
 
@@ -75,6 +76,12 @@ from evals.judges.safety import (  # noqa: E402
     judge_context_retention,
 )
 
+
+# ---------------------------------------------------------------------------
+# Run retention
+# ---------------------------------------------------------------------------
+
+MAX_RUNS_KEPT = 5  # keep this many most-recent run columns per sheet; older runs go to archived_runs.xlsx
 
 # ---------------------------------------------------------------------------
 # Excel colour fills
@@ -158,14 +165,38 @@ def _parse_conversation(raw) -> list:
     ]
 
 
+def resolve_relative_dates(obj):
+    """Recursively resolve $EVAL_DATE-Xd placeholders in a parsed JSON object.
+
+    Each placeholder is replaced with (date.today() - timedelta(days=X)).strftime("%Y-%m-%d").
+    Called on mock_account_state and mock_agent_state before injection into API calls.
+    """
+    if isinstance(obj, str):
+        match = re.fullmatch(r'\$EVAL_DATE-(\d+)d', obj)
+        if match:
+            days = int(match.group(1))
+            return (date.today() - timedelta(days=days)).strftime("%Y-%m-%d")
+        return obj
+    elif isinstance(obj, dict):
+        return {k: resolve_relative_dates(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [resolve_relative_dates(item) for item in obj]
+    return obj
+
+
 def _parse_json_field(raw, default=None):
-    """Parse a JSON string field; return default on failure."""
+    """Parse a JSON string field; return default on failure.
+
+    Also resolves $EVAL_DATE-Xd placeholders so date-sensitive mock fields
+    stay current without hardcoded values in the spreadsheet.
+    """
     if raw is None:
         return default if default is not None else {}
     if isinstance(raw, (dict, list)):
-        return raw
+        return resolve_relative_dates(raw)
     try:
-        return json.loads(str(raw))
+        parsed = json.loads(str(raw))
+        return resolve_relative_dates(parsed)
     except (json.JSONDecodeError, TypeError):
         return default if default is not None else {}
 
@@ -549,6 +580,82 @@ def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float,
 
         for j, (_, key) in enumerate(extra_cols):
             ws.cell(row, col + 6 + j, str(agent_resp.get(key) or ""))
+
+
+def _trim_old_runs(wb, sheet_name: str) -> None:
+    """
+    If the sheet has more than MAX_RUNS_KEPT run columns, archive the oldest
+    run to evals/archived_runs.xlsx and delete it from the live workbook.
+    Called once per sheet after _append_run_column writes a new run.
+    """
+    import os
+    ws = wb[sheet_name]
+
+    # Find run groups: cols where row-2 header matches '<tag> ($N.NNN)'
+    last_col = _true_last_col(ws)
+    run_starts = []
+    for c in range(1, last_col + 1):
+        h = ws.cell(2, c).value
+        if h and re.search(r'\(\$[\d.]+\)', str(h)):
+            tag = re.sub(r'\s*\(\$[\d.]+\)\s*$', '', str(h)).strip()
+            run_starts.append((c, tag))
+
+    if len(run_starts) <= MAX_RUNS_KEPT:
+        return
+
+    # Archive oldest run (leftmost)
+    oldest_start, oldest_tag = run_starts[0]
+    next_start = run_starts[1][0] if len(run_starts) > 1 else last_col + 1
+    oldest_end = next_start - 1
+    width = oldest_end - oldest_start + 1
+
+    # Load or create archive workbook
+    archive_path = os.path.join(EVALS_DIR, "archived_runs.xlsx")
+    if os.path.exists(archive_path):
+        wb_arc = openpyxl.load_workbook(archive_path)
+    else:
+        wb_arc = openpyxl.Workbook()
+        wb_arc.remove(wb_arc.active)
+
+    if sheet_name not in wb_arc.sheetnames:
+        ws_arc = wb_arc.create_sheet(sheet_name)
+    else:
+        ws_arc = wb_arc[sheet_name]
+
+    # Find last used col in archive (based on row-2 headers)
+    arc_last = 0
+    for c in range(ws_arc.max_column, 0, -1):
+        if ws_arc.cell(2, c).value is not None:
+            arc_last = c
+            break
+
+    # Write test_id column if archive sheet is empty
+    if arc_last == 0:
+        last_data_row = _true_last_row(ws)
+        for r in range(1, last_data_row + 1):
+            ws_arc.cell(r, 1).value = ws.cell(r, 1).value
+        next_arc_col = 2
+    else:
+        next_arc_col = arc_last + 1
+
+    # Copy run columns to archive
+    last_data_row = _true_last_row(ws)
+    for r in range(1, last_data_row + 1):
+        for i in range(width):
+            ws_arc.cell(r, next_arc_col + i).value = ws.cell(r, oldest_start + i).value
+
+    wb_arc.save(archive_path)
+
+    # Delete oldest run columns from live sheet (unmerge row-1 label first)
+    to_unmerge = []
+    for mc in ws.merged_cells.ranges:
+        if mc.min_col <= oldest_end and mc.max_col >= oldest_start:
+            to_unmerge.append(str(mc))
+    for ref in to_unmerge:
+        ws.unmerge_cells(ref)
+    ws.delete_cols(oldest_start, width)
+
+    print(f"  Archived run '{oldest_tag}' from {sheet_name} → {archive_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -1630,6 +1737,7 @@ async def _run_judge_only(wb, tag: str, desc: str, target_sheets: list,
 
         _append_run_column(ws, tag, case_results, sheet_judge_cost,
                            extra_cols=_SHEET_EXTRA_COLS.get(sheet_name))
+        _trim_old_runs(wb, sheet_name)
         _add_notes_column(ws)
         _apply_column_visibility(ws, tag)
         _write_run_history_row(rh_ws, run_id, tag, desc, sheet_name,
@@ -1823,8 +1931,7 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
                 resolved_tag = _find_latest_sheet_tag(ws)
                 if resolved_tag:
                     print(f"  [--cases] tag '{tag}' not found on '{sheet_name}' — using '{resolved_tag}'")
-                    tag = resolved_tag
-                    verdict_col = _find_tag_col(ws, tag)
+                    verdict_col = _find_tag_col(ws, resolved_tag)
 
         total_rows = sum(
             1 for r in range(3, ws.max_row + 1)
@@ -1929,6 +2036,7 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
         else:
             _append_run_column(ws, tag, case_results, sheet_total_cost,
                                extra_cols=_SHEET_EXTRA_COLS.get(sheet_name))
+            _trim_old_runs(wb, sheet_name)
             _add_notes_column(ws)
             _apply_column_visibility(ws, tag)
 

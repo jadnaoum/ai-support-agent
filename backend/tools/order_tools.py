@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.models import Order, OrderItem, Product, Refund
-from backend.tools.constants import REASON_VALUES
+from backend.tools.constants import REASON_VALUES, ESCALATION_REASONS
 
 # Accepted reason inputs: all canonical values (map to themselves) plus
 # natural-language synonyms the LLM or customer might supply.
@@ -30,44 +30,23 @@ _NON_RETURNABLE_CATEGORIES = frozenset({
 def _check_cancel_eligibility_sync(order) -> dict:
     """
     Pure function — no DB calls. Returns eligibility result for a located order.
-    Shape: {"eligible": bool, "reason": str|None, "details": str, "available_action": str|None}
+    Shape: {"eligible": bool, "reason": str|None, "available_action": str|None}
     """
     if order.status == "cancelled":
-        return {
-            "eligible": False, "reason": "already_cancelled",
-            "details": "This order is already cancelled.",
-            "available_action": None,
-        }
+        return {"eligible": False, "reason": "already_cancelled", "available_action": None}
     if order.status == "refunded":
-        return {
-            "eligible": False, "reason": "refunded",
-            "details": "This order has already been refunded.",
-            "available_action": None,
-        }
+        return {"eligible": False, "reason": "refunded", "available_action": None}
     if order.status == "returned":
-        return {
-            "eligible": False, "reason": "returned",
-            "details": "This order has already been returned and cannot be cancelled.",
-            "available_action": None,
-        }
+        return {"eligible": False, "reason": "returned", "available_action": None}
     if order.status == "shipped":
         return {
-            "eligible": False, "reason": "shipped",
-            "details": "This order has shipped and cannot be cancelled. You can return it for a refund once it arrives.",
-            "available_action": "check_return_eligibility",
+            "eligible": False, "reason": "shipped", "available_action": None,
+            "next_step": "Customer can return after delivery",
         }
     if order.status == "delivered":
-        return {
-            "eligible": False, "reason": "delivered",
-            "details": "Delivered orders cannot be cancelled. Please request a return/refund instead.",
-            "available_action": "initiate_return",
-        }
+        return {"eligible": False, "reason": "delivered", "available_action": "initiate_return"}
     # placed — eligible
-    return {
-        "eligible": True, "reason": None,
-        "details": "This order can be cancelled.",
-        "available_action": None,
-    }
+    return {"eligible": True, "reason": None, "available_action": None}
 
 
 
@@ -77,15 +56,26 @@ def _check_return_eligibility_sync(order, products, reason=None, now=None) -> di
     Gate sequence for initiate_return: eligibility → reason → confirmation (reason does not affect
     eligibility here — defective claims escalate rather than routing through the return flow,
     because defective items require human judgment on replacement vs. refund).
-    Shape: {"eligible": bool, "reason": str|None, "details": str, "available_action": str|None,
+    Shape: {"eligible": bool, "reason": str|None, "available_action": str|None,
             "check_kb": bool (defective only), "requires_escalation": bool (defective only)}
     """
     if now is None:
         now = datetime.now(timezone.utc)
 
-    # Defective/damaged claims require human review — same escalation as _check_refund_eligibility_sync.
-    # A customer returning a broken item expects a refund or replacement, not just a label.
-    # Human judgment is needed; do not route through the standard return flow.
+    # Duplicate item fulfillment errors require human review — the customer was not charged for
+    # the extra item, so a standard return is the wrong framing. Human judgment is needed to
+    # determine whether to request a return shipment or void the fulfillment error.
+    if reason and reason.lower() == "duplicate_item":
+        return {
+            "eligible": False,
+            "reason": "duplicate_item",
+            "available_action": None,
+            "check_kb": False,
+            "requires_escalation": True,
+        }
+
+    # Defective/damaged claims require human review — a customer returning a broken item
+    # expects a refund or replacement, not just a label. Human judgment is needed.
     if reason and reason.lower() in ("defective", "broken", "damaged"):
         defective_reason = "defective_within_return_window"
         delivered_date = order.delivered_at or order.updated_at
@@ -107,64 +97,31 @@ def _check_return_eligibility_sync(order, products, reason=None, now=None) -> di
         return {
             "eligible": False,
             "reason": defective_reason,
-            "details": (
-                "Defective and damaged item claims require review by our support team. "
-                "Please escalate so a team member can assess the issue and arrange the "
-                "appropriate resolution (replacement or refund)."
-            ),
             "available_action": None,
             "check_kb": True,
             "requires_escalation": True,
         }
 
     if order.status == "return_in_progress":
-        return {
-            "eligible": False, "reason": "already_in_progress",
-            "details": "A return has already been initiated for this order. Check your email for the prepaid return label.",
-            "available_action": None,
-        }
+        return {"eligible": False, "reason": "already_in_progress", "available_action": None}
 
     if order.status == "returned":
-        return {
-            "eligible": False, "reason": "already_returned",
-            "details": "This order has already been returned.",
-            "available_action": None,
-        }
+        return {"eligible": False, "reason": "already_returned", "available_action": None}
 
     if order.status == "refunded":
-        return {
-            "eligible": False, "reason": "already_refunded",
-            "details": "This order has already been refunded.",
-            "available_action": None,
-        }
+        return {"eligible": False, "reason": "already_refunded", "available_action": None}
 
     if order.status != "delivered":
-        return {
-            "eligible": False, "reason": "wrong_status",
-            "details": f"Only delivered orders can be returned. This order has status '{order.status}'.",
-            "available_action": None,
-        }
+        return {"eligible": False, "reason": "wrong_status", "available_action": None}
 
     if products:
         if any(p.final_sale for p in products):
-            return {
-                "eligible": False, "reason": "final_sale",
-                "details": (
-                    "One or more items in this order are marked as Final Sale and are not "
-                    "eligible for returns or refunds."
-                ),
-                "available_action": None,
-            }
+            return {"eligible": False, "reason": "final_sale", "available_action": None}
 
         for p in products:
             if p.category in _NON_RETURNABLE_CATEGORIES:
                 return {
                     "eligible": False, "reason": "non_returnable_category",
-                    "details": (
-                        f"This order contains a non-returnable item ({p.name}). "
-                        "Gift cards, digital products, personalized items, perishable goods, "
-                        "and hazardous materials cannot be returned."
-                    ),
                     "available_action": None,
                 }
 
@@ -175,22 +132,24 @@ def _check_return_eligibility_sync(order, products, reason=None, now=None) -> di
             days_since = (now - delivered_date).days
             min_window = min(p.return_window_days for p in products)
             if days_since > min_window:
-                return {
-                    "eligible": False, "reason": "outside_return_window",
-                    "details": (
-                        f"The return window for this order has passed "
-                        f"({min_window} days for this item type). "
-                        "If your item is defective, please contact us — "
-                        "defective items are handled separately."
-                    ),
-                    "available_action": None,
-                }
+                return {"eligible": False, "reason": "outside_return_window", "available_action": None}
 
+    return {"eligible": True, "reason": None, "available_action": None, "check_kb": True}
+
+
+def _escalation_rejection(reason: str) -> dict:
+    """
+    Standard escalation rejection shape for reasons that require human review.
+    Used as an early-exit guard in any tool that accepts a reason parameter.
+    """
     return {
-        "eligible": True, "reason": None,
-        "details": "This order is eligible for a return.",
+        "success": False,
+        "eligible": False,
+        "reason": reason,
+        "detail": f"{reason} requires human review",
         "available_action": None,
-        "check_kb": True,
+        "check_kb": reason in {"defective"},
+        "requires_escalation": True,
     }
 
 
@@ -375,6 +334,15 @@ async def initiate_return(
     which escalates). Checking eligibility first avoids prompting for a reason on orders
     that are ineligible (wrong status, non-returnable items, etc.).
     """
+    # 0. order_id is required — this tool operates on one order at a time.
+    # Use check_return_eligibility (no order_id) to enumerate eligible orders first.
+    if not order_id:
+        return {
+            "success": False,
+            "reason": "order_id_required",
+            "available_action": "check_return_eligibility",
+        }
+
     # 1. Locate order
     if order_id:
         result = await db.execute(select(Order).where(Order.id == order_id))
@@ -409,7 +377,6 @@ async def initiate_return(
         result = {
             "success": False,
             "reason": eligibility["reason"],
-            "error": eligibility["details"],
             "available_action": eligibility["available_action"],
         }
         if eligibility.get("requires_escalation"):
@@ -423,7 +390,6 @@ async def initiate_return(
         return {
             "success": False,
             "reason": "reason_required",
-            "details": f"Please provide a reason for the return. Valid values: {', '.join(REASON_VALUES)}.",
         }
 
     if reason not in _REASON_MAP:
@@ -506,6 +472,15 @@ async def cancel_order(
     purely determined by order status. Rejecting an uncancellable order immediately
     avoids prompting the customer for a reason that will never be used.
     """
+    # 0. order_id is required — this tool operates on one order at a time.
+    # Use check_cancel_eligibility (no order_id) to enumerate eligible orders first.
+    if not order_id:
+        return {
+            "success": False,
+            "reason": "order_id_required",
+            "available_action": "check_cancel_eligibility",
+        }
+
     # 1. Locate order
     if order_id:
         result = await db.execute(select(Order).where(Order.id == order_id))
@@ -530,19 +505,20 @@ async def cancel_order(
     # 2. Eligibility check — reject ineligible orders before asking for reason
     eligibility = _check_cancel_eligibility_sync(order)
     if not eligibility["eligible"]:
-        return {
+        result = {
             "success": False,
             "reason": eligibility["reason"],
-            "error": eligibility["details"],
             "available_action": eligibility["available_action"],
         }
+        if eligibility.get("next_step"):
+            result["next_step"] = eligibility["next_step"]
+        return result
 
     # 3. Reason required (order is eligible — now collect reason)
     if not reason:
         return {
             "success": False,
             "reason": "reason_required",
-            "details": f"Please provide a reason for the cancellation. Valid values: {', '.join(REASON_VALUES)}.",
         }
 
     if reason not in _REASON_MAP:
@@ -551,6 +527,10 @@ async def cancel_order(
             "error": "invalid_reason",
             "message": f"Reason must be one of: {REASON_VALUES}. Received: {reason}",
         }
+
+    resolved_reason = _REASON_MAP[reason]
+    if resolved_reason in ESCALATION_REASONS:
+        return _escalation_rejection(resolved_reason)
 
     # 4. Confirmation gate — first call returns details for customer to confirm
     if not _has_prior_confirmation(actions_taken, "cancel_order", resolved_order_id):

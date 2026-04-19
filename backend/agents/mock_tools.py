@@ -11,7 +11,10 @@ check_missing_package, cancel_order, initiate_return, get_refund_status.
 import uuid
 from datetime import datetime, timezone
 
-from backend.tools.order_tools import _has_prior_confirmation, _REASON_MAP, REASON_VALUES
+from backend.tools.order_tools import (
+    _has_prior_confirmation, _REASON_MAP, REASON_VALUES,
+    _escalation_rejection, ESCALATION_REASONS,
+)
 
 _DEFAULT_RETURN_WINDOW_DAYS = 30
 _ELECTRONICS_RETURN_WINDOW_DAYS = 14
@@ -99,32 +102,22 @@ def _order_meta(o: dict, now: datetime) -> dict:
 
 def _cancel_eligibility(status: str) -> dict:
     if status == "cancelled":
-        return {"eligible": False, "reason": "already_cancelled",
-                "details": "This order is already cancelled.", "available_action": None,
+        return {"eligible": False, "reason": "already_cancelled", "available_action": None,
                 "detail": "Order is already cancelled."}
     if status == "refunded":
-        return {"eligible": False, "reason": "refunded",
-                "details": "This order has already been refunded.", "available_action": None,
+        return {"eligible": False, "reason": "refunded", "available_action": None,
                 "detail": "Order has already been refunded."}
     if status == "returned":
-        return {"eligible": False, "reason": "returned",
-                "details": "This order has already been returned and cannot be cancelled.",
-                "available_action": None,
+        return {"eligible": False, "reason": "returned", "available_action": None,
                 "detail": "Order has already been returned."}
     if status == "shipped":
-        return {"eligible": False, "reason": "shipped",
-                "details": "This order has shipped and cannot be cancelled. "
-                           "You can return it for a refund once it arrives.",
-                "available_action": "check_return_eligibility",
+        return {"eligible": False, "reason": "shipped", "available_action": None,
+                "next_step": "Customer can return after delivery",
                 "detail": "Order has shipped — cancellation not possible. Return available after delivery."}
     if status == "delivered":
-        return {"eligible": False, "reason": "delivered",
-                "details": "Delivered orders cannot be cancelled. "
-                           "Please request a return/refund instead.",
-                "available_action": "initiate_return",
+        return {"eligible": False, "reason": "delivered", "available_action": "initiate_return",
                 "detail": "Order delivered — cancellation not possible. Return/refund available instead."}
-    return {"eligible": True, "reason": None,
-            "details": "This order can be cancelled.", "available_action": None,
+    return {"eligible": True, "reason": None, "available_action": None,
             "detail": f"Order is eligible for cancellation (status: {status})."}
 
 
@@ -162,6 +155,17 @@ def _return_eligibility(o: dict, reason: str, now: datetime) -> dict:
     product_name = meta["product_name"]
     category = meta["category"]
 
+    if reason and reason.lower() == "duplicate_item":
+        return {
+            "eligible": False,
+            "reason": "duplicate_item",
+            **meta,
+            "detail": "Duplicate item fulfillment error — requires human review.",
+            "available_action": None,
+            "check_kb": False,
+            "requires_escalation": True,
+        }
+
     if reason and reason.lower() in ("defective", "broken", "damaged"):
         defective_reason = _defective_reason(o, now)
         if defective_reason == "defective_within_return_window":
@@ -188,7 +192,6 @@ def _return_eligibility(o: dict, reason: str, now: datetime) -> dict:
             "reason": defective_reason,
             **meta,
             "detail": detail,
-            "details": "Defective and damaged item claims require review by our support team.",
             "available_action": None,
             "check_kb": True,
             "requires_escalation": True,
@@ -199,25 +202,21 @@ def _return_eligibility(o: dict, reason: str, now: datetime) -> dict:
         return {"eligible": False, "reason": "already_in_progress",
                 **meta,
                 "detail": f"A return is already in progress for {product_name}.",
-                "details": "A return has already been initiated for this order. "
-                           "Check your email for the prepaid return label.",
                 "available_action": None}
     if status == "returned":
         return {"eligible": False, "reason": "already_returned",
                 **meta,
                 "detail": f"{product_name} has already been returned.",
-                "details": "This order has already been returned.", "available_action": None}
+                "available_action": None}
     if status == "refunded":
         return {"eligible": False, "reason": "already_refunded",
                 **meta,
                 "detail": f"{product_name} has already been refunded.",
-                "details": "This order has already been refunded.", "available_action": None}
+                "available_action": None}
     if status != "delivered":
         return {"eligible": False, "reason": "wrong_status",
                 **meta,
                 "detail": f"Cannot return — order status is '{status}', not delivered.",
-                "details": f"Only delivered orders can be returned. "
-                           f"This order has status '{status}'.",
                 "available_action": None}
 
     # Return window check
@@ -228,10 +227,6 @@ def _return_eligibility(o: dict, reason: str, now: datetime) -> dict:
                     f"Return window closed. {return_window}-day window expired "
                     f"({days_since} days since delivery)."
                 ),
-                "details": f"The return window for this order has passed "
-                           f"({return_window} days). "
-                           "If your item is defective, please contact us — "
-                           "defective items are handled separately.",
                 "available_action": None}
 
     return {"eligible": True, "reason": None,
@@ -240,7 +235,7 @@ def _return_eligibility(o: dict, reason: str, now: datetime) -> dict:
                 f"{product_name} ({category}) is eligible for return. "
                 f"{days_since} days since delivery, within {return_window}-day window."
             ),
-            "details": "This order is eligible for a return.", "available_action": None,
+            "available_action": None,
             "check_kb": True}
 
 
@@ -341,6 +336,12 @@ def _mock_check_return_eligibility(params: dict, mock: dict, now: datetime) -> d
 
 
 def _mock_cancel_order(params: dict, mock: dict, actions_taken: list, now: datetime) -> dict:
+    if not params.get("order_id"):
+        return {
+            "success": False,
+            "reason": "order_id_required",
+            "available_action": "check_cancel_eligibility",
+        }
     o, err = _get_order(mock, params.get("order_id"))
     if err:
         return err
@@ -349,21 +350,25 @@ def _mock_cancel_order(params: dict, mock: dict, actions_taken: list, now: datet
     check = _cancel_eligibility(o.get("status", "placed"))
     if not check["eligible"]:
         product_name = (_item_names(o) or ["Unknown item"])[0]
-        return {"success": False, "reason": check["reason"],
-                "product_name": product_name,
-                "order_status": o.get("status", "placed"),
-                "error": check["details"],
-                "detail": check["detail"],
-                "available_action": check["available_action"]}
+        result = {"success": False, "reason": check["reason"],
+                  "product_name": product_name,
+                  "order_status": o.get("status", "placed"),
+                  "detail": check["detail"],
+                  "available_action": check["available_action"]}
+        if check.get("next_step"):
+            result["next_step"] = check["next_step"]
+        return result
 
     reason = params.get("reason")
     if not reason:
-        return {"success": False, "reason": "reason_required",
-                "details": f"Please provide a reason for the cancellation. "
-                           f"Valid values: {', '.join(REASON_VALUES)}."}
+        return {"success": False, "reason": "reason_required"}
     if reason not in _REASON_MAP:
         return {"success": False, "error": "invalid_reason",
                 "message": f"Reason must be one of: {REASON_VALUES}. Received: {reason}"}
+
+    resolved_reason = _REASON_MAP[reason]
+    if resolved_reason in ESCALATION_REASONS:
+        return _escalation_rejection(resolved_reason)
 
     if not _has_prior_confirmation(actions_taken, "cancel_order", oid):
         return {"success": False, "confirmation_required": True,
@@ -382,6 +387,12 @@ def _mock_cancel_order(params: dict, mock: dict, actions_taken: list, now: datet
 
 
 def _mock_initiate_return(params: dict, mock: dict, actions_taken: list, now: datetime) -> dict:
+    if not params.get("order_id"):
+        return {
+            "success": False,
+            "reason": "order_id_required",
+            "available_action": "check_return_eligibility",
+        }
     o, err = _get_order(mock, params.get("order_id"))
     if err:
         return err
@@ -391,7 +402,6 @@ def _mock_initiate_return(params: dict, mock: dict, actions_taken: list, now: da
     check = _return_eligibility(o, reason, now)
     if not check["eligible"]:
         result = {"success": False, "reason": check["reason"],
-                  "error": check["details"],
                   "detail": check.get("detail", ""),
                   "available_action": check["available_action"]}
         # Pass through all meta fields so the agent has full context on ineligibility
@@ -406,9 +416,7 @@ def _mock_initiate_return(params: dict, mock: dict, actions_taken: list, now: da
         return result
 
     if not reason:
-        return {"success": False, "reason": "reason_required",
-                "details": f"Please provide a reason for the return. "
-                           f"Valid values: {', '.join(REASON_VALUES)}."}
+        return {"success": False, "reason": "reason_required"}
     if reason not in _REASON_MAP:
         return {"success": False, "error": "invalid_reason",
                 "message": f"Reason must be one of: {REASON_VALUES}. Received: {reason}"}

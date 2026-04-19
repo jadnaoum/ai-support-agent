@@ -9,8 +9,13 @@ REASON_VALUES: list = [
     "wrong_item",
     "wrong_size",
     "defective",
+    "duplicate_item",
     "not_as_described",
     "found_cheaper",
     "late_delivery",
     "other",
 ]
+
+# Reasons that require human review regardless of which tool is invoked.
+# Any tool that accepts a reason parameter must reject these at entry before executing.
+ESCALATION_REASONS: frozenset = frozenset({"defective", "duplicate_item"})

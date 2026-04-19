@@ -83,20 +83,21 @@ def build_context_summary(
     return "\n".join(lines)
 
 
-async def handle_escalation(reason: str, context: dict) -> str:
+async def run_escalation_side_effects(reason: str, context: dict) -> str:
     """
-    Default escalation implementation.
+    Write the escalation record and mark the conversation as escalated.
+    Returns the context_summary stored in the record.
 
-    Logs to the escalations table, marks the conversation as escalated,
-    and returns the appropriate handoff message.
+    Separated from handle_escalation so callers that generate their own
+    customer-facing response (e.g. tool-signalled defective item escalations
+    where the LLM produces a KB-rich explanation) can fire the backend side
+    effects without overwriting the response with the canned handoff message.
     """
-    db: AsyncSession | None = context.get("db")
+    db: "AsyncSession | None" = context.get("db")
     conversation_id: str = context.get("conversation_id", "")
     confidence: float = context.get("confidence", 0.0)
     messages: list = context.get("messages") or []
 
-    # Use pre-built summary if provided (callers with full state pass it via context);
-    # fall back to messages-only summary for callers that don't have the extra fields.
     context_summary = context.get("context_summary") or build_context_summary(messages)
 
     if db and conversation_id:
@@ -115,4 +116,15 @@ async def handle_escalation(reason: str, context: dict) -> str:
             conversation.status = "escalated"
         await db.commit()
 
+    return context_summary
+
+
+async def handle_escalation(reason: str, context: dict) -> str:
+    """
+    Default escalation implementation.
+
+    Logs to the escalations table, marks the conversation as escalated,
+    and returns the appropriate handoff message.
+    """
+    await run_escalation_side_effects(reason, context)
     return _HANDOFF_MESSAGE

@@ -6,7 +6,7 @@
 >
 > For the actionable build spec (what Claude Code should read), see BUILD_SPEC.md.
 >
-> Last updated: 2026-03-19
+> Last updated: 2026-04-18
 
 ---
 
@@ -179,9 +179,11 @@ Escalation is a decision the conversation agent makes — not a separate service
 - Actions are logged for audit.
 
 ### Escalation
-- Not a separate agent or service — it's a decision the conversation agent makes.
-- When triggered, the escalation handler logs the reason and conversation context to the database.
-- The conversation agent delivers the handoff message to the customer, maintaining tone consistency even during escalation.
+- Not a separate agent or service — it's a decision triggered by either the agent or a tool result.
+- Two concerns are intentionally separated: customer-facing response (LLM-generated) and backend side effects (escalation record, conversation status change, turn state cleared).
+- For tool-driven escalation (e.g., `requires_escalation` on defective items), the LLM generates the response with KB policy details and handoff language, then side effects fire after response generation. Customer gets a rich response AND a real escalation.
+- For other escalation paths (abusive input, output guard blocks, repeated failures, customer-requested), the LLM doesn't generate a response — a canned handoff message is used and side effects fire as before.
+- **Why split the concerns:** The original design had a single `_do_escalate()` function that overwrote the LLM response with a generic handoff message. This forced a false choice between "rich KB-informed response" and "real backend escalation." Splitting them lets the agent surface relevant policy (what the customer is entitled to) while still triggering proper handoff.
 
 ### Tool design principles
 
@@ -201,6 +203,7 @@ Escalation is a decision the conversation agent makes — not a separate service
 - **Decision:** Tool rejections include an `available_action` field hinting at the logical next step (e.g., `check_refund_eligibility` returning `return_required` also returns `available_action: initiate_return`). This is a nudge, not a command — the LLM decides whether to follow it.
 - **Why:** Helps the agent chain tool calls without the prompt defining per-scenario workflows. Combined with the layered workflow strategy (see below), this means the tools themselves encode most workflow logic through their constraints and hints.
 - **Orchestration-agnostic requirement:** The `available_action` field references domain actions (e.g., `initiate_return`), never orchestration mechanics (e.g., not `next_pending_service: "action"`). This ensures tool responses work identically in both graph loop mode and future native tool calling mode.
+- **`available_action` must reference tools that succeed if called now.** If a `cancel_order` rejection sets `available_action: "check_return_eligibility"` for a *shipped* order, the agent would offer a check that the eligibility tool would also reject (order isn't delivered yet). Future options that require waiting belong in prose (e.g., "you can return it after delivery"), not in the structured hint field.
 
 #### Tool vs. KB responsibility split
 - **Decision:** Tools answer eligibility questions (yes/no with structured reason codes). The KB provides process guidance (how to initiate a return, shipping options, timelines). The LLM combines both into a customer-facing response.
@@ -218,6 +221,12 @@ Escalation is a decision the conversation agent makes — not a separate service
 - **Layer 2 — Autonomous LLM reasoning (always active):** The agent interprets the customer's message, selects tools, reads KB content, and decides what to say and do. General prompt principles guide behavior (e.g., "when a tool rejects, explain why and offer alternatives"). This is where the LLM earns its keep — handling novel situations, combining information sources, maintaining tone.
 - **Layer 3 — Explicit workflows (selective):** Predefined step-by-step flows for specific issue types. Only added when layers 1 and 2 have been tested via evals and consistently fail for a specific scenario. Each explicit workflow is maintenance overhead — it must be updated when tools or policies change, and it adds rigidity.
 - **Discipline:** Don't reach for layer 3 until evals show the agent can't handle a scenario with good tool design and prompt principles alone.
+
+### Intent classifier output handling
+- **Decision:** Intent classifier (Haiku) returns a single JSON object. Parser tries to extract from the first `{` to the last `}` and parse. On parse failure, falls back to extracting only the *first* complete JSON object via brace-matching. If both attempts fail, falls back to `intent: general, confidence: 0.5`. Parse failures and fallback successes are logged for monitoring.
+- **Why take the first JSON block on parse failure:** Haiku occasionally outputs two JSON blocks in one response — an initial classification followed by post-hoc rationalization and a second JSON. Since no new information arrives between the two outputs (one customer message, one LLM completion), any "correction" is the model second-guessing itself without new evidence. Empirically, the first JSON has been the correct classification in every observed failure case; the second has been a worse re-evaluation (cherry-picking one item from a list, or unnecessary clarification requests).
+- **Why both prompt tightening and parser fallback:** The intent_prompt instructs the model to produce one JSON object and not revise — this reduces the rate of self-correction but does not eliminate it. The model's self-correction is driven by a belief about system constraints (e.g., "the system handles one action at a time"), not just wording. Prompt-only enforcement fails when the model's prior contradicts the prompt's claim. The parser fallback is the deterministic safety net that catches what the prompt doesn't prevent.
+- **Native tool calling note:** The future migration to Anthropic's `tools` parameter eliminates this class of issue entirely — structured outputs are enforced at the API layer, not parsed from free text. Both the prompt instruction and the fallback parser become unnecessary once migrated.
 
 ### Dead-end handling: Business Limitations KB article
 - **Decision:** When the agent hits a dead end (no matching tool, no specific KB article), it performs a broader KB query. If it retrieves a "Business Limitations" article that matches the customer's request, it tells the customer it's not possible — no escalation. If KB returns nothing relevant, the agent escalates (safe default).
