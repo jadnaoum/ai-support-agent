@@ -7,9 +7,9 @@ Read BUILD_SPEC.md for the full build specification.
 ## Commands
 
 ```bash
-# Run
-source .venv/bin/activate
-uvicorn backend.main:app --reload
+# Run (loads .env automatically, activates venv)
+./scripts/server.sh           # dev mode  (APP_ENV=development, --reload)
+./scripts/server.sh test      # test mode (APP_ENV=test, no --reload — required for evals)
 
 # Frontend dev
 cd frontend && npm run dev        # http://localhost:5173
