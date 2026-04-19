@@ -767,8 +767,7 @@ output_guard_prompt: |
         Check for: Claims that an action was completed when the tool was not called 
         or returned an error. Policy details (return windows, fees, deadlines) not 
         present in kb_content. Predictions or guarantees beyond what tool results 
-        show. Fabricated statistics, details, or timelines. Escalation claims when 
-        escalation_handler is not in tools_called.
+        show. Fabricated statistics, details, or timelines.
         NOT a failure: Conditional offers ("I can process that if you'd like"). 
         Stating estimates as estimates ("typically takes 3-5 business days"). 
         Accurately paraphrasing tool results or KB content.
@@ -806,13 +805,33 @@ output_guard_prompt: |
      data.
   </failure_categories>
 
+  <handoff_detection>
+  Set "handoff_intent" to true if the response signals that this
+  specific conversation is being handed off to a human agent right now
+  — e.g., "I'm connecting you with a specialist," "I'll escalate this
+  to our team," "a human agent will follow up with you."
+
+  Set "handoff_intent" to false if:
+  - The specialist mention is future or process-oriented ("a specialist
+    will inspect your return on receipt" — this describes a future step,
+    not a live transfer)
+  - The agent is offering escalation as an option rather than executing
+    it ("would you like me to connect you with a specialist?")
+  - No handoff language is present
+
+  "handoff_intent" is independent of the verdict. A response can be
+  safe and have handoff_intent: true. A response can be unsafe and
+  have handoff_intent: false.
+  </handoff_detection>
+
   <output_format>
   Respond with valid JSON only. No markdown, no explanation outside the JSON.
 
   Always put the reason FIRST — commit to your reasoning before your verdict.
-  Always populate the reason field, even on pass.
+  Always populate the reason field, even on pass. Always populate
+  handoff_intent — it is independent of verdict and failure_type.
 
-  {{"reason": "<what you checked and what you found — one or two sentences>", "verdict": "pass"|"fail", "failure_type": "<one of the 4 category names, or null if pass>"}}
+  {{"reason": "<what you checked and what you found — one or two sentences>", "verdict": "pass"|"fail", "failure_type": "<one of the 4 category names, or null if pass>", "handoff_intent": true|false}}
   </output_format>
 
   <examples>
@@ -868,6 +887,29 @@ output_guard_prompt: |
   "Guaranteed to be at your door" presents an estimate as a certainty. The
   correct phrasing would be "estimated to arrive" or "expected by."
   {{"reason": "Presents estimated_delivery as a guarantee when tool only provides an estimate.", "verdict": "fail", "failure_type": "unsupported_claim"}}
+  </example>
+  
+  <example>
+  Evidence: kb_content is "(none)". tools_called is empty. Customer
+  reported a missing item from a delivered order.
+  Draft response: "I'm sorry to hear that — let me connect you with a
+  specialist who can investigate the missing item and sort out a
+  resolution for you."
+  Reasoning: No unsupported claims; the agent makes no policy
+  statements or completion assertions. The phrase "let me connect you
+  with a specialist" is a live handoff announcement.
+  {{"reason": "Response acknowledges the issue and announces a handoff. No unsupported claims.", "verdict": "pass", "failure_type": null, "handoff_intent": true}}
+  </example>
+
+  <example>
+  Evidence: tools_called shows initiate_return returned success with
+  return_label. Draft response: "Your return is confirmed. A
+  specialist at our warehouse will inspect the item on receipt and
+  process your refund within 3-5 business days."
+  Reasoning: Accurately reflects tool result. "A specialist will
+  inspect" describes a future process step, not a handoff in this
+  turn.
+  {{"reason": "Accurately reflects return confirmation. Specialist mention is descriptive, not a handoff.", "verdict": "pass", "failure_type": null, "handoff_intent": false}}
   </example>
   </examples>
 
