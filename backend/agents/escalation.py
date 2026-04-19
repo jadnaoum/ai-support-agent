@@ -19,6 +19,30 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.models import Escalation, Conversation
 
+# All reason codes that may be passed to run_escalation_side_effects().
+# Every call site must pass a value from this set.
+#
+# Distinct from tools/constants.py::ESCALATION_REASONS, which is a tool-layer
+# gate: the set of customer-provided *input* reasons that trigger tool-level
+# escalation rejection. The overlap ("defective", "duplicate_item") is intentional
+# — these reasons cause both a tool rejection AND a backend escalation record.
+ESCALATION_TRIGGER_REASONS: frozenset = frozenset({
+    # Tool-signalled: tool returned requires_escalation=True
+    "defective",              # defective/damaged item claim
+    "duplicate_item",         # duplicate order claim
+    # Output guard failure paths
+    "output_guard_block",     # guard failed with a named failure type
+    "guard_error",            # guard LLM/parse error (fails closed)
+    # Infrastructure failure
+    "unhandled_error",        # tool or service raised an unexpected error
+    # Intent-classifier-triggered
+    "unable_to_clarify",      # repeated guard blocks or clarification cap hit
+    "customer_requested",     # classifier returned escalation_request intent
+    "abusive_input",          # input guard flagged abusive language
+    # Output-guard handoff detection (Option 2)
+    "llm_escalation_intent",  # agent wrote handoff language on knowledge_query path
+})
+
 _HANDOFF_MESSAGE = "This one needs a human — let me connect you with someone who can help."
 
 

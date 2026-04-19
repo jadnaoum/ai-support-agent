@@ -102,21 +102,33 @@ def _build_guard_context(response: str, state: AgentState) -> str:
     )
 
 
-async def check_output(response: str, state: AgentState) -> dict:
+async def check_output(
+    response: str,
+    state: AgentState,
+    *,
+    mock_handoff_intent: bool = False,
+) -> dict:
     """
     Check the agent's draft response before it reaches the customer.
 
     Returns:
-        {"safe": True} if the response passes all checks.
+        {"safe": True, "handoff_intent": bool} if the response passes all checks.
+            handoff_intent=True means the guard detected the agent is handing off
+            the conversation to a human — caller should fire escalation side effects.
         {"safe": False, "reason": str} if the response should be blocked.
+            handoff_intent is not included on the fail path — guard failure is
+            handled via _do_escalate() in conversation.py.
 
-    In test mode (APP_ENV=test) the LLM call is skipped and all responses pass.
-    This prevents guard API failures from masking agent behavior in eval runs.
+    mock_handoff_intent (keyword-only):
+        Only honoured in test mode (APP_ENV=test). When True, the returned dict
+        includes handoff_intent=True, exercising the downstream path in
+        conversation.py without making a real LLM call. Defaults to False so
+        existing eval cases that don't set this flag are unaffected.
 
     Fails closed on any LLM error or parse failure in non-test environments.
     """
     if settings.app_env == "test":
-        return {"safe": True}
+        return {"safe": True, "handoff_intent": mock_handoff_intent}
 
     prompt = _build_guard_context(response, state)
     try:
@@ -136,7 +148,7 @@ async def check_output(response: str, state: AgentState) -> dict:
             raw = raw[start:end + 1]
         parsed = json.loads(raw.strip())
         if parsed.get("verdict") == "pass":
-            return {"safe": True}
+            return {"safe": True, "handoff_intent": bool(parsed.get("handoff_intent", False))}
         return {
             "safe": False,
             "reason": parsed.get("failure_type") or "unknown",

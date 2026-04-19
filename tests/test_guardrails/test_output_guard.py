@@ -207,3 +207,69 @@ async def test_known_id_included_in_prompt(mock_complete):
     await check_output("Your order is shipped.", state)
     prompt = mock_complete.call_args[1]["messages"][0]["content"]
     assert known_id in prompt
+
+
+# ---------------------------------------------------------------------------
+# handoff_intent — test-mode injection
+# ---------------------------------------------------------------------------
+
+@patch("backend.guardrails.output_guard.settings")
+async def test_handoff_intent_true_when_mock_flag_set(mock_settings):
+    """In test mode, mock_handoff_intent=True flows through to handoff_intent in result."""
+    mock_settings.app_env = "test"
+    from backend.guardrails.output_guard import check_output
+    result = await check_output(
+        "Let me connect you with a specialist.",
+        make_state(),
+        mock_handoff_intent=True,
+    )
+    assert result["safe"] is True
+    assert result["handoff_intent"] is True
+
+
+@patch("backend.guardrails.output_guard.settings")
+async def test_handoff_intent_false_when_mock_flag_not_set(mock_settings):
+    """In test mode, mock_handoff_intent defaults to False — existing cases unaffected."""
+    mock_settings.app_env = "test"
+    from backend.guardrails.output_guard import check_output
+    result = await check_output("Your order is on its way.", make_state())
+    assert result["safe"] is True
+    assert result["handoff_intent"] is False
+
+
+@patch("backend.guardrails.output_guard.settings")
+async def test_handoff_intent_false_when_mock_flag_explicitly_false(mock_settings):
+    """Explicit mock_handoff_intent=False also returns handoff_intent=False."""
+    mock_settings.app_env = "test"
+    from backend.guardrails.output_guard import check_output
+    result = await check_output(
+        "Your order is on its way.",
+        make_state(),
+        mock_handoff_intent=False,
+    )
+    assert result["safe"] is True
+    assert result["handoff_intent"] is False
+
+
+@patch("backend.guardrails.output_guard.litellm.acompletion", new_callable=AsyncMock)
+async def test_handoff_intent_from_llm_pass_path(mock_complete):
+    """Production path: LLM returns handoff_intent=true on a passing response."""
+    payload = {"verdict": "pass", "failure_type": None, "reason": "Clean handoff.", "handoff_intent": True}
+    mock = MagicMock()
+    mock.choices = [MagicMock()]
+    mock.choices[0].message.content = json.dumps(payload)
+    mock_complete.return_value = mock
+    from backend.guardrails.output_guard import check_output
+    result = await check_output("I'm connecting you with a specialist.", make_state())
+    assert result["safe"] is True
+    assert result["handoff_intent"] is True
+
+
+@patch("backend.guardrails.output_guard.litellm.acompletion", new_callable=AsyncMock)
+async def test_handoff_intent_absent_on_guard_fail_path(mock_complete):
+    """handoff_intent is not included when the guard blocks the response."""
+    mock_complete.return_value = make_llm_response("fail", "unsupported_claim", "Fabricated action.")
+    from backend.guardrails.output_guard import check_output
+    result = await check_output("I've cancelled your order.", make_state())
+    assert result["safe"] is False
+    assert "handoff_intent" not in result

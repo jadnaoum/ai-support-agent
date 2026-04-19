@@ -275,3 +275,80 @@ async def test_low_confidence_kb_result_triggers_escalation(mock_complete):
     assert result["escalation_reason"] == "low_confidence"
     assert isinstance(result["response"], str) and len(result["response"]) > 0
     mock_complete.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Output-guard handoff detection (Option 2)
+# ---------------------------------------------------------------------------
+
+@patch("backend.agents.conversation.run_escalation_side_effects", new_callable=AsyncMock)
+@patch("backend.agents.conversation.check_output", new_callable=AsyncMock)
+@patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
+async def test_handoff_intent_fires_escalation_side_effects(mock_complete, mock_guard, mock_side_effects):
+    """When check_output returns handoff_intent=True, run_escalation_side_effects is called
+    with reason='llm_escalation_intent' and the agent's response is kept (not replaced)."""
+    mock_complete.return_value = make_completion_response(
+        "I'm connecting you with a specialist who can help."
+    )
+    mock_guard.return_value = {"safe": True, "handoff_intent": True}
+    mock_side_effects.return_value = "Customer issue: ..."
+
+    state = make_state(
+        retrieved_context=[{"chunk_text": "...", "title": "T", "category": "c", "similarity": 0.9}],
+        actions_taken=FAKE_KB_ACTION,
+    )
+    result = await conversation_agent_node(state, {})
+
+    assert result["requires_escalation"] is True
+    assert result["escalation_reason"] == "llm_escalation_intent"
+    assert result["response"] == "I'm connecting you with a specialist who can help."
+    assert result["pending_service"] == ""
+
+    mock_side_effects.assert_called_once()
+    call_kwargs = mock_side_effects.call_args
+    assert call_kwargs[0][0] == "llm_escalation_intent"
+
+
+@patch("backend.agents.conversation.run_escalation_side_effects", new_callable=AsyncMock)
+@patch("backend.agents.conversation.check_output", new_callable=AsyncMock)
+@patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
+async def test_handoff_intent_no_double_fire_when_tool_also_signals(mock_complete, mock_guard, mock_side_effects):
+    """When both handoff_intent=True and requires_escalation on the last action result,
+    run_escalation_side_effects is called exactly once — not twice."""
+    mock_complete.return_value = make_completion_response(
+        "Your defective item claim has been escalated to our team."
+    )
+    mock_guard.return_value = {"safe": True, "handoff_intent": True}
+    mock_side_effects.return_value = "Customer issue: ..."
+
+    state = make_state(
+        retrieved_context=[{"chunk_text": "...", "title": "T", "category": "c", "similarity": 0.9}],
+        actions_taken=FAKE_KB_ACTION,
+        action_results=[{"success": False, "requires_escalation": True, "reason": "defective"}],
+    )
+    result = await conversation_agent_node(state, {})
+
+    assert result["requires_escalation"] is True
+    # handoff_intent path fires first, so reason is llm_escalation_intent
+    assert result["escalation_reason"] == "llm_escalation_intent"
+    # Exactly one call — idempotency flag prevented the tool-signalled path from firing
+    mock_side_effects.assert_called_once()
+
+
+@patch("backend.agents.conversation.run_escalation_side_effects", new_callable=AsyncMock)
+@patch("backend.agents.conversation.check_output", new_callable=AsyncMock)
+@patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
+async def test_no_handoff_intent_does_not_fire_escalation(mock_complete, mock_guard, mock_side_effects):
+    """When check_output returns handoff_intent=False, the normal response path is used."""
+    mock_complete.return_value = make_completion_response("Your order is on its way!")
+    mock_guard.return_value = {"safe": True, "handoff_intent": False}
+
+    state = make_state(
+        retrieved_context=[{"chunk_text": "...", "title": "T", "category": "c", "similarity": 0.9}],
+        actions_taken=FAKE_KB_ACTION,
+    )
+    result = await conversation_agent_node(state, {})
+
+    assert result.get("requires_escalation") is not True
+    assert result["response"] == "Your order is on its way!"
+    mock_side_effects.assert_not_called()

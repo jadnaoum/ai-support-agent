@@ -391,6 +391,26 @@ async def test_chat(
             )
 
     mock_context = body.mock_context or {}
+
+    # Validate mock_context keys — unknown keys are likely typos that would be
+    # silently ignored. Any new key added to mock_context must be listed here.
+    _KNOWN_MOCK_CONTEXT_KEYS = {
+        # Customer identity fields
+        "name", "email", "phone", "address", "customer_id", "account_type",
+        # Order / refund data for mock tool layer
+        "orders", "refunds",
+        # Behavioural injection flags (test-only)
+        "debug_classifier",   # enables classifier_reasoning in response
+        "mock_handoff_intent",  # injects handoff_intent=True into output guard result
+    }
+    unknown_keys = set(mock_context.keys()) - _KNOWN_MOCK_CONTEXT_KEYS
+    if unknown_keys:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown mock_context keys: {sorted(unknown_keys)}. "
+                   f"Add them to _KNOWN_MOCK_CONTEXT_KEYS in chat.py if intentional.",
+        )
+
     # customer_context only carries the customer name — order data is accessed exclusively
     # via tool calls through configurable["mock_account_state"]. Injecting the full mock
     # into customer_context would contaminate the agent's state vs. production behaviour.
@@ -452,11 +472,16 @@ async def test_chat(
     # conversation_id="" — escalation handler skips DB writes when absent
     # mock_account_state — present only when mock_context provided; feeds mock tool layer
     # debug_classifier — present only when mock_context sets debug_classifier: true
+    # mock_handoff_intent — present only when mock_context sets mock_handoff_intent: true;
+    #   causes check_output to return handoff_intent=True in test mode, exercising the
+    #   output-guard escalation path without a real LLM guard call
     configurable: dict = {"db": db, "conversation_id": ""}
     if body.mock_context:
         configurable["mock_account_state"] = body.mock_context
         if body.mock_context.get("debug_classifier"):
             configurable["debug_classifier"] = True
+        if body.mock_context.get("mock_handoff_intent"):
+            configurable["mock_handoff_intent"] = True
     config = {
         "configurable": configurable,
         "tags": tags,

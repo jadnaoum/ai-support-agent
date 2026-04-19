@@ -519,7 +519,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
     action_results = state.get("action_results") or []
     if action_results and action_results[-1].get("unhandled_error"):
         return {
-            **await _do_escalate("repeated_failure", state, config),
+            **await _do_escalate("unhandled_error", state, config),
             "confidence": 0.85,
         }
 
@@ -565,7 +565,12 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
     # Pass a local state copy so the 0.15 floor is respected by _build_context_section.
     response = await _generate_response({**state, "retrieved_context": retrieved})
 
-    out_guard = await check_output(response, {**state, "retrieved_context": retrieved})
+    _mock_handoff = config.get("configurable", {}).get("mock_handoff_intent", False)
+    out_guard = await check_output(
+        response,
+        {**state, "retrieved_context": retrieved},
+        mock_handoff_intent=_mock_handoff,
+    )
     if not out_guard["safe"]:
         _db = config.get("configurable", {}).get("db")
         _conv_id = config.get("configurable", {}).get("conversation_id", "")
@@ -577,13 +582,54 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             "confidence": 0.85,
         }
 
+    # Idempotency flag: prevents run_escalation_side_effects from being called
+    # twice in one turn if both the output-guard handoff path and the
+    # tool-signalled path match (e.g. defective item + agent writes handoff language).
+    _escalation_fired = False
+
+    # Output-guard handoff detection: guard passed AND detected the agent is
+    # handing the conversation off to a human. Keep the rich LLM response —
+    # it may contain KB policy details the customer needs — and fire backend
+    # side effects (DB record, conversation status) the same way the
+    # tool-signalled path does.
+    if out_guard.get("handoff_intent"):
+        esc_reason = "llm_escalation_intent"
+        _db = config.get("configurable", {}).get("db")
+        _conv_id = config.get("configurable", {}).get("conversation_id", "")
+        summary = build_context_summary(
+            messages=state.get("messages") or [],
+            actions_taken=state.get("actions_taken") or [],
+            retrieved_context=retrieved,
+            reason=esc_reason,
+        )
+        await run_escalation_side_effects(esc_reason, {
+            "db": _db,
+            "conversation_id": _conv_id,
+            "confidence": state.get("confidence", 0.0),
+            "messages": state.get("messages") or [],
+            "context_summary": summary,
+        })
+        _escalation_fired = True
+        return {
+            "response": response,
+            "requires_escalation": True,
+            "escalation_reason": esc_reason,
+            "context_summary": summary,
+            "confidence": 0.85,
+            "pending_service": "",
+            "last_clarification_source": "",
+            "actions_taken": (state.get("actions_taken") or []) + [
+                {"service": "escalation_handler", "action": "escalate", "reason": esc_reason}
+            ],
+        }
+
     # Tool-signalled escalation: the last action result carries requires_escalation=True
     # (e.g. defective/damaged item claims). The LLM has already generated a KB-rich
     # response with policy details and handoff language — keep that response and fire
     # the backend side effects (DB record, conversation status) separately.
     # Other escalation paths (abusive input, output guard, repeated failures, customer
     # request) use _do_escalate() directly above and never reach this point.
-    if action_results and action_results[-1].get("requires_escalation"):
+    if action_results and action_results[-1].get("requires_escalation") and not _escalation_fired:
         esc_reason = action_results[-1].get("reason") or "defective_item"
         _db = config.get("configurable", {}).get("db")
         _conv_id = config.get("configurable", {}).get("conversation_id", "")
