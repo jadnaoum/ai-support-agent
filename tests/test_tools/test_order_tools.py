@@ -261,7 +261,7 @@ async def test_cancel_order_confirmation_required_on_first_call(db, customer, pl
         db, customer_id=customer.id, order_id=placed_order.id, reason="changed_mind"
     )
     assert result["success"] is False
-    assert result.get("confirmation_required") is True
+    assert result.get("reason") == "confirmation_required"
     assert result["details"]["order_id"] == placed_order.id
 
 
@@ -272,7 +272,7 @@ async def test_cancel_placed_order(db, customer, placed_order):
         actions_taken=_confirmed("cancel_order", placed_order.id),
     )
     assert result["success"] is True
-    assert "cancelled" in result["message"].lower()
+    assert result["reason"] == "cancelled"
     assert result["refund_amount"] == 999.0
 
 
@@ -280,14 +280,13 @@ async def test_cancel_shipped_order_is_rejected(db, customer, shipped_order):
     # No reason needed — eligibility is checked first; ineligible orders are rejected immediately
     result = await cancel_order(db, customer_id=customer.id, order_id=shipped_order.id)
     assert result["success"] is False
-    assert "shipped" in result["error"].lower()
-    assert "return" in result["error"].lower()
+    assert result["reason"] == "already_shipped"
 
 
 async def test_cancel_delivered_order_is_rejected(db, customer, delivered_order):
     result = await cancel_order(db, customer_id=customer.id, order_id=delivered_order.id)
     assert result["success"] is False
-    assert "delivered" in result["error"].lower()
+    assert result["reason"] == "already_delivered"
 
 
 async def test_cancel_already_cancelled_order(db, customer):
@@ -299,16 +298,16 @@ async def test_cancel_already_cancelled_order(db, customer):
     await db.commit()
     result = await cancel_order(db, customer_id=customer.id, order_id=order.id)
     assert result["success"] is False
-    assert "already" in result["error"].lower()
+    assert result["reason"] == "already_cancelled"
 
 
-async def test_cancel_most_recent_order(db, customer, placed_order):
+async def test_cancel_without_order_id_requires_it(db, customer, placed_order):
     result = await cancel_order(
         db, customer_id=customer.id,
         reason="changed_mind",
-        actions_taken=_confirmed("cancel_order", placed_order.id),
     )
-    assert result["success"] is True
+    assert result["success"] is False
+    assert result["reason"] == "order_id_required"
 
 
 # ---------------------------------------------------------------------------
@@ -326,8 +325,8 @@ async def test_check_cancel_eligibility_shipped_order(db, customer, shipped_orde
     result = await check_cancel_eligibility(db, customer_id=customer.id, order_id=shipped_order.id)
     assert result["success"] is True
     assert result["eligible"] is False
-    assert result["reason"] == "shipped"
-    assert result["available_action"] == "check_return_eligibility"
+    assert result["reason"] == "already_shipped"
+    assert result["available_action"] is None
 
 
 async def test_check_cancel_eligibility_no_order_id_returns_eligible_list(db, customer, placed_order):
@@ -370,7 +369,8 @@ async def test_check_return_eligibility_defective_reason_escalates(db, customer,
     )
     assert result["success"] is True
     assert result["eligible"] is False
-    assert result["reason"] == "requires_escalation"
+    assert result["reason"] == "defective"
+    assert result["requires_escalation"] is True
 
 
 async def test_check_return_eligibility_returned_order(db, customer, returned_order):
@@ -439,7 +439,8 @@ async def test_initiate_return_defective_reason_escalates(db, customer, delivere
         db, customer_id=customer.id, order_id=delivered_order.id, reason="defective"
     )
     assert result["success"] is False
-    assert result.get("reason") == "requires_escalation"
+    assert result.get("reason") == "defective"
+    assert result.get("requires_escalation") is True
 
 
 # ---------------------------------------------------------------------------
@@ -451,7 +452,7 @@ async def test_initiate_return_confirmation_required_on_first_call(db, customer,
         db, customer_id=customer.id, order_id=delivered_order.id, reason="changed_mind"
     )
     assert result["success"] is False
-    assert result.get("confirmation_required") is True
+    assert result.get("reason") == "confirmation_required"
     assert result["details"]["order_id"] == delivered_order.id
 
 
@@ -523,7 +524,7 @@ async def test_initiate_return_pending_review_for_large_order(db, customer, expe
         actions_taken=_confirmed("initiate_return", expensive_delivered_order.id),
     )
     assert result["success"] is True
-    assert result.get("pending_review") is True
+    assert result.get("reason") == "return_pending_review"
     assert "return_label" not in result
     assert "refund_id" in result
 
@@ -576,7 +577,7 @@ async def test_get_refund_status_no_refunds(db, customer):
     result = await get_refund_status(db, customer_id=customer.id)
     assert result["success"] is True
     assert result["refunds"] == []
-    assert result.get("check_kb") is True
+    assert result["reason"] == "no_refunds"
 
 
 async def test_get_refund_status_finds_refund_after_cancellation(db, customer, placed_order):

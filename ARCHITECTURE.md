@@ -6,7 +6,7 @@
 >
 > For the actionable build spec (what Claude Code should read), see BUILD_SPEC.md.
 >
-> Last updated: 2026-04-18
+> Last updated: 2026-04-19
 
 ---
 
@@ -209,6 +209,10 @@ Escalation is a decision the conversation agent makes — not a separate service
 - **Decision:** Tools answer eligibility questions (yes/no with structured reason codes). The KB provides process guidance (how to initiate a return, shipping options, timelines). The LLM combines both into a customer-facing response.
 - **The LLM never calculates business rules.** It doesn't check return windows, apply final sale logic, or determine order eligibility from context data. It calls the tool, gets a structured answer, and works with that.
 - **Tool rejection reasons are machine-readable** (e.g., `return_required`, `final_sale`, `outside_return_window`), not customer-facing prose. The LLM composes the customer explanation.
+
+#### Eligibility field propagation
+
+Write tools (`cancel_order`, `initiate_return`) call the eligibility check internally and spread its result (minus the `eligible` key) into their own response. This means any field added to an eligibility check automatically reaches the agent via `action_results` serialization. The pattern is kept for simplicity — write tools don't need to manually list which fields to propagate. The implicit contract: every field returned by an eligibility check is agent-facing. Internal/debugging fields should not be added to eligibility results.
 
 ### One conversation agent for all tools (considered and rejected: LLM-per-tool separation)
 - **Considered:** Separate LLMs for read-only tools vs. state-changing tools, to reduce risk of the wrong action being taken.
