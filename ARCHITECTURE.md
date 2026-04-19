@@ -185,6 +185,16 @@ Escalation is a decision the conversation agent makes — not a separate service
 - For other escalation paths (abusive input, output guard blocks, repeated failures, customer-requested), the LLM doesn't generate a response — a canned handoff message is used and side effects fire as before.
 - **Why split the concerns:** The original design had a single `_do_escalate()` function that overwrote the LLM response with a generic handoff message. This forced a false choice between "rich KB-informed response" and "real backend escalation." Splitting them lets the agent surface relevant policy (what the customer is entitled to) while still triggering proper handoff.
 
+#### Escalation when no tool can execute (Path 5)
+- **Gap:** When the intent classifier returns no action (e.g., partial delivery, ambiguous damage claim), the agent routes to `knowledge_query`. If the KB can't resolve the issue, the LLM generates handoff language ("I'm connecting you with a specialist") — but no structural escalation fires. No `Escalation` row is written and `conversation.status` stays `active`.
+- **Why this happens:** All structural escalation paths either go through `_do_escalate()` (input guard, output guard, repeated failures, customer request) or through the `requires_escalation` flag returned by a tool. The `knowledge_query` path has neither — the LLM generates handoff language autonomously, with no hook back to the escalation machinery.
+- **Planned fix:** Extend the output guard to detect handoff language in the agent's response. When detected, fire `run_escalation_side_effects` directly (same path as tool-driven escalation). This closes the gap without adding a new graph node.
+
+#### Output-guard-triggered escalation (planned)
+- **Decision:** Output guard will be extended to scan the agent's drafted response for handoff phrases (e.g., "connecting you with a specialist," "escalating to our team"). On detection, `run_escalation_side_effects` fires before the response is sent.
+- **Why output guard and not a new graph node:** A new node would require routing logic to decide when to invoke it — recreating the classification problem the output guard already solves. The output guard already sees every response; it's the natural choke point for ensuring structural side effects match stated LLM intent.
+- **Tradeoff:** False positives (guard fires on figurative language) write spurious escalation records. Acceptable — a spurious escalation record is far less harmful than a real escalation with no record. Phrase list will be kept narrow and literal.
+
 ### Tool design principles
 
 #### Read/write tool separation
@@ -213,6 +223,11 @@ Escalation is a decision the conversation agent makes — not a separate service
 #### Eligibility field propagation
 
 Write tools (`cancel_order`, `initiate_return`) call the eligibility check internally and spread its result (minus the `eligible` key) into their own response. This means any field added to an eligibility check automatically reaches the agent via `action_results` serialization. The pattern is kept for simplicity — write tools don't need to manually list which fields to propagate. The implicit contract: every field returned by an eligibility check is agent-facing. Internal/debugging fields should not be added to eligibility results.
+
+#### Tool result shape
+- **Decision:** Tool results contain no human-readable prose strings. All fields are machine-readable: structured reason codes (e.g., `reason: "already_shipped"`), booleans (e.g., `in_return_window: true`), numeric amounts, and IDs. A canonical `OUTPUT_REASONS` frozenset in `backend/tools/constants.py` lists every valid reason code.
+- **Why:** `conversation.py` serializes `action_results` as `json.dumps(action_results, indent=2)` and injects the full dict into the LLM context. A prose `detail` field in a tool result is LLM-facing text that was written by tool code, not the prompt — it bypasses all prompt discipline and gets parroted verbatim. Machine-readable fields give the LLM raw facts to compose from, not pre-written sentences to repeat.
+- **`OUTPUT_REASONS` as a registry:** Every reason code is listed in `constants.py`. A reason code that isn't in the frozenset is a bug — it either has no defined behavior in the prompt or is testing an untested path. Adding a new tool outcome requires adding it to `OUTPUT_REASONS` and updating eval rubrics.
 
 ### One conversation agent for all tools (considered and rejected: LLM-per-tool separation)
 - **Considered:** Separate LLMs for read-only tools vs. state-changing tools, to reduce risk of the wrong action being taken.
