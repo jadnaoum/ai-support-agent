@@ -24,7 +24,7 @@ Store credit must be applied at checkout. Support cannot add it to an already-pl
 
 ## Extended Warranties
 
-We do not offer extended warranty plans for any product. All coverage follows the standard terms in the Warranties article. If your product fails after the warranty period, contact us — we review out-of-warranty situations case by case and may offer discounted replacements.
+We do not offer extended warranty plans for any product. All coverage follows the standard terms in the Warranties article.
 
 ## Splitting Payment Across Two Cards
 

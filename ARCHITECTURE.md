@@ -6,7 +6,7 @@
 >
 > For the actionable build spec (what Claude Code should read), see BUILD_SPEC.md.
 >
-> Last updated: 2026-04-19
+> Last updated: 2026-04-23 (long-term architectural direction added)
 
 ---
 
@@ -234,6 +234,108 @@ Write tools (`cancel_order`, `initiate_return`) call the eligibility check inter
 - **Rejected because:** Splitting into multiple LLMs doesn't eliminate the classification risk — it moves it to a router LLM that must decide which tool-specific LLM to invoke. The routing decision is the same classification problem, just with added latency, duplicated context, and coordination complexity. This effectively recreates the supervisor-routing architecture already rejected for tone consistency and handoff seam reasons.
 - **The actual safety boundary** is in the tool layer: validation logic, structured rejections, and confirmation gates. These enforce correct behavior regardless of what the LLM intended. One conversation agent with safe tools is more reliable than multiple LLMs with unsafe tools.
 
+### Layer of decision: routing in loop, language in response
+
+**Principle:** decisions about what the agent does next — call another
+tool, query KB, escalate, ask for clarification, respond — belong in
+the loop decision step. The response prompt's job is to shape
+customer-facing language for whatever response the loop has decided
+on. Mixing the two means two LLMs make overlapping decisions, which
+creates drift and inconsistency.
+
+**Current state (Option A):** the loop decision is binary today —
+loop again, or respond. It doesn't decide *what kind* of response to
+write. So the response prompt has accumulated some quasi-routing
+guidance ("if you can't resolve this, escalate," "if a tool requires
+order_id, ask for it"). These read like response shaping but are
+functionally post-response routing decisions.
+
+**Discipline going forward:**
+- Treat the response prompt as language-only by default. When you
+  catch yourself adding routing logic ("if X happened, do Y"), pause
+  and ask whether the decision belongs in the loop layer instead.
+- When cleaning up orphaned tool signals or other prompt-layer work,
+  use the opportunity to move routing-shaped guidance out of the
+  response prompt where it makes sense.
+- Don't add new routing rules to the response prompt unless there's a
+  concrete reason the loop layer can't carry them today.
+
+**Worth exploring later (Option B):** promote the loop decision to a
+multi-class router (respond / call_tool / query_kb / escalate /
+ask_clarification). Response prompt becomes purely about language
+given a chosen action. This is the cleaner architecture but a bigger
+change — bigger than Option 2 was. Defer until there's enough
+accumulated friction with Option A to justify the migration cost. The
+Option-2-style escalation gap (output guard detecting handoff
+language and firing structural side effects) is the canonical example
+of Option A friction: a routing decision (escalate) leaking into the
+response layer, requiring a downstream patch to make it structural.
+
+### Long-term architectural direction
+
+**Principle reinforced by industry guidance:** push decisions into
+structured code boundaries; use the LLM for judgment on genuinely
+ambiguous cases, natural language understanding at input, and
+natural language generation at output. Everything else executes as
+code.
+
+**Where this points for our system:** over time, migrate routing
+from the response prompt into the loop decision layer (Option B —
+see "Layer of decision"). The target shape:
+
+- **Loop decision** becomes a typed router with an explicit output
+  schema: `{next_action: "call_tool" | "query_kb" | "escalate" |
+  "ask_clarification" | "respond_final", rationale, params}`. The
+  LLM provides judgment on which action fits. The system enforces
+  schema validation, allowed-action constraints, and deterministic
+  post-processing per branch.
+- **Response prompt** becomes language-only: "given the decided
+  action is X, write customer-facing language for it." No routing
+  logic. No "if this happens, do that."
+- **Tool layer** continues to own business rules, eligibility math,
+  confirmation gates, and structural rejections. Already mostly in
+  place.
+- **KB retrieval** remains the progressive-disclosure mechanism for
+  policy content that would otherwise bloat the prompt.
+
+**Warning signs to watch for (the bloat-creep checklist):**
+
+1. Response prompt crosses ~1000 lines or grows faster than it
+   shrinks after refactors.
+2. A bug fix means "add another rule to the prompt" — especially a
+   rule scoped to one narrow scenario.
+3. Agent behavior becomes dependent on exact prompt phrasing — small
+   wording changes cause regressions.
+4. Changes in one prompt section cause unexpected behavior in
+   another (the prompt becomes a system with hidden dependencies).
+5. Reviewing a prompt change requires re-reading large adjacent
+   sections to understand impact.
+
+**What to do when a warning sign appears:**
+
+- First ask: "is this a routing decision wearing response-prompt
+  clothing?" If yes, the real fix is in the loop layer, not another
+  prompt rule.
+- Second: "can this logic live in tool code instead?" Business rules
+  almost always belong there.
+- Third: "does the KB already cover this, or could it?" Policy
+  content belongs in KB, not in prompts.
+- Adding a new prompt rule is the last option, not the first.
+
+**When to commit to the Option B migration:** when the discipline
+above stops being enough — when cleaning up one prompt rule reveals
+three more, or when the response prompt is actively slowing
+development. Until then, stay in Option A with vigilance. The
+migration is bigger than Option 2 was, so it needs a real reason to
+trigger.
+
+**Related industry references (as of 2026):** Anthropic's Skills
+pattern for progressive disclosure of context; LangChain's guidance
+on curating context rather than cramming it into system prompts;
+the general "LLMs for judgment, code for determinism" principle
+articulated across many sources. The direction is well-established
+— this is not a speculative bet.
+
 ### Workflow strategy: layered, not per-scenario
 - **Decision:** The system uses three layers of workflow control, always preferring the lowest layer that works.
 - **Layer 1 — Tool constraints (always active):** Confirmation gates, required parameters, structured rejections with `available_action` hints. This is the floor — the agent can't skip these regardless of prompt instructions or LLM reasoning.
@@ -252,6 +354,65 @@ Write tools (`cancel_order`, `initiate_return`) call the eligibility check inter
 - **Why this over KB metadata tags:** Metadata tags (`ai_actionable`, `business_limitation`) on every article require ongoing tagging discipline across the entire KB. A single catch-all article is one document to maintain, updated through the same workflow as any other KB content.
 - **Why this over tool registry scope:** Maintaining a parallel list of "things humans can do" alongside the actual tools drifts over time and duplicates knowledge.
 - **Graceful failure:** If the article isn't retrieved when it should be, the agent over-escalates — a human gets a case they can't help with either. That's wasted time, not a wrong answer. Over-escalation is a tuning problem; wrong answers are a trust problem.
+
+### Item-name resolution (designed, deferred)
+
+**Problem:** customers refer to purchases by item name ("cancel my
+earphones") rather than order ID. Action tools currently require
+order_id and reject with `order_id_required` when the customer
+doesn't provide one. This causes dead-ends and, in earlier versions,
+chain-of-thought leakage into the customer response.
+
+**Current behavior (interim):** when a tool rejects with missing
+order_id, the agent asks the customer for the order_id. If the
+customer doesn't know it, the agent escalates via the Option 2
+output-guard handoff detection path. No item→order resolution happens
+in the system today.
+
+**Full design:** a complete design for item-name resolution —
+including tool contract changes, new rejection shapes (`missing_info`,
+`multiple_matches`, `item_not_found`), turn_state persistence of
+resolved items, classifier extraction of `item_name`, response prompt
+patterns for the new rejection shapes, and a 3-commit rollout plan —
+lives at `docs/item_name_resolution.md`. Implementation is deferred
+until Option 2 validation and the orphaned warranty signals work are
+complete.
+
+**Why deferred:** the change touches tool contracts, classifier,
+response prompt, turn_state, and eval cases. Too broad to stack on
+top of in-flight Option 2 validation. The interim "ask for order_id
+then escalate" fallback is cheap and closes the failure mode that
+motivated the design.
+
+**Implementation watch-outs (do not overlook when picking this up):**
+
+1. **Multiple_matches Turn 2b relies on LLM fallback.** The design's
+   primary mechanism for handling "the March one" style replies is
+   the classifier re-extracting an explicit order_id from the prior
+   agent response (the response prompt includes a load-bearing
+   instruction to always include order_id explicitly). The fallback
+   is the loop decision LLM doing natural-language disambiguation
+   against `pending_matches`. This fallback is fragile — it's the
+   kind of LLM-layer behavior the architecture has been moving away
+   from. Before shipping, verify the classifier path is reliable
+   (>80% hit rate on natural-language disambiguation replies) and
+   treat the loop decision fallback as a safety net, not a primary
+   path. If the classifier path turns out to be unreliable in
+   practice, consider surfacing `pending_matches` directly to the
+   response prompt so the agent can bind the customer's reply to an
+   order_id deterministically — not via another LLM reasoning step.
+
+2. **TTL counter needs an explicit source.** The design's TTL policy
+   (3 turns without a successful tool call → clear `resolved_item`
+   and `pending_matches`) needs a turn counter. The design proposes
+   deriving it from `len(messages) // 2`, but this is a design
+   choice, not just an implementation detail — it determines whether
+   TTL counts by customer messages, assistant messages, or something
+   else, and how it behaves across reconnects or partial turns. Pick
+   the counter definition explicitly before implementing, add it as
+   a named field on `turn_state` rather than deriving on the fly, and
+   write a unit test that exercises TTL expiration.
+
 ---
 
 ## Guardrails (input/output)

@@ -56,10 +56,6 @@ Return shipping for warranty claims is covered by us with a prepaid label.
 
 Some products include a separate manufacturer's warranty with potentially different coverage or longer terms. You can use either our store warranty or the manufacturer's during the applicable period.
 
-## Product Failure After Warranty Expires
-
-Contact support anyway. We review out-of-warranty situations case by case and may offer discounted replacements or repairs through our service partners.
-
 ## What Voids the Warranty
 
 - Opening the device and modifying internal components
