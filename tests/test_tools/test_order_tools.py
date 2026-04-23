@@ -14,6 +14,7 @@ from backend.tools.order_tools import (
     get_order_history,
     check_cancel_eligibility,
     check_return_eligibility,
+    check_missing_package,
     initiate_return,
     get_refund_status,
 )
@@ -578,6 +579,7 @@ async def test_get_refund_status_no_refunds(db, customer):
     assert result["success"] is True
     assert result["refunds"] == []
     assert result["reason"] == "no_refunds"
+    assert result["check_kb"] is True
 
 
 async def test_get_refund_status_finds_refund_after_cancellation(db, customer, placed_order):
@@ -594,6 +596,7 @@ async def test_get_refund_status_finds_refund_after_cancellation(db, customer, p
     assert len(result["refunds"]) == 1
     assert result["refunds"][0]["status"] == "approved"
     assert result["refunds"][0]["amount"] == 999.00
+    assert result["check_kb"] is True
 
 
 async def test_get_refund_status_filters_by_order_id(db, customer, placed_order):
@@ -615,3 +618,201 @@ async def test_get_refund_status_filters_by_order_id(db, customer, placed_order)
     result = await get_refund_status(db, customer_id=customer.id, order_id=wrong_order_id)
     assert result["success"] is True
     assert result["refunds"] == []
+
+
+# ---------------------------------------------------------------------------
+# check_return_eligibility — defective path: all four window/warranty combos
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+async def defective_product_with_warranty(db: AsyncSession):
+    """Electronics product with a 24-month warranty."""
+    p = Product(
+        id=str(uuid.uuid4()),
+        name="Warranty Laptop",
+        category="electronics",
+        price=999.00,
+        return_window_days=14,
+        final_sale=False,
+        warranty_months=24,
+    )
+    db.add(p)
+    await db.commit()
+    return p
+
+
+def _defective_order(customer, product, days_since_delivery, db):
+    """Helper — returns an unsaved Order + OrderItem tuple."""
+    now = datetime.now(timezone.utc)
+    order = Order(
+        id=str(uuid.uuid4()),
+        customer_id=customer.id,
+        status="delivered",
+        total_amount=999.00,
+        delivered_at=now - timedelta(days=days_since_delivery),
+    )
+    item = OrderItem(
+        id=str(uuid.uuid4()),
+        order_id=order.id,
+        product_id=product.id,
+        quantity=1,
+        price_at_purchase=float(product.price),
+    )
+    return order, item
+
+
+async def test_defective_outside_both_windows_no_escalation(db, customer, product):
+    """Outside return window AND no warranty → requires_escalation=False, check_kb=False."""
+    # product has no warranty_months; 14-day return window; delivered 30 days ago
+    order, item = _defective_order(customer, product, days_since_delivery=30, db=db)
+    db.add(order)
+    await db.flush()
+    db.add(item)
+    await db.commit()
+
+    result = await check_return_eligibility(
+        db, customer_id=customer.id, order_id=order.id, reason="defective"
+    )
+    assert result["success"] is True
+    assert result["eligible"] is False
+    assert result["reason"] == "defective"
+    assert result["requires_escalation"] is False
+    assert result["check_kb"] is False
+    assert result["in_return_window"] is False
+    assert result["in_warranty"] is False
+
+
+async def test_defective_in_return_window_no_warranty_escalates(db, customer, product):
+    """Inside return window, no warranty → still escalates."""
+    # 14-day return window; delivered 3 days ago
+    order, item = _defective_order(customer, product, days_since_delivery=3, db=db)
+    db.add(order)
+    await db.flush()
+    db.add(item)
+    await db.commit()
+
+    result = await check_return_eligibility(
+        db, customer_id=customer.id, order_id=order.id, reason="defective"
+    )
+    assert result["success"] is True
+    assert result["eligible"] is False
+    assert result["requires_escalation"] is True
+    assert result["check_kb"] is True
+    assert result["in_return_window"] is True
+    assert result["in_warranty"] is False
+
+
+async def test_defective_outside_return_window_in_warranty_escalates(
+    db, customer, defective_product_with_warranty
+):
+    """Outside return window but inside warranty → still escalates."""
+    # 14-day return window; 24-month warranty; delivered 20 days ago
+    order, item = _defective_order(
+        customer, defective_product_with_warranty, days_since_delivery=20, db=db
+    )
+    db.add(order)
+    await db.flush()
+    db.add(item)
+    await db.commit()
+
+    result = await check_return_eligibility(
+        db, customer_id=customer.id, order_id=order.id, reason="defective"
+    )
+    assert result["success"] is True
+    assert result["eligible"] is False
+    assert result["requires_escalation"] is True
+    assert result["check_kb"] is True
+    assert result["in_return_window"] is False
+    assert result["in_warranty"] is True
+
+
+async def test_defective_in_both_windows_escalates(db, customer, defective_product_with_warranty):
+    """Inside return window AND inside warranty → still escalates."""
+    # 14-day return window; 24-month warranty; delivered 3 days ago
+    order, item = _defective_order(
+        customer, defective_product_with_warranty, days_since_delivery=3, db=db
+    )
+    db.add(order)
+    await db.flush()
+    db.add(item)
+    await db.commit()
+
+    result = await check_return_eligibility(
+        db, customer_id=customer.id, order_id=order.id, reason="defective"
+    )
+    assert result["success"] is True
+    assert result["eligible"] is False
+    assert result["requires_escalation"] is True
+    assert result["check_kb"] is True
+    assert result["in_return_window"] is True
+    assert result["in_warranty"] is True
+
+
+# ---------------------------------------------------------------------------
+# check_missing_package — reason code paths and check_kb flag
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+async def just_delivered_order(db: AsyncSession, customer, product):
+    """Delivered less than 1 business day ago (same day) → wait_for_delivery path."""
+    now = datetime.now(timezone.utc)
+    order = Order(
+        id=str(uuid.uuid4()),
+        customer_id=customer.id,
+        status="delivered",
+        total_amount=999.00,
+        delivered_at=now - timedelta(hours=2),
+    )
+    db.add(order)
+    await db.flush()
+    db.add(_add_item(order, product))
+    await db.commit()
+    return order
+
+
+@pytest.fixture
+async def stale_delivered_order(db: AsyncSession, customer, product):
+    """Delivered 3 business days ago → carrier_claim_eligible path."""
+    now = datetime.now(timezone.utc)
+    order = Order(
+        id=str(uuid.uuid4()),
+        customer_id=customer.id,
+        status="delivered",
+        total_amount=999.00,
+        delivered_at=now - timedelta(days=3),
+    )
+    db.add(order)
+    await db.flush()
+    db.add(_add_item(order, product))
+    await db.commit()
+    return order
+
+
+async def test_check_missing_package_wait_for_delivery(db, customer, just_delivered_order):
+    """Delivered < 1 business day ago → wait_for_delivery with check_kb: True."""
+    result = await check_missing_package(
+        db, customer_id=customer.id, order_id=just_delivered_order.id
+    )
+    assert result["success"] is True
+    assert result["reason"] == "wait_for_delivery"
+    assert result["check_kb"] is True
+    assert result.get("requires_escalation") is not True  # False or absent
+    assert "order_id" in result
+    assert "product_name" in result
+    assert "delivered_date" in result
+    assert "business_days_since_delivery" in result
+
+
+async def test_check_missing_package_carrier_claim_eligible(db, customer, stale_delivered_order):
+    """Delivered >= 1 business day ago → carrier_claim_eligible with check_kb: True."""
+    result = await check_missing_package(
+        db, customer_id=customer.id, order_id=stale_delivered_order.id
+    )
+    assert result["success"] is True
+    assert result["reason"] == "carrier_claim_eligible"
+    assert result["check_kb"] is True
+    assert result["requires_escalation"] is True
+    assert "order_id" in result
+    assert "product_name" in result
+    assert "delivered_date" in result
+    assert "business_days_since_delivery" in result

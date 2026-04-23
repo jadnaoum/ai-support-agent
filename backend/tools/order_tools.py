@@ -85,6 +85,18 @@ def _check_return_eligibility_sync(order, products, reason=None, now=None) -> di
             if max_warranty:
                 in_warranty = days_since <= max_warranty * 30
                 warranty_months = max_warranty
+        # Outside both windows — no human can help; return a non-escalation rejection
+        # so the agent can explain the situation directly rather than handing off.
+        if not in_return_window and not in_warranty:
+            return {
+                "eligible": False,
+                "reason": "defective",
+                "available_action": None,
+                "requires_escalation": False,
+                "check_kb": False,
+                "in_return_window": False,
+                "in_warranty": False,
+            }
         return {
             "eligible": False,
             **_escalation_rejection(
@@ -319,6 +331,7 @@ async def check_return_eligibility(
         return {"success": False, "error": "No orders found for this account."}
 
     eligible_orders = []
+    dead_end = None
     for order in orders:
         items_result = await db.execute(
             select(Product)
@@ -329,6 +342,10 @@ async def check_return_eligibility(
         check = _check_return_eligibility_sync(order, products, reason=reason)
         if check["eligible"]:
             eligible_orders.append({"order_id": str(order.id), "status": order.status, **check})
+        elif not check.get("requires_escalation") and check.get("reason") == "defective" and dead_end is None:
+            dead_end = {"order_id": str(order.id), "status": order.status, **check}
+    if dead_end and not eligible_orders:
+        return {"success": True, **dead_end}
     return {"success": True, "eligible_orders": eligible_orders}
 
 
@@ -605,11 +622,12 @@ async def get_refund_status(
     refunds = result.scalars().all()
 
     if not refunds:
-        return {"success": True, "reason": "no_refunds", "refunds": []}
+        return {"success": True, "reason": "no_refunds", "refunds": [], "check_kb": True}
 
     return {
         "success": True,
         "reason": "refund_list",
+        "check_kb": True,
         "refunds": [
             {
                 "refund_id": str(r.id),
@@ -696,7 +714,7 @@ async def check_missing_package(
             "product_name": product_name,
             "delivered_date": delivered_date_str,
             "business_days_since_delivery": business_days,
-            "requires_escalation": False,
+            "check_kb": True,
         }
 
     return {
@@ -707,6 +725,7 @@ async def check_missing_package(
         "delivered_date": delivered_date_str,
         "business_days_since_delivery": business_days,
         "requires_escalation": True,
+        "check_kb": True,
     }
 
 

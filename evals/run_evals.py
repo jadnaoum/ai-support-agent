@@ -378,7 +378,9 @@ async def run_action_execution(test_case: dict, calibrate: bool, test_id: str = 
 async def run_escalation(test_case: dict, calibrate: bool, test_id: str = "", version_tag: str = "") -> tuple[dict, dict]:
     messages = _parse_conversation(test_case.get("conversation"))
     mock_context = _parse_json_field(test_case.get("mock_account_state"))
-    agent_resp = _call_agent_full(messages, mock_context, test_id=test_id, version_tag=version_tag)
+    mock_agent_state = _parse_json_field(test_case.get("mock_agent_state"))
+    agent_resp = _call_agent_full(messages, mock_context, test_id=test_id, version_tag=version_tag,
+                                  mock_agent_state=mock_agent_state)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
     judgment = await judge_escalation(test_case, agent_resp, calibrate)
@@ -403,7 +405,8 @@ async def run_conversation_quality(test_case: dict, calibrate: bool, test_id: st
     if not messages:
         messages = [{"role": "customer", "content": "Hello"}]
 
-    agent_resp = _call_agent_full(messages, {}, test_id=test_id, version_tag=version_tag)
+    mock_context = _parse_json_field(test_case.get("mock_account_state"))
+    agent_resp = _call_agent_full(messages, mock_context, test_id=test_id, version_tag=version_tag)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
     judgment = await judge_conversation_quality(test_case, agent_resp, calibrate)
@@ -413,7 +416,9 @@ async def run_conversation_quality(test_case: dict, calibrate: bool, test_id: st
 async def run_pii_leakage(test_case: dict, calibrate: bool, test_id: str = "", version_tag: str = "") -> tuple[dict, dict]:
     messages = _parse_conversation(test_case.get("conversation"))
     mock_context = _parse_json_field(test_case.get("mock_account_state"))
-    agent_resp = _call_agent_full(messages, mock_context, test_id=test_id, version_tag=version_tag)
+    mock_agent_state = _parse_json_field(test_case.get("mock_agent_state"))
+    agent_resp = _call_agent_full(messages, mock_context, test_id=test_id, version_tag=version_tag,
+                                  mock_agent_state=mock_agent_state)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
     judgment = await judge_pii_leakage(test_case, agent_resp, calibrate)
@@ -437,8 +442,9 @@ async def run_graceful_failure(test_case: dict, calibrate: bool, test_id: str = 
     # doesn't inject failures at the tool level. The judge evaluates honesty
     # about failures that occur naturally (e.g. order not found in DB).
     messages = _parse_conversation(test_case.get("conversation"))
+    mock_context = _parse_json_field(test_case.get("mock_account_state"))
     mock_agent_state = _parse_json_field(test_case.get("mock_agent_state"))
-    agent_resp = _call_agent_full(messages, {}, test_id=test_id, version_tag=version_tag,
+    agent_resp = _call_agent_full(messages, mock_context, test_id=test_id, version_tag=version_tag,
                                   mock_agent_state=mock_agent_state)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}

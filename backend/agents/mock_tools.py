@@ -117,6 +117,16 @@ def _return_eligibility(o: dict, reason: str, now: datetime) -> dict:
             wm = first_item.get("warranty_months") or _DEFAULT_WARRANTY_MONTHS
             in_warranty = days_since <= wm * 30
             warranty_months = wm
+        if not in_return_window and not in_warranty:
+            return {
+                "eligible": False,
+                "reason": "defective",
+                "available_action": None,
+                "requires_escalation": False,
+                "check_kb": False,
+                "in_return_window": False,
+                "in_warranty": False,
+            }
         return {
             "eligible": False,
             **_escalation_rejection(
@@ -217,14 +227,19 @@ def _mock_check_return_eligibility(params: dict, mock: dict, now: datetime) -> d
         return {"success": False, "error": "No orders found for this account."}
     eligible = []
     escalation = None
+    dead_end = None
     for o in orders:
         check = _return_eligibility(o, reason, now)
         if check["eligible"]:
             eligible.append({"order_id": str(o["id"]), "status": o.get("status"), **check})
         elif check.get("requires_escalation") and escalation is None:
             escalation = {"order_id": str(o["id"]), "status": o.get("status"), **check}
+        elif not check.get("requires_escalation") and check.get("reason") == "defective" and dead_end is None:
+            dead_end = {"order_id": str(o["id"]), "status": o.get("status"), **check}
     if escalation and not eligible:
         return {"success": True, **escalation}
+    if dead_end and not eligible:
+        return {"success": True, **dead_end}
     return {"success": True, "eligible_orders": eligible}
 
 
@@ -372,7 +387,7 @@ def _mock_check_missing_package(params: dict, mock: dict, now: datetime) -> dict
             "product_name": product_name,
             "delivered_date": delivered_date_str,
             "business_days_since_delivery": business_days,
-            "requires_escalation": False,
+            "check_kb": True,
         }
 
     return {
@@ -383,6 +398,7 @@ def _mock_check_missing_package(params: dict, mock: dict, now: datetime) -> dict
         "delivered_date": delivered_date_str,
         "business_days_since_delivery": business_days,
         "requires_escalation": True,
+        "check_kb": True,
     }
 
 
@@ -395,7 +411,7 @@ def _mock_get_refund_status(params: dict, mock: dict) -> dict:
             return err
         refunds = [r for r in refunds if str(r.get("order_id", "")) == str(order_id)]
     if not refunds:
-        return {"success": True, "reason": "no_refunds", "refunds": []}
+        return {"success": True, "reason": "no_refunds", "refunds": [], "check_kb": True}
 
     refund_list = []
     for r in refunds:
@@ -411,6 +427,7 @@ def _mock_get_refund_status(params: dict, mock: dict) -> dict:
     return {
         "success": True,
         "reason": "refund_list",
+        "check_kb": True,
         "refunds": refund_list,
     }
 
