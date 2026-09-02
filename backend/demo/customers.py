@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from backend.db.models import Customer, Product, Order, OrderItem, Refund
 from backend.demo.scenarios import (
-    RELATIVE_DATES, ORDER_STATUSES, MAX_ORDERS_PER_CUSTOMER, product_id_for,
+    RELATIVE_DATES, ORDER_STATUSES, MAX_ORDERS_PER_CUSTOMER, product_id_for, scenario_by_id,
 )
 
 DEMO_EMAIL_DOMAIN = "shire.demo"
@@ -190,6 +190,7 @@ def serialize_customer(customer: Customer) -> dict:
         # customer's own address (the agent may legitimately mention it).
         "email": customer.email,
         "scenario_id": meta.get("scenario_id", ""),
+        "scenario_title": (scenario_by_id(meta.get("scenario_id", "")) or {}).get("title", ""),
         "demo": bool(meta.get("demo")),
         "orders": [
             {

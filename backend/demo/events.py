@@ -62,10 +62,17 @@ def derive_events(final_output: dict, audit_rows: list, retrieved_context: "list
         if service == "action_service":
             result = results[result_i] if result_i < len(results) else {}
             result_i += 1
+            # The tool's own reason code ("eligible", "already_shipped", …) is
+            # more telling than the coarse result_detail; confirmation gates
+            # keep their explicit marker.
+            detail = a.get("result_detail") or ("success" if a.get("success") else "failed")
+            reason = result.get("reason")
+            if detail != "confirmation_pending" and isinstance(reason, str) and reason:
+                detail = reason
             events.append({
                 "type": "tool_call",
                 "tool": a.get("action") or "unknown",
-                "result": a.get("result_detail") or ("success" if a.get("success") else "failed"),
+                "result": detail,
                 "success": bool(a.get("success")),
                 "order_id": a.get("order_id"),
                 "confirmation_required": bool(a.get("confirmation_required")),

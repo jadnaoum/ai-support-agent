@@ -80,6 +80,7 @@ def test_confirmation_gate_pair():
     }
     events = derive_events(second, [])
     assert events[1]["success"] is True and events[1]["confirmation_required"] is False
+    assert events[1]["result"] == "cancelled"  # the tool's reason code, not the coarse "success"
 
 
 def test_input_blocked_turn_has_no_output_guard():

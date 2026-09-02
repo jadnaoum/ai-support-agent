@@ -61,6 +61,7 @@ async def test_create_from_scenario(client, db, catalog):
     assert body["name"] == "Galadriel"
     assert body["email"].startswith("galadriel-") and body["email"].endswith("@shire.demo")
     assert body["scenario_id"] == "missed-window"
+    assert body["scenario_title"] == "Just missed the window"
     assert len(body["orders"]) == 1
     order = body["orders"][0]
     assert order["product_name"] == "ProBook X15 Laptop"

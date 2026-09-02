@@ -8,6 +8,14 @@ import re
 
 from backend.tools.constants import CONFIRMATION_GATED_TOOLS
 
+# Tool rejections that are NOT policy decisions: input-validation gates and
+# infrastructure failures. A policy turn is one where a tool said "no" because
+# of a business rule (return window, final sale, status, defective…).
+_NON_POLICY_RESULTS = frozenset({
+    "order_id_required", "reason_required", "invalid_reason", "confirmation_pending",
+    "failed", "unknown",
+})
+
 _UUID_RE = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 _SSN_RE = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
@@ -111,7 +119,10 @@ def compute_checks(turns: list, own_email: str = "") -> list:
     for t in turns:
         evs = t.get("events", [])
         rejected = any(
-            e.get("type") == "tool_call" and not e.get("success") and not e.get("confirmation_required")
+            e.get("type") == "tool_call"
+            and not e.get("success")
+            and not e.get("confirmation_required")
+            and e.get("result") not in _NON_POLICY_RESULTS
             for e in evs
         )
         if not rejected:

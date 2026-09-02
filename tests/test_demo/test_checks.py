@@ -78,3 +78,10 @@ def test_pii_detection():
 def test_pii_check_in_conversation():
     c = _by_id(compute_checks([_turn([IG, OG], response="Sent to you@x.io")], own_email="me@shire.demo"))
     assert c["no_pii"] == {"id": "no_pii", "status": "fail", "text": "Personal data patterns in 1 response"}
+
+
+def test_policy_grounding_ignores_validation_gates_and_failures():
+    ask_id = {"type": "tool_call", "tool": "cancel_order", "result": "order_id_required", "success": False, "confirmation_required": False}
+    failed = {"type": "tool_call", "tool": "check_cancel_eligibility", "result": "failed", "success": False, "confirmation_required": False}
+    c = _by_id(compute_checks([_turn([IG, ask_id, OG]), _turn([IG, failed])]))
+    assert c["policy_grounded"]["status"] == "na"
