@@ -6,11 +6,13 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import get_settings
 from backend.db.session import get_db
-from backend.db.models import Product
+from backend.db.models import Product, Conversation, Message, Turn
+from backend.demo.checks import compute_checks
 from backend.demo.rails import hash_ip
 from backend.demo.scenarios import (
     NAME_POOL, RELATIVE_DATES, ORDER_STATUSES, SCENARIOS, COMMON_PROMPTS,
@@ -143,3 +145,87 @@ def _suggested_prompts(scenario_id: str) -> list:
     scenario = scenario_by_id(scenario_id) if scenario_id else None
     own = scenario["suggested_prompts"] if scenario else ["What can you help me with?"]
     return own + COMMON_PROMPTS
+
+
+@router.get("/conversations/{conversation_id}/timeline")
+async def conversation_timeline(conversation_id: str, db: AsyncSession = Depends(get_db)):
+    """Everything the chat page needs to render or replay a conversation:
+    customer, messages, per-turn pipeline events, totals and the checks."""
+    result = await db.execute(
+        select(Conversation)
+        .options(selectinload(Conversation.turns))
+        .where(Conversation.id == conversation_id)
+    )
+    conversation = result.scalar_one_or_none()
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    customer = await load_customer(db, conversation.customer_id)
+    customer_data = None
+    if customer:
+        customer_data = serialize_customer(customer)
+        customer_data["suggested_prompts"] = _suggested_prompts(customer_data["scenario_id"])
+
+    msg_result = await db.execute(
+        select(Message).where(Message.conversation_id == conversation_id).order_by(Message.created_at)
+    )
+    messages = msg_result.scalars().all()
+    by_id = {m.id: m for m in messages}
+
+    turns = []
+    for t in sorted(conversation.turns, key=lambda t: t.index):
+        cm = by_id.get(t.customer_message_id)
+        am = by_id.get(t.agent_message_id)
+        turns.append({
+            "index": t.index,
+            "started_at": t.started_at.isoformat() if t.started_at else None,
+            "customer_message": cm.content if cm else None,
+            "response": am.content if am else None,
+            "events": t.events or [],
+            "latency_ms": t.latency_ms,
+            "llm_calls": t.llm_calls,
+            "prompt_tokens": t.prompt_tokens,
+            "completion_tokens": t.completion_tokens,
+            "cost_usd": float(t.cost_usd) if t.cost_usd is not None else None,
+            "cost_basis": t.cost_basis,
+            "escalation_reason": t.escalation_reason,
+            "context_summary": t.context_summary,
+            "error": t.error,
+        })
+
+    priced = [t for t in turns if t["cost_usd"] is not None]
+    totals = {
+        "messages": sum(1 for m in messages if m.role == "customer"),
+        "turns": len(turns),
+        "latency_ms": sum(t["latency_ms"] or 0 for t in turns),
+        "llm_calls": sum(t["llm_calls"] or 0 for t in turns),
+        "cost_usd": round(sum(t["cost_usd"] for t in priced), 6) if priced else None,
+        "cost_basis": (
+            "unavailable" if not priced
+            else "measured" if all(t["cost_basis"] == "measured" for t in priced) and len(priced) == len(turns)
+            else "partial"
+        ),
+    }
+
+    return {
+        "conversation": {
+            "id": conversation.id,
+            "status": conversation.status,
+            "started_at": conversation.started_at.isoformat() if conversation.started_at else None,
+            "ended_at": conversation.ended_at.isoformat() if conversation.ended_at else None,
+            "csat": (
+                {"rating": conversation.csat_score, "tags": conversation.csat_tags or [],
+                 "free_text": conversation.csat_comment}
+                if conversation.csat_score is not None else None
+            ),
+        },
+        "customer": customer_data,
+        "messages": [
+            {"id": m.id, "role": m.role, "content": m.content,
+             "created_at": m.created_at.isoformat() if m.created_at else None}
+            for m in messages if m.role in ("customer", "agent")
+        ],
+        "turns": turns,
+        "totals": totals,
+        "checks": compute_checks(turns, own_email=(customer.email if customer else "")),
+    }

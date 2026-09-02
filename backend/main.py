@@ -6,8 +6,10 @@ import os
 
 from backend.routers import chat, admin, webhooks, demo
 from backend.tracing.setup import init_tracing
+from backend.demo import usage as turn_usage
 
 init_tracing()
+turn_usage.install()  # per-turn LLM usage/cost via a LiteLLM callback (backend/demo/usage.py)
 
 app = FastAPI(
     title="AI Customer Support Agent",

@@ -1,5 +1,7 @@
 import asyncio
+import json
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import List
@@ -11,9 +13,12 @@ from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 
 from backend.config import get_settings
 from backend.db.session import get_db
-from backend.db.models import Conversation, Message, Customer, AuditLog
+from backend.db.models import Conversation, Message, Customer, AuditLog, Turn
 from backend.agents.state import AgentState
 from backend.tools.customer_tools import get_customer_context
+from backend.demo.rails import TurnGate
+from backend.demo import usage as turn_usage
+from backend.demo.events import derive_events, error_events, turn_payload
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +32,44 @@ _FAILURE_ESCALATION_THRESHOLD = 3
 _ESCALATED_NOTICE = (
     "This conversation is with our support team now — a specialist will follow up with you directly."
 )
+
+# Global cap on concurrently running agent turns (public-demo rail).
+_turn_gate = TurnGate(settings.demo_max_concurrent_turns)
+
+
+def _sse(event: str, payload) -> ServerSentEvent:
+    """JSON-bodied SSE event."""
+    return ServerSentEvent(data=json.dumps(payload), event=event)
+
+
+async def _persist_turn(db: AsyncSession, conversation_id: str, payload: dict,
+                        customer_message_id: "str | None", agent_message_id: "str | None",
+                        started_at: datetime) -> None:
+    """Store the turn record (see backend/demo/events.turn_payload) so the
+    timeline can be replayed. Best-effort: never fails the turn."""
+    try:
+        db.add(Turn(
+            id=str(uuid.uuid4()),
+            conversation_id=conversation_id,
+            index=payload["index"],
+            customer_message_id=customer_message_id,
+            agent_message_id=agent_message_id,
+            started_at=started_at,
+            latency_ms=payload.get("latency_ms"),
+            llm_calls=payload.get("llm_calls"),
+            prompt_tokens=payload.get("prompt_tokens"),
+            completion_tokens=payload.get("completion_tokens"),
+            cost_usd=payload.get("cost_usd"),
+            cost_basis=payload.get("cost_basis") or "unavailable",
+            events=payload.get("events") or [],
+            escalation_reason=payload.get("escalation_reason"),
+            context_summary=payload.get("context_summary"),
+            error=payload.get("error"),
+        ))
+        await db.commit()
+    except Exception:
+        logger.exception("Failed to persist turn for conversation %s", conversation_id)
+        await db.rollback()
 
 
 async def _record_turn_failure(db: AsyncSession, conversation_id: str, kind: str) -> bool:
@@ -237,6 +280,10 @@ async def stream_response(
     latest_msg = result.scalar_one_or_none()
     if not latest_msg:
         raise HTTPException(status_code=422, detail="No customer message found in conversation")
+    # Plain values: a rollback on the failure path expires ORM instances, and
+    # touching an expired attribute inside the generator would try lazy IO.
+    latest_msg_id = latest_msg.id
+    latest_msg_content = latest_msg.content
 
     # 3. Load conversation history for agent state — the most recent
     # max_context_messages, in chronological order. (Ascending + limit would
@@ -289,116 +336,190 @@ async def stream_response(
         "classifier_reasoning": "",
     }
 
+    # 5b. Turn bookkeeping: index, and the audit rows that already exist so the
+    # ones the guards write during THIS turn can be told apart afterwards.
+    turn_count = await db.execute(
+        select(func.count(Turn.id)).where(Turn.conversation_id == conversation_id)
+    )
+    turn_index = int(turn_count.scalar() or 0) + 1
+    prior_audit = await db.execute(
+        select(AuditLog.id).where(AuditLog.conversation_id == conversation_id)
+    )
+    prior_audit_ids = {row[0] for row in prior_audit.all()}
+    turn_started_at = datetime.now(timezone.utc)
+
     # Lazy import — avoids LangGraph compile() running at module load time,
     # which conflicts with pytest-asyncio's event loop.
     from backend.agents.graph import graph  # noqa: PLC0415
 
     # 6. SSE event generator
+    #
+    # Event order: [queued] → turn (pipeline steps) → token… → turn_complete
+    # → [escalated] → done. Pipeline steps go out BEFORE the response text so
+    # the behind-the-scenes panel fills in first; streaming is still the
+    # finished response split on spaces (PENDING #18), so the steps are
+    # derived from the graph's final output in one batch for now.
     async def event_generator():
-        try:
-            config = {"configurable": {"db": db, "conversation_id": conversation_id}}
+        position = _turn_gate.queue_position()
+        if position:
+            yield _sse("queued", {"position": position})
+
+        async with _turn_gate.slot():
+            usage = turn_usage.TurnUsage()
+            usage_token = turn_usage.start(usage)
+            t0 = time.monotonic()
             try:
-                final_output = await asyncio.wait_for(
-                    graph.ainvoke(initial_state, config=config),
-                    timeout=90,
+                config = {"configurable": {"db": db, "conversation_id": conversation_id}}
+                try:
+                    final_output = await asyncio.wait_for(
+                        graph.ainvoke(initial_state, config=config),
+                        timeout=90,
+                    )
+                except asyncio.TimeoutError:
+                    latency_ms = int((time.monotonic() - t0) * 1000)
+                    escalated = await _record_turn_failure(db, conversation_id, "graph_timeout")
+                    payload = turn_payload(
+                        turn_index,
+                        error_events("graph_timeout", "The agent took too long to respond."),
+                        latency_ms, usage.as_dict(),
+                        {"requires_escalation": escalated,
+                         "escalation_reason": "unhandled_error" if escalated else ""},
+                        error="graph_timeout",
+                    )
+                    await _persist_turn(db, conversation_id, payload, latest_msg_id, None, turn_started_at)
+                    yield _sse("turn", payload)
+                    if escalated:
+                        yield ServerSentEvent(
+                            data="I'm having repeated trouble on my end, so I've passed this to a specialist who will follow up with you.",
+                            event="token",
+                        )
+                        yield _sse("turn_complete", payload)
+                        yield ServerSentEvent(data="", event="escalated")
+                    else:
+                        yield ServerSentEvent(
+                            data="Something went wrong on our end — please try again in a moment.",
+                            event="token",
+                        )
+                        yield _sse("turn_complete", payload)
+                    yield ServerSentEvent(data="", event="done")
+                    return
+                finally:
+                    turn_usage.stop(usage_token)
+
+                latency_ms = int((time.monotonic() - t0) * 1000)
+                await usage.wait_settled()
+
+                # Audit rows the guards wrote during this turn → guard verdicts.
+                audit_result = await db.execute(
+                    select(AuditLog).where(
+                        AuditLog.conversation_id == conversation_id,
+                        AuditLog.action.in_(("input_guard_blocked", "output_guard_blocked")),
+                    ).order_by(AuditLog.created_at)
                 )
-            except asyncio.TimeoutError:
-                escalated = await _record_turn_failure(db, conversation_id, "graph_timeout")
+                turn_audit = [r for r in audit_result.scalars().all() if r.id not in prior_audit_ids]
+                events = derive_events(final_output, turn_audit)
+                payload = turn_payload(turn_index, events, latency_ms, usage.as_dict(), final_output)
+
+                # Pipeline steps first, then the response.
+                yield _sse("turn", payload)
+
+                # Stream response word-by-word
+                response_text = final_output.get("response", "")
+                for word in response_text.split(" "):
+                    yield ServerSentEvent(data=word + " ", event="token")
+
+                # Determine what services were called (for audit logging)
+                actions_taken = final_output.get("actions_taken", [])
+                services_called = [a.get("service", "") for a in actions_taken]
+                action = "search_kb" if "knowledge_service" in services_called else "conversation_response"
+
+                # Persist agent message
+                agent_msg = Message(
+                    id=str(uuid.uuid4()),
+                    conversation_id=conversation_id,
+                    role="agent",
+                    content=response_text,
+                    agent_type="conversation",
+                )
+                db.add(agent_msg)
+                await db.flush()
+
+                # Persist audit log
+                db.add(AuditLog(
+                    id=str(uuid.uuid4()),
+                    conversation_id=conversation_id,
+                    message_id=agent_msg.id,
+                    agent_type="conversation",
+                    action=action,
+                    input_data={"query": latest_msg_content},
+                    output_data={
+                        "response_length": len(response_text),
+                        "actions_taken": actions_taken,
+                    },
+                    routing_decision=", ".join(services_called) if services_called else "direct_response",
+                    confidence=final_output.get("confidence", 0.0),
+                ))
+
+                # Persist turn state for next turn (or clear it on escalation).
+                # Done in the same commit as the message — if either fails, both roll back.
+                # Uses a direct UPDATE rather than mutating the ORM object to avoid
+                # SQLAlchemy change-tracking issues inside the generator closure.
+                if final_output.get("requires_escalation"):
+                    new_turn_state = None
+                else:
+                    new_turn_state = {
+                        "actions_taken": final_output.get("actions_taken", []),
+                        "consecutive_blocks": final_output.get("consecutive_blocks", 0),
+                        "last_clarification_source": final_output.get("last_clarification_source", ""),
+                    }
+                await db.execute(
+                    sa_update(Conversation)
+                    .where(Conversation.id == conversation_id)
+                    .values(turn_state=new_turn_state)
+                )
+                await db.commit()
+
+                await _persist_turn(db, conversation_id, payload, latest_msg_id, agent_msg.id, turn_started_at)
+                yield _sse("turn_complete", payload)
+
+                # Tell the frontend the conversation just escalated so it can
+                # disable the input — the next stream request would short-circuit
+                # anyway, but the customer shouldn't discover that by typing.
+                if final_output.get("requires_escalation"):
+                    yield ServerSentEvent(data="", event="escalated")
+
+                yield ServerSentEvent(data="", event="done")
+
+            except Exception:
+                # Never stream exception detail to the customer-facing channel —
+                # log it server-side and send a canned apology instead.
+                logger.exception("Chat stream failed for conversation %s", conversation_id)
+                latency_ms = int((time.monotonic() - t0) * 1000)
+                escalated = await _record_turn_failure(db, conversation_id, "graph_error")
+                payload = turn_payload(
+                    turn_index,
+                    error_events("graph_error", "Something went wrong while running the agent."),
+                    latency_ms, usage.as_dict(),
+                    {"requires_escalation": escalated,
+                     "escalation_reason": "unhandled_error" if escalated else ""},
+                    error="graph_error",
+                )
+                await _persist_turn(db, conversation_id, payload, latest_msg_id, None, turn_started_at)
+                yield _sse("turn", payload)
                 if escalated:
                     yield ServerSentEvent(
                         data="I'm having repeated trouble on my end, so I've passed this to a specialist who will follow up with you.",
                         event="token",
                     )
+                    yield _sse("turn_complete", payload)
                     yield ServerSentEvent(data="", event="escalated")
                 else:
                     yield ServerSentEvent(
                         data="Something went wrong on our end — please try again in a moment.",
                         event="token",
                     )
+                    yield _sse("turn_complete", payload)
                 yield ServerSentEvent(data="", event="done")
-                return
-
-            # Stream response word-by-word
-            response_text = final_output.get("response", "")
-            for word in response_text.split(" "):
-                yield ServerSentEvent(data=word + " ", event="token")
-
-            # Determine what services were called (for audit logging)
-            actions_taken = final_output.get("actions_taken", [])
-            services_called = [a.get("service", "") for a in actions_taken]
-            action = "search_kb" if "knowledge_service" in services_called else "conversation_response"
-
-            # Persist agent message
-            agent_msg = Message(
-                id=str(uuid.uuid4()),
-                conversation_id=conversation_id,
-                role="agent",
-                content=response_text,
-                agent_type="conversation",
-            )
-            db.add(agent_msg)
-            await db.flush()
-
-            # Persist audit log
-            db.add(AuditLog(
-                id=str(uuid.uuid4()),
-                conversation_id=conversation_id,
-                message_id=agent_msg.id,
-                agent_type="conversation",
-                action=action,
-                input_data={"query": latest_msg.content},
-                output_data={
-                    "response_length": len(response_text),
-                    "actions_taken": actions_taken,
-                },
-                routing_decision=", ".join(services_called) if services_called else "direct_response",
-                confidence=final_output.get("confidence", 0.0),
-            ))
-
-            # Persist turn state for next turn (or clear it on escalation).
-            # Done in the same commit as the message — if either fails, both roll back.
-            # Uses a direct UPDATE rather than mutating the ORM object to avoid
-            # SQLAlchemy change-tracking issues inside the generator closure.
-            if final_output.get("requires_escalation"):
-                new_turn_state = None
-            else:
-                new_turn_state = {
-                    "actions_taken": final_output.get("actions_taken", []),
-                    "consecutive_blocks": final_output.get("consecutive_blocks", 0),
-                    "last_clarification_source": final_output.get("last_clarification_source", ""),
-                }
-            await db.execute(
-                sa_update(Conversation)
-                .where(Conversation.id == conversation_id)
-                .values(turn_state=new_turn_state)
-            )
-            await db.commit()
-
-            # Tell the frontend the conversation just escalated so it can
-            # disable the input — the next stream request would short-circuit
-            # anyway, but the customer shouldn't discover that by typing.
-            if final_output.get("requires_escalation"):
-                yield ServerSentEvent(data="", event="escalated")
-
-            yield ServerSentEvent(data="", event="done")
-
-        except Exception:
-            # Never stream exception detail to the customer-facing channel —
-            # log it server-side and send a canned apology instead.
-            logger.exception("Chat stream failed for conversation %s", conversation_id)
-            escalated = await _record_turn_failure(db, conversation_id, "graph_error")
-            if escalated:
-                yield ServerSentEvent(
-                    data="I'm having repeated trouble on my end, so I've passed this to a specialist who will follow up with you.",
-                    event="token",
-                )
-                yield ServerSentEvent(data="", event="escalated")
-            else:
-                yield ServerSentEvent(
-                    data="Something went wrong on our end — please try again in a moment.",
-                    event="token",
-                )
-            yield ServerSentEvent(data="", event="done")
 
     return EventSourceResponse(event_generator())
 
