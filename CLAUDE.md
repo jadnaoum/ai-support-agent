@@ -11,8 +11,9 @@ Read BUILD_SPEC.md for the full build specification.
 ./scripts/server.sh           # dev mode  (APP_ENV=development, --reload)
 ./scripts/server.sh test      # test mode (APP_ENV=test, no --reload — required for evals)
 
-# Frontend dev
+# Frontend dev (TypeScript; proxies /api to :8000, or :8002 with `npm run dev:demo`)
 cd frontend && npm run dev        # http://localhost:5173
+cd frontend && npm run build      # tsc type-check + vite build → frontend/dist (served by FastAPI)
 
 # Test (requires support_agent_test DB)
 pytest
@@ -26,6 +27,9 @@ python -m evals.run_evals         # reads eval_test_cases.xlsx
 
 # KB ingestion
 python -m backend.ingestion.ingest
+
+# Demo customers (metadata.demo=true) older than 24h
+python -m scripts.purge_demo_customers --dry-run
 ```
 
 ## Architecture

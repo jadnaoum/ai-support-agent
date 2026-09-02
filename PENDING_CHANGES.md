@@ -91,6 +91,23 @@ needs_clarification (current tier).
 
 ---
 
+## Demo experience follow-ups (branch demo-experience, 2026-09-02)
+
+### 25. Progressive pipeline events (prompt-adjacent — needs approval)
+Steps currently arrive in one batch at end of turn (`backend/demo/events.derive_events`). The progressive version emits from inside the pipeline so the panel fills in step by step and the chat placeholder can name the current stage: one `emit()` line at the return of `check_input` and `check_output`, one in each of `knowledge_service_node` / `action_service_node` (with a `time.monotonic` duration around the tool handler), reporting into a ContextVar sink the stream endpoint drains while the graph runs. Behaviour-neutral; `emit()` is a no-op without a sink, so `/chat/test` and evals are untouched. Also gives guard verdicts on paths that leave no audit trace.
+
+### 26. Non-UUID order_id raises inside tools
+See `docs/tech_debt.md` (top entry). A product name passed as `order_id` becomes an `unhandled_error` escalation. Option 1 there (structured rejection at tool entry) is small but changes agent behaviour; option 2 is item-name resolution (#Item-name resolution in ARCHITECTURE).
+
+### 27. Schedule the demo purge
+`python -m scripts.purge_demo_customers` (24 h TTL, `--dry-run`, keeps `metadata.pinned`). Wire it to the deploy's scheduler when Railway is set up.
+
+### 28. Admin dashboard reads `turns`
+The timeline endpoint + `compute_checks` are the intended data source for the admin conversation view (escalation briefing, per-turn cost, check results) — no new instrumentation needed.
+
+### 29. One price table
+`backend/demo/pricing.py` duplicates `evals/config.py MODEL_PRICE_PER_TOKEN`; import one from the other when evals are next touched.
+
 ## Performance (deferred 2026-09-01)
 
 Jad's call: performance is not a priority now. Already shipped as behavior-neutral groundwork: parallel input-guard + classifier, cache breakpoints on the intent and input-guard prompts, 30s timeouts on guard calls, and separate `LITELLM_CLASSIFIER_MODEL` / `LITELLM_GUARD_MODEL` config knobs (all still Sonnet). Remaining, in rough order of value:
