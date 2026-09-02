@@ -1,1 +1,2 @@
 Never modify files in the `prompts/` directory. Prompt changes are authored by the project owner. If a task requires a prompt change, describe the needed change in your plan and wait for the owner to implement it.
+- `prompts/response_guidance.yaml` is owner-authored LLM-facing text under the same ownership as production.yaml. Code (conversation.py `_result_guidance_notes`) only SELECTS snippets per turn — never writes or rewords them. New tool outcomes get their presentation guidance HERE, never as new prose in response_prompt.

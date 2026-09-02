@@ -1,2 +1,2 @@
 - `get_order_history` and `get_customer_context` must NEVER be added to `TOOL_REGISTRY`. They are called by `chat.py` at the API layer and injected as read-only state. Keeping them out of the registry prevents prompt injection from querying arbitrary customer data.
-- `TOOL_REGISTRY.description` fields are not injected into any LLM call. All tool guidance reaches the LLM via `intent_prompt` in `prompts/production.yaml`.
+- `TOOL_REGISTRY` has no LLM-facing description field (removed 2026-09-02 — it was never injected). All tool guidance reaches the LLM via `intent_prompt` in `prompts/production.yaml`. At the native tool-calling migration (PENDING #15), descriptions return as real fields authored in `prompts/` and passed to the API `tools` parameter.

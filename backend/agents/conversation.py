@@ -23,7 +23,7 @@ from backend.agents.escalation import handle_escalation, build_context_summary, 
 from backend.guardrails.input_guard import check_input, log_blocked_attempt
 from backend.guardrails.output_guard import check_output, log_output_guard_blocked
 from backend.llm_json import extract_json_object
-from prompts.loader import get_prompt
+from prompts.loader import get_prompt, get_response_guidance
 
 settings = get_settings()
 
@@ -34,7 +34,34 @@ REDIRECT_PROMPT = get_prompt("redirect_prompt")
 LOOP_DECISION_PROMPT = get_prompt("loop_decision_prompt")
 
 
-def _build_context_section(state: AgentState) -> str:
+def _result_guidance_notes(action_results: list) -> "list[str]":
+    """Select the owner-authored presentation snippets that apply to THIS
+    turn's results (see prompts/response_guidance.yaml for the keying rules).
+
+    This is the progressive-disclosure replacement for the per-code stanzas
+    that used to live in response_prompt: code selects, the owner authors.
+    """
+    guidance = get_response_guidance()
+    keys: list = []
+
+    def add(key):
+        if key in guidance and key not in keys:
+            keys.append(key)
+
+    for r in action_results:
+        if not isinstance(r, dict):
+            continue
+        reason = r.get("reason")
+        if isinstance(reason, str):
+            add(reason)
+        if r.get("requires_escalation"):
+            add("requires_escalation")
+        if r.get("error") or r.get("unhandled_error"):
+            add("tool_error")
+    return [guidance[k] for k in keys]
+
+
+def _build_context_section(state: AgentState, with_result_guidance: bool = False) -> str:
     chunks = state.get("retrieved_context") or []
     action_results = state.get("action_results") or []
     customer_context = state.get("customer_context") or {}
@@ -51,6 +78,10 @@ def _build_context_section(state: AgentState) -> str:
         parts.append(f"\nKnowledge Base:\n{kb_text}")
     if action_results:
         parts.append(f"\nAction Results:\n{json.dumps(action_results, indent=2)}")
+        if with_result_guidance:
+            notes = _result_guidance_notes(action_results)
+            if notes:
+                parts.append("\nHow to present these results:\n" + "\n".join(notes))
     return "\n".join(parts)
 
 
@@ -115,7 +146,7 @@ async def _classify_intent(state: AgentState, config: dict = None) -> tuple[str,
 
 async def _generate_response(state: AgentState) -> str:
     """Generate the customer-facing response from conversation history + service results."""
-    context_section = _build_context_section(state)
+    context_section = _build_context_section(state, with_result_guidance=True)
     system_content = RESPONSE_PROMPT.format(context_section=context_section)
 
     messages_for_llm = [{"role": "system", "content": system_content}]

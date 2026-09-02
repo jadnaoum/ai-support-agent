@@ -17,7 +17,6 @@ from backend.tools.order_tools import (
     get_refund_status,
 )
 from backend.tools.constants import REASON_VALUES
-from prompts.loader import get_prompt
 
 _REASON_LIST = ", ".join(REASON_VALUES)
 
@@ -25,16 +24,17 @@ _REASON_LIST = ", ".join(REASON_VALUES)
 @dataclass
 class ToolDefinition:
     name: str
-    description: str          # shown to LLM for intent extraction
+    # description was never injected into any LLM call (see .claude/rules/security.md)
+    # and its yaml sources rotted; removed 2026-09-02. It returns as a REAL field at
+    # the native tool-calling migration (PENDING #15), authored in prompts/ and passed
+    # to the API tools parameter.
     parameters: dict          # {param_name: {"type": str, "required": bool, "description": str}}
     handler: Callable         # async (db, customer_id, **params) -> dict
 
 
-# DESCRIPTIONS — edit in prompts/production.yaml
 TOOL_REGISTRY: dict[str, ToolDefinition] = {
     "track_order": ToolDefinition(
         name="track_order",
-        description=get_prompt("tool_track_order_description"),
         parameters={
             "order_id": {"type": "str", "required": False, "description": "Order ID to look up. Omit to use most recent order."},
         },
@@ -42,7 +42,6 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
     ),
     "cancel_order": ToolDefinition(
         name="cancel_order",
-        description=get_prompt("tool_cancel_order_description"),
         parameters={
             "order_id": {"type": "str", "required": False, "description": "Order ID to cancel. Omit to cancel most recent order."},
             "reason": {"type": "str", "required": True, "description": "Cancellation reason."},
@@ -51,7 +50,6 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
     ),
     "check_cancel_eligibility": ToolDefinition(
         name="check_cancel_eligibility",
-        description=get_prompt("tool_check_cancel_eligibility_description"),
         parameters={
             "order_id": {"type": "str", "required": False, "description": "Order ID to check. Omit to check most recent order."},
         },
@@ -59,7 +57,6 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
     ),
     "check_return_eligibility": ToolDefinition(
         name="check_return_eligibility",
-        description=get_prompt("tool_check_return_eligibility_description"),
         parameters={
             "order_id": {"type": "str", "required": False, "description": "Order ID to check. Omit to check most recent order."},
             "reason": {"type": "str", "required": False, "description": "Return reason if known — defective claims return requires_escalation instead of eligible."},
@@ -68,7 +65,6 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
     ),
     "initiate_return": ToolDefinition(
         name="initiate_return",
-        description=get_prompt("tool_initiate_return_description"),
         parameters={
             "order_id": {"type": "str", "required": False, "description": "Order ID to return. Omit to use most recent order."},
             "reason": {"type": "str", "required": True, "description": f"Return reason: {_REASON_LIST}."},
@@ -77,7 +73,6 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
     ),
     "check_missing_package": ToolDefinition(
         name="check_missing_package",
-        description=get_prompt("tool_check_missing_package_description"),
         parameters={
             "order_id": {"type": "str", "required": False, "description": "Order ID to check. Omit to use most recently delivered order."},
         },
@@ -85,12 +80,6 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
     ),
     "get_refund_status": ToolDefinition(
         name="get_refund_status",
-        # TODO: move to prompts/production.yaml as tool_get_refund_status_description
-        description=(
-            "Look up the status of a refund for this customer. Use when a customer asks "
-            "where their refund is, whether it has been processed, or when they will receive "
-            "their money back. Returns refund amount, status, reason, and date created."
-        ),
         parameters={
             "order_id": {"type": "str", "required": False, "description": "Order ID to check refund for. Omit to return all refunds for this customer."},
         },

@@ -38,3 +38,19 @@ def get_prompt(key: str) -> str:
     if key not in prompts:
         raise KeyError(f"Prompt key '{key}' not found in prompts YAML files")
     return prompts[key]
+
+
+_guidance_cache: dict = {}
+
+
+def get_response_guidance() -> dict:
+    """Return the per-result presentation guidance map from response_guidance.yaml.
+
+    Keys are reason codes (plus the flag keys requires_escalation / tool_error);
+    values are owner-authored snippets that _build_context_section injects next
+    to matching tool results. See response_guidance.yaml's header for the rules.
+    """
+    if not _guidance_cache:
+        with open(_PROMPTS_DIR / "response_guidance.yaml", encoding="utf-8") as fh:
+            _guidance_cache.update(yaml.safe_load(fh) or {})
+    return _guidance_cache

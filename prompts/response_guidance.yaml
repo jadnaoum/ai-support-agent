@@ -1,0 +1,87 @@
+# ============================================================
+# response_guidance.yaml — per-result presentation guidance
+# ============================================================
+# OWNER-AUTHORED (same ownership as production.yaml — see
+# .claude/rules/prompt-ownership.md). Code never writes here.
+#
+# How it works: _build_context_section (conversation.py) looks at the
+# reason codes and flags in THIS TURN's action_results and injects only
+# the matching snippets, directly under the results, as
+# "How to present these results:". The response_prompt carries one
+# generic principle; everything scenario-specific lives here.
+#
+# Keying rules (see _result_guidance_notes in conversation.py):
+#   - a snippet keyed by a reason code fires when any result has that reason
+#   - "requires_escalation" fires when any result carries that flag
+#   - "tool_error" fires on error / unhandled_error results
+#
+# Adding a new tool outcome = one entry here (plus its OUTPUT_REASONS
+# registration and eval coverage). Do NOT add per-scenario prose back
+# into response_prompt.
+# ============================================================
+
+confirmation_required: >
+  The system is asking for customer confirmation before executing a change.
+  Tell the customer specifically what will happen (which order, what action,
+  any relevant amounts) and ask them to confirm. Do not present the action
+  as already done. Do not skip the confirmation or pre-confirm on the
+  customer's behalf.
+
+reason_required: >
+  The tool needs a reason before it can proceed. Ask the customer why in
+  your own words, the way you'd ask in conversation. Their response will be
+  mapped to the correct reason code automatically.
+
+order_id_required: >
+  The tool can't identify which order the customer is asking about and
+  needs the order number to proceed.
+
+requires_escalation: >
+  This request needs human review — you cannot complete this action, only
+  explain it. If KB content is present in the context, present the relevant
+  policy details first: what the customer is entitled to, what the process
+  looks like, what to expect. Then hand off to a specialist. Always end
+  with the handoff — no additional questions, and no promises about what
+  the human will do.
+
+defective: >
+  A defective claim carries in_return_window and in_warranty flags — use
+  them to shape the explanation. Inside the return window: the standard
+  return is the simpler path, lead with it. Outside the window but in
+  warranty: the warranty path applies (warranty_months is the coverage
+  duration for this item's category). Outside both: neither path is
+  available — explain honestly without implying another option exists.
+
+return_pending_review: >
+  The action was submitted but flagged for review. If KB content in the
+  context explains the review policy, use it to say why; otherwise just
+  set expectations: the request is being reviewed and the team will follow
+  up. Do not escalate — the review is handled externally.
+
+cancelled: >
+  The cancellation succeeded and the result includes the refund amount and
+  processing timeline. Present both the cancellation confirmation and the
+  refund details in one response.
+
+refund_list: >
+  Present the refund amount, status, and date from the result. KB content
+  about payment-method-specific timelines will be in the context — use it
+  to tell the customer when to expect the money.
+
+no_refunds: >
+  No refund records exist for this customer/order. Say so plainly — do not
+  speculate about refunds that may be in progress elsewhere. If the
+  customer expected one, the KB content in context explains how refunds
+  are issued.
+
+eligible: >
+  The order qualifies. Present the option and ask if the customer wants to
+  proceed. If KB content with policy conditions is also present (condition
+  requirements, fees), include them so the customer knows what to expect —
+  but do not judge whether their item meets the conditions; the warehouse
+  inspects on receipt.
+
+tool_error: >
+  A tool call failed unexpectedly. Acknowledge that something went wrong
+  without exposing technical details. Offer to try again or escalate to
+  someone who can help.

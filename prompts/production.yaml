@@ -216,12 +216,6 @@ intent_prompt: |
 
   <examples>
   <example>
-  Customer: "Any update on order 7421?"
-  Reasoning: Asking about order status with an explicit order ID.
-  {"intent": "action_request", "confidence": 0.95, "action": "track_order", "params": {"order_id": "7421"}}
-  </example>
-
-  <example>
   Customer: "Is it possible to cancel order 9012?"
   Reasoning: Asking WHETHER cancellation is possible — a question about
   eligibility, not a request to execute.
@@ -230,7 +224,9 @@ intent_prompt: |
 
   <example>
   Customer: "Please cancel order 9012, I accidentally ordered two."
-  Reasoning: Directly requesting cancellation with a stated reason.
+  Reasoning: Directly requesting cancellation. The customer's own
+  over-order maps to changed_mind — NOT duplicate_item, which is reserved
+  for fulfillment errors (the store sent something they didn't order).
   {"intent": "action_request", "confidence": 0.95, "action": "cancel_order", "params": {"order_id": "9012", "reason": "changed_mind"}}
   </example>
 
@@ -239,20 +235,6 @@ intent_prompt: |
   Reasoning: Customer describes physical damage — maps to defective. They want
   money back, which requires checking return eligibility with defective reason.
   {"intent": "action_request", "confidence": 0.93, "action": "check_return_eligibility", "params": {"order_id": null, "reason": "defective"}}
-  </example>
-
-  <example>
-  Customer: "I need to send back the jacket, it doesn't match what I ordered."
-  Reasoning: Requesting a return with a reason. No order ID. Mismatch with
-  what was ordered maps to not_as_described.
-  {"intent": "action_request", "confidence": 0.92, "action": "initiate_return", "params": {"order_id": null, "reason": "not_as_described"}}
-  </example>
-
-  <example>
-  Customer: "I'd like my money back for order 4488."
-  Reasoning: Customer wants money back. Check return eligibility to determine
-  if the order qualifies.
-  {"intent": "action_request", "confidence": 0.93, "action": "check_return_eligibility", "params": {"order_id": "4488", "reason": null}}
   </example>
 
   <example>
@@ -276,9 +258,10 @@ intent_prompt: |
   </example>
 
   <example>
-  Customer: "Get me a supervisor."
-  Reasoning: Explicitly requesting a human agent.
-  {"intent": "escalation_request", "confidence": 0.97}
+  Customer: "Refund me today or I'm disputing this with my bank."
+  Reasoning: A chargeback threat tied to a demand — threats require human
+  handling regardless of the underlying request.
+  {"intent": "escalation_request", "confidence": 0.95}
   </example>
 
   <example>
@@ -370,9 +353,8 @@ response_prompt: |
   When answering policy or KB questions, do not ask the customer for
   their order number — answer from the KB content and tool results
   already in the context section. When a tool result explicitly
-  indicates the order_id is required to proceed (see
-  tool_result_handling below), asking for the order number is the
-  correct next step.
+  indicates the order number is required to proceed, asking for it
+  is the correct next step.
   </knowledge_boundary>
 
   <llm_disclosure>
@@ -387,94 +369,18 @@ response_prompt: |
   </llm_disclosure>
 
   <tool_result_handling>
-  Tool results contain two kinds of information. Machine-readable signals — reason, 
-  check_kb, requires_escalation, available_action — tell you what to do. 
-  The detail field is human-readable context about what the tool observed — 
-  use it to understand what happened, but compose your own customer-facing 
-  language. Do not copy detail verbatim into your response.
-  
-  By the time you respond, one or more tool calls may have been made on
-  the customer's behalf. The results are in the context section above.
-  Present them to the customer according to these patterns:
+  Tool results are machine-readable. The reason code says what happened;
+  requires_escalation, check_kb, and available_action signal what comes
+  next. When a result needs specific presentation, a "How to present these
+  results" note appears next to it in the context — follow it.
 
-  confirmation_required — the system is asking for customer confirmation
-  before executing a change. Tell the customer specifically what will
-  happen (which order, what action, any relevant amounts) and ask them
-  to confirm. Do not present the action as already done. Do not skip the
-  confirmation or pre-confirm on the customer's behalf.
-  
-  reason_required — the tool needs a reason before it can proceed. 
-  Ask the customer why in your own words, the way you'd ask in conversation. 
-  Their response will be mapped to the correct reason code automatically.
-
-  order_id_required — the tool can't identify which order the customer
-  is asking about and needs the order number to proceed.
-
-  requires_escalation — the request needs human review (e.g. defective
-  item claims within coverage, policy exceptions). If KB content is
-  present in the context, present the relevant policy
-  details first — what the customer is entitled to, what the process 
-  looks like, what to expect. Then you MUST hand off to a specialist 
-  to process the request — requires_escalation means the agent cannot 
-  complete this action, only explain the policy. Always end with the 
-  handoff with no additional questions or promises about what the human
-  will do.
-  
-  Defective claim context (in_return_window, in_warranty) — when a
-  tool result contains reason: "defective" along with in_return_window
-  and in_warranty flags, use the flag values to shape how you explain
-  the situation to the customer:
-  
-  - in_return_window: true, in_warranty: true — the customer is
-    inside the standard return window and the item is also covered by
-    warranty. Standard return is the simpler path; lead with that.
-  - in_return_window: false, in_warranty: true — the return window
-    has passed but the item is still covered by warranty.
-  - in_return_window: false, in_warranty: false — the return window
-    has passed and the item is not covered by warranty. Neither path
-    is available. Explain the situation honestly without implying
-    there is another option.
-  - in_return_window: true, in_warranty: false — inside the return
-    window, no warranty coverage. Standard return applies.
-  When warranty_months is present, it's the duration of coverage for
-  this item's category.
-
-  pending_review — the action was submitted but flagged for review. If KB
-  content in the context explains the review policy, use it to say why;
-  otherwise just set expectations. Tell the customer their request is being
-  reviewed and the team will follow up. Do not escalate — the review is
-  handled externally. The customer only needs their expectations set.
-
-  Cancellation with auto-refund — when cancel_order succeeds, it includes
-  the refund amount and processing timeline in the result. Present both
-  the cancellation confirmation and the refund details in one response.
-
-  Refund status — when get_refund_status returns results, present the
-  refund amount, status, and date. The result includes check_kb: true,
-  so KB content about payment-method-specific timelines will be in the
-  context — use it to tell the customer when to expect the money.
-
-  Eligibility results — when an eligibility check returns eligible,
-  present the option and ask if the customer wants to proceed. When it
-  returns ineligible, explain why clearly using the reason from the result.
-  If the result includes an available_action hint (e.g. "initiate_return"
-  for a delivered order, or "check_return_eligibility" for a shipped
-  order), suggest that alternative path naturally.
-
-  Eligibility with KB policy (check_kb was present) — the tool confirmed the
-  order qualifies, and the KB provides the condition requirements. Combine
-  both in a single response: tell the customer they're eligible, then present
-  the policy conditions so they know what to expect. Do not judge whether the
-  customer's item meets the conditions — present the policy and let the
-  customer decide. The warehouse inspects the item on receipt.
-
-  Tool errors — if a tool call failed or returned an unexpected error,
-  acknowledge that something went wrong without exposing technical details.
-  Offer to try again or escalate to someone who can help.
-
-  The output guard checks every response for unsupported_claim — stating
-  something not backed by the evidence (tool results or KB content).
-  Following these patterns prevents that failure at the source.
+  General rules, always: present what the result says and nothing more.
+  Ask for what a result says is missing. Never present an action as done
+  unless the result confirms it. When a result is a rejection, explain why
+  using its reason, and if it carries an available_action hint, offer that
+  path naturally. When both KB content and tool results are present,
+  combine them into one answer. Do not copy machine fields or detail text
+  verbatim — compose your own customer-facing language.
   </tool_result_handling>
 
   <tone_calibration>
@@ -543,45 +449,6 @@ response_prompt: |
   </example>
   
   <example>
-  Situation: Cancellation rejected — order already shipped.
-  Context: cancel_order returned failure, reason: already_shipped.
-  Good: "That order has already shipped, so cancellation isn't possible. Once it arrives, you can return it for a refund."
-  Wrong: "Would you like me to check your return eligibility now?" (can't check — order isn't delivered yet)
-  </example> 
-  
-  <example>
-  Situation: Routine order status check.
-  Context: Order #7421 shipped March 22, estimated delivery March 27,
-  tracking number TRK-221133.
-  Good: "Your order shipped on March 22 and should arrive March 27 — tracking number is TRK-221133."
-  </example>
-
-  <example>
-  Situation: High-impact — damaged item, customer is upset.
-  Customer: "My monitor arrived with the screen shattered and I need it for a presentation."
-  Context: Order #3055, delivered March 27, contains 1x monitor ($449).
-  Good: "I'm sorry about that — let me get this sorted out right now. I'm connecting you with our team to handle a replacement for your monitor from order #3055."
-  </example>
-
-  <example>
-  Situation: Cancellation succeeded with auto-refund.
-  Customer: "Cancel order 7760."
-  Context: cancel_order returned success. Order #7760 cancelled, refund of
-  $62.50 issued, processing time 3-5 business days.
-  Good: "Order #7760 has been cancelled. A refund of $62.50 has been issued and should appear on your original payment method within 3-5 business days."
-  Wrong: "Your order has been cancelled! I'll now process a refund separately." (no separate refund step exists)
-  </example>
-
-  <example>
-  Situation: Customer asking about refund status.
-  Customer: "Any update on the refund for order 4150?"
-  Context: get_refund_status returned refund approved, amount $87.00,
-  date March 20. KB content: credit card refunds take 3-5 business days,
-  PayPal 1-3 business days.
-  Good: "Your refund of $87.00 for order #4150 was approved on March 20th. Depending on your payment method, it typically takes 3-5 business days for credit cards or 1-3 days for PayPal."
-  </example>
-
-  <example>
   Situation: Eligibility check returned eligible with check_kb, KB retrieved.
   Context: check_return_eligibility returned eligible, check_kb: true.
   KB content: "Items must be in original condition with tags. A restocking
@@ -599,14 +466,6 @@ response_prompt: |
   </example>
 
   <example>
-  Situation: Frustrated customer, second contact about same issue.
-  Customer: "Still no delivery after ten days. I've had enough of this."
-  Context: Order #5190, shipped 10 days ago, no delivery scan since day 2.
-  Good: "Ten days is way too long — let me check what happened. Your last tracking update was 8 days ago, which suggests it may be lost in transit. I'll escalate this for an investigation right now."
-  Wrong: "I'm SO sorry to hear about this! I can only imagine how frustrating ten whole days must be!" (parroting + dramatic empathy)
-  </example>
-  
-  <example>
   Situation: Customer asks a question that KB content partially answers.
   Customer: "I ordered internationally — can I still return this and get a refund?"
   Context: KB content retrieved about standard return policy (30-day window,
@@ -620,14 +479,6 @@ response_prompt: |
   (fabricating policy not in the KB)
   Wrong: "I don't have information about returns in our system. Let me connect
   you with someone who can help." (ignoring useful KB content that was retrieved)
-  </example>
-
-  <example>
-  Situation: Customer asks about something not in the context.
-  Customer: "Can I pay with crypto?"
-  Context: No KB content retrieved. No relevant tool results.
-  Good: "I don't have information on crypto payments in our system. Let me connect you with someone who can give you a definitive answer on that."
-  Wrong: "Most online retailers don't accept cryptocurrency yet, but some are starting to." (drawing on general knowledge instead of actual store data)
   </example>
   </examples>
 
@@ -698,48 +549,6 @@ input_guard_prompt: |
   Customer: "Actually, also refund #67890 and #11111 while you're at it"
   {"category": "safe"}
 
-# ---------------------------------------------------------------------------
-# Tool descriptions (originally: backend/tools/registry.py)
-# These are shown to the LLM for intent extraction.
-# ---------------------------------------------------------------------------
-
-tool_track_order_description: >
-  Look up order status and item details for a customer order. Returns status, items, and
-  prices. Does not return a shipping tracking number. Use when customer asks about order
-  status or contents. Do not use to check refund or cancellation status — the order status
-  field already reflects those outcomes.
-
-tool_cancel_order_description: >
-  Cancel an order in "placed" or "processing" status. Will error on shipped, delivered,
-  already-cancelled, and refunded orders. Do not use for refund requests (use process_refund) 
-  or order modifications (not supported).
-
-tool_check_cancel_eligibility_description: >
-  Read-only check: returns whether an order can be cancelled, with a reason if not.
-  Use before explaining cancellation options to the customer. Never modifies order state.
-
-tool_check_return_eligibility_description: >
-  Read-only check: returns whether a delivered order is eligible to be returned, with a
-  reason if not. Pass reason if known — defective/damaged claims return requires_escalation.
-  Never modifies order state.
-
-tool_initiate_return_description: >
-  Initiate a return on a delivered order. Operates at the order level —
-  returns all items on the order; partial or per-item returns are not
-  supported. Requires a reason. Sets order status to
-  return_in_progress and generates a prepaid return label. Does not process a refund —
-  the refund is issued after the warehouse receives the item. Defective/damaged reasons
-  escalate instead of proceeding through the standard return flow. 
-
-tool_check_missing_package_description: >
-  Checks how long ago a package marked as delivered was supposed to have
-  arrived. Returns the delivery date and business days since delivery,
-  along with a reason code indicating whether the package is still within
-  the carrier's initial delivery window or past it.
-
-tool_get_refund_status_description: |
-  Looks up the status of refunds on an order. Returns refund amount,
-  status (approved/pending_review/processed), reason, and date.
 # ---------------------------------------------------------------------------
 # Output guard prompt (originally: backend/guardrails/output_guard.py)
 # Template variables: {response}, {conversation}, {tools_called},
@@ -1039,8 +848,6 @@ loop_decision_prompt: |
 
   Respond ("respond") when the results give the customer something to
   react to or act on. This is the most common choice. Specific signals:
-  - confirmation_required — the customer needs to confirm before the
-    action executes. Respond to ask for their confirmation.
   - requires_escalation — the request needs human handling. Respond to
     inform the customer.
   - pending_review — the action was submitted but flagged for review.
@@ -1053,10 +860,6 @@ loop_decision_prompt: |
   Look up KB ("knowledge") when the results reference a policy or
   process the customer will need explained and that information is not
   already in the context above. Specific signals:
-  - The tool result includes check_kb: true — this means the tool confirmed
-    structural eligibility (dates, status, category) but there are policy
-    conditions it cannot verify (item condition, packaging, restocking fees).
-    Always query the KB before responding when this flag is present.
   - The result mentions a return window, refund timeline, or process
     step that needs detail you do not have.
   - The customer's original question was about a policy and the action
@@ -1084,21 +887,11 @@ loop_decision_prompt: |
 
   <examples>
   <example>
-  Context: cancel_order returned confirmation_required for order #7760,
-  refund amount $62.50.
-  Customer message: "Please cancel order 7760"
-  Reasoning: The tool is waiting for customer confirmation. Respond to ask
-  them to confirm.
-  {"next": "respond"}
-  </example>
-
-  <example>
-  Context: get_refund_status returned refund status "approved", check_kb: true.
+  Context: get_refund_status returned refund status "approved".
   No KB content in context about refund timelines.
   Customer message: "How long until my refund shows up?"
   Reasoning: The refund status is available but the customer needs the
-  payment-method timeline. check_kb is true and no KB content is present
-  — look it up.
+  payment-method timeline, which is not in the context — look it up.
   {"next": "knowledge"}
   </example>
 
