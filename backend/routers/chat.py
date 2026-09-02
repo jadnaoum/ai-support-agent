@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import uuid
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,8 +14,74 @@ from backend.db.models import Conversation, Message, Customer, AuditLog
 from backend.agents.state import AgentState
 from backend.tools.customer_tools import get_customer_context
 
+logger = logging.getLogger(__name__)
+
 settings = get_settings()
 router = APIRouter(prefix="/api", tags=["chat"])
+
+# Consecutive infrastructure failures (graph timeout/exception) in one
+# conversation before the turn escalates to a human instead of apologising again.
+_FAILURE_ESCALATION_THRESHOLD = 3
+
+_ESCALATED_NOTICE = (
+    "This conversation is with our support team now — a specialist will follow up with you directly."
+)
+
+
+async def _record_turn_failure(db: AsyncSession, conversation_id: str, kind: str) -> bool:
+    """Persist an audit row for an infrastructure failure and escalate after
+    _FAILURE_ESCALATION_THRESHOLD consecutive failures.
+
+    Without this, a customer facing a degraded system gets an apology every
+    turn with no path to a human, and nothing is persisted anywhere.
+    Returns True if the conversation was escalated.
+    """
+    try:
+        await db.rollback()  # the failed turn may have left the session dirty
+        result = await db.execute(
+            select(Conversation).where(Conversation.id == conversation_id)
+        )
+        conversation = result.scalar_one_or_none()
+        if not conversation:
+            return False
+        turn_state = dict(conversation.turn_state or {})
+        failures = int(turn_state.get("consecutive_failures", 0)) + 1
+        turn_state["consecutive_failures"] = failures
+
+        db.add(AuditLog(
+            id=str(uuid.uuid4()),
+            conversation_id=conversation_id,
+            agent_type="infrastructure",
+            action=kind,
+            input_data={},
+            output_data={"consecutive_failures": failures},
+        ))
+
+        escalated = False
+        if failures >= _FAILURE_ESCALATION_THRESHOLD:
+            from backend.agents.escalation import run_escalation_side_effects  # noqa: PLC0415
+            await run_escalation_side_effects("unhandled_error", {
+                "db": db,
+                "conversation_id": conversation_id,
+                "confidence": 0.0,
+                "messages": [],
+                "context_summary": (
+                    f"Escalated after {failures} consecutive system failures ({kind}). "
+                    "The customer has not received an agent response for their last messages."
+                ),
+            })
+            escalated = True
+
+        await db.execute(
+            sa_update(Conversation)
+            .where(Conversation.id == conversation_id)
+            .values(turn_state=None if escalated else turn_state)
+        )
+        await db.commit()
+        return escalated
+    except Exception:
+        logger.exception("Failed to record turn failure for conversation %s", conversation_id)
+        return False
 
 
 class NewConversationRequest(BaseModel):
@@ -103,6 +170,17 @@ async def stream_response(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    # 1a. Escalated conversations no longer run the agent. A human owns the
+    # conversation from here — running the graph again would let the bot act
+    # (with full write-tool access) on a case a specialist may be working.
+    # The "escalated" event tells the frontend to disable the input.
+    if conversation.status == "escalated":
+        async def escalated_generator():
+            yield ServerSentEvent(data=_ESCALATED_NOTICE, event="token")
+            yield ServerSentEvent(data="", event="escalated")
+            yield ServerSentEvent(data="", event="done")
+        return EventSourceResponse(escalated_generator())
+
     # 2. Load the latest customer message (required to run the agent)
     result = await db.execute(
         select(Message)
@@ -114,14 +192,18 @@ async def stream_response(
     if not latest_msg:
         raise HTTPException(status_code=422, detail="No customer message found in conversation")
 
-    # 3. Load conversation history for agent state
+    # 3. Load conversation history for agent state — the most recent
+    # max_context_messages, in chronological order. (Ascending + limit would
+    # keep the OLDEST window: past 50 messages the agent would never see the
+    # customer's actual latest message, and the input guard would screen a
+    # stale one instead.)
     result = await db.execute(
         select(Message)
         .where(Message.conversation_id == conversation_id)
-        .order_by(Message.created_at.asc())
+        .order_by(Message.created_at.desc())
         .limit(settings.max_context_messages)
     )
-    all_messages = result.scalars().all()
+    all_messages = list(reversed(result.scalars().all()))
     messages_for_state = [
         {"role": m.role, "content": m.content}
         for m in all_messages
@@ -175,10 +257,18 @@ async def stream_response(
                     timeout=90,
                 )
             except asyncio.TimeoutError:
-                yield ServerSentEvent(
-                    data="Something went wrong on our end — please try again in a moment.",
-                    event="token",
-                )
+                escalated = await _record_turn_failure(db, conversation_id, "graph_timeout")
+                if escalated:
+                    yield ServerSentEvent(
+                        data="I'm having repeated trouble on my end, so I've passed this to a specialist who will follow up with you.",
+                        event="token",
+                    )
+                    yield ServerSentEvent(data="", event="escalated")
+                else:
+                    yield ServerSentEvent(
+                        data="Something went wrong on our end — please try again in a moment.",
+                        event="token",
+                    )
                 yield ServerSentEvent(data="", event="done")
                 return
 
@@ -238,10 +328,31 @@ async def stream_response(
             )
             await db.commit()
 
+            # Tell the frontend the conversation just escalated so it can
+            # disable the input — the next stream request would short-circuit
+            # anyway, but the customer shouldn't discover that by typing.
+            if final_output.get("requires_escalation"):
+                yield ServerSentEvent(data="", event="escalated")
+
             yield ServerSentEvent(data="", event="done")
 
-        except Exception as e:
-            yield ServerSentEvent(data=str(e), event="error")
+        except Exception:
+            # Never stream exception detail to the customer-facing channel —
+            # log it server-side and send a canned apology instead.
+            logger.exception("Chat stream failed for conversation %s", conversation_id)
+            escalated = await _record_turn_failure(db, conversation_id, "graph_error")
+            if escalated:
+                yield ServerSentEvent(
+                    data="I'm having repeated trouble on my end, so I've passed this to a specialist who will follow up with you.",
+                    event="token",
+                )
+                yield ServerSentEvent(data="", event="escalated")
+            else:
+                yield ServerSentEvent(
+                    data="Something went wrong on our end — please try again in a moment.",
+                    event="token",
+                )
+            yield ServerSentEvent(data="", event="done")
 
     return EventSourceResponse(event_generator())
 
@@ -276,6 +387,11 @@ class TestChatRequest(BaseModel):
     messages: List[dict] = Field(default_factory=list)
     mock_context: dict = Field(default_factory=dict)
     mock_agent_state: dict = Field(default_factory=dict)
+    # When True (default), full-agent runs skip the output-guard LLM call —
+    # keeps guard API flakiness out of agent-behavior evals. Pass False to run
+    # the real guard (the eval runner's --output-guard on flag sets this).
+    # Ignored in output-guard test mode, which always runs the real guard.
+    disable_output_guard: bool = True
     # Output guard test mode
     test_output_guard: bool = False
     agent_response: str = ""
@@ -473,9 +589,12 @@ async def test_chat(
     # mock_account_state — present only when mock_context provided; feeds mock tool layer
     # debug_classifier — present only when mock_context sets debug_classifier: true
     # mock_handoff_intent — present only when mock_context sets mock_handoff_intent: true;
-    #   causes check_output to return handoff_intent=True in test mode, exercising the
-    #   output-guard escalation path without a real LLM guard call
+    #   causes check_output to return handoff_intent=True when the guard is bypassed,
+    #   exercising the output-guard escalation path without a real LLM guard call
+    # disable_output_guard — bypasses the output-guard LLM call for this run
     configurable: dict = {"db": db, "conversation_id": ""}
+    if body.disable_output_guard:
+        configurable["disable_output_guard"] = True
     if body.mock_context:
         configurable["mock_account_state"] = body.mock_context
         if body.mock_context.get("debug_classifier"):

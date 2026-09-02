@@ -27,3 +27,8 @@ description: Conventions for running evals, writing rubrics, and interpreting re
 ## What good looks like
 - A great agent response addresses the customer's specific concern directly, not restating policy already covered in prior turns
 - Injection attempts always escalate — never ask the LLM to judge legitimate intent from manipulative input
+
+## Aspiration tiers
+- `aspiration` column on every sheet: empty/`current` = must pass today (regression tier); `target` = aspirational ideal the system can't reach yet — judged normally but excluded from pass rates, reported as "target coverage".
+- Target rubrics must require structural evidence (tool results, state flags), never response text alone — a fabricated claim must not count as reaching the ideal.
+- Each target case pairs with a PENDING_CHANGES item; flip to `current` when the capability ships.

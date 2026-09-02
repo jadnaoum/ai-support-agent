@@ -8,6 +8,7 @@ export default function App() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
+  const [escalated, setEscalated] = useState(false)
   const [error, setError] = useState(null)
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
@@ -32,6 +33,7 @@ export default function App() {
   async function selectCustomer(customer) {
     setSelectedCustomer(customer)
     setMessages([])
+    setEscalated(false)
     setError(null)
     const res = await fetch('/api/conversations', {
       method: 'POST',
@@ -43,7 +45,7 @@ export default function App() {
   }
 
   async function sendMessage() {
-    if (!input.trim() || !conversationId || streaming) return
+    if (!input.trim() || !conversationId || streaming || escalated) return
     const text = input.trim()
     setInput('')
     setError(null)
@@ -81,6 +83,7 @@ export default function App() {
         })
       },
       onDone: () => { setStreaming(false); inputRef.current?.focus() },
+      onEscalated: () => setEscalated(true),
       onError: () => {
         setStreaming(false)
         setError('Stream error — check the backend logs.')
@@ -142,21 +145,31 @@ export default function App() {
         <div ref={bottomRef} />
       </div>
 
+      {/* Escalation banner — conversation is with a human now, input closes */}
+      {escalated && (
+        <div className="bg-amber-50 border-t border-amber-200 px-4 py-2 text-center text-sm text-amber-800">
+          This conversation has been escalated to a specialist — you can't send new messages here.
+        </div>
+      )}
+
       {/* Input bar */}
       <div className="bg-white border-t px-4 py-3 flex gap-2">
         <input
           ref={inputRef}
           className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
-          placeholder={selectedCustomer ? 'Type a message…' : 'Select a customer first'}
+          placeholder={
+            escalated ? 'A specialist has this conversation'
+              : selectedCustomer ? 'Type a message…' : 'Select a customer first'
+          }
           value={input}
-          disabled={!selectedCustomer}
+          disabled={!selectedCustomer || escalated}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
         />
         <button
           className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           onClick={sendMessage}
-          disabled={!selectedCustomer || !input.trim() || streaming}
+          disabled={!selectedCustomer || !input.trim() || streaming || escalated}
         >
           Send
         </button>

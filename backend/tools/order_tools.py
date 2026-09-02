@@ -26,28 +26,37 @@ _NON_RETURNABLE_CATEGORIES = frozenset({
 
 
 # ── Shared validation helpers ─────────────────────────────────────────────────
+# The *_data functions are the single source of truth for eligibility rules.
+# They operate on plain dicts so both the real tools (via the *_sync ORM
+# wrappers below) and the eval mock layer (backend/agents/mock_tools.py, via
+# its own adapters) run the exact same logic — a rule added here is enforced
+# in production and testable in evals with no second implementation.
+#
+# Data shapes:
+#   order:    {"status": str, "delivered_at": datetime|None}
+#   products: [{"name": str, "category": str, "return_window_days": int,
+#               "warranty_months": int|None, "final_sale": bool}]
 
-def _check_cancel_eligibility_sync(order) -> dict:
+def _check_cancel_eligibility_data(status: str) -> dict:
     """
     Pure function — no DB calls. Returns eligibility result for a located order.
     Shape: {"eligible": bool, "reason": str, "available_action": str|None}
     """
-    if order.status == "cancelled":
+    if status == "cancelled":
         return {"eligible": False, "reason": "already_cancelled", "available_action": None}
-    if order.status == "refunded":
+    if status == "refunded":
         return {"eligible": False, "reason": "already_refunded", "available_action": None}
-    if order.status == "returned":
+    if status == "returned":
         return {"eligible": False, "reason": "already_returned", "available_action": None}
-    if order.status == "shipped":
+    if status == "shipped":
         return {"eligible": False, "reason": "already_shipped", "available_action": None}
-    if order.status == "delivered":
+    if status == "delivered":
         return {"eligible": False, "reason": "already_delivered", "available_action": "check_return_eligibility"}
     # placed — eligible
     return {"eligible": True, "reason": "eligible", "available_action": None}
 
 
-
-def _check_return_eligibility_sync(order, products, reason=None, now=None) -> dict:
+def _check_return_eligibility_data(order: dict, products: list, reason=None, now=None) -> dict:
     """
     Pure function — no DB calls. Returns eligibility for initiating a return on a delivered order.
     Gate sequence for initiate_return: eligibility → reason → confirmation (reason does not affect
@@ -58,6 +67,12 @@ def _check_return_eligibility_sync(order, products, reason=None, now=None) -> di
     """
     if now is None:
         now = datetime.now(timezone.utc)
+
+    def _delivered_date():
+        d = order.get("delivered_at")
+        if d is not None and d.tzinfo is None:
+            d = d.replace(tzinfo=timezone.utc)
+        return d
 
     # Duplicate item fulfillment errors require human review — the customer was not charged for
     # the extra item, so a standard return is the wrong framing. Human judgment is needed to
@@ -71,15 +86,13 @@ def _check_return_eligibility_sync(order, products, reason=None, now=None) -> di
         in_return_window = False
         in_warranty = False
         warranty_months = None
-        delivered_date = order.delivered_at or order.updated_at
+        delivered_date = _delivered_date()
         if delivered_date and products:
-            if delivered_date.tzinfo is None:
-                delivered_date = delivered_date.replace(tzinfo=timezone.utc)
             days_since = (now - delivered_date).days
-            min_window = min(p.return_window_days for p in products)
+            min_window = min(p["return_window_days"] for p in products)
             in_return_window = days_since <= min_window
             max_warranty = max(
-                (p.warranty_months for p in products if p.warranty_months),
+                (p["warranty_months"] for p in products if p.get("warranty_months")),
                 default=None,
             )
             if max_warranty:
@@ -107,39 +120,62 @@ def _check_return_eligibility_sync(order, products, reason=None, now=None) -> di
             ),
         }
 
-    if order.status == "return_in_progress":
+    status = order.get("status", "placed")
+    if status == "return_in_progress":
         return {"eligible": False, "reason": "already_in_progress", "available_action": None}
 
-    if order.status == "returned":
+    if status == "returned":
         return {"eligible": False, "reason": "already_returned", "available_action": None}
 
-    if order.status == "refunded":
+    if status == "refunded":
         return {"eligible": False, "reason": "already_refunded", "available_action": None}
 
-    if order.status != "delivered":
+    if status != "delivered":
         return {"eligible": False, "reason": "wrong_status", "available_action": None}
 
     if products:
-        if any(p.final_sale for p in products):
+        if any(p.get("final_sale") for p in products):
             return {"eligible": False, "reason": "final_sale", "available_action": None}
 
         for p in products:
-            if p.category in _NON_RETURNABLE_CATEGORIES:
+            if p.get("category") in _NON_RETURNABLE_CATEGORIES:
                 return {
                     "eligible": False, "reason": "non_returnable_category",
                     "available_action": None,
                 }
 
-        delivered_date = order.delivered_at or order.updated_at
+        delivered_date = _delivered_date()
         if delivered_date:
-            if delivered_date.tzinfo is None:
-                delivered_date = delivered_date.replace(tzinfo=timezone.utc)
             days_since = (now - delivered_date).days
-            min_window = min(p.return_window_days for p in products)
+            min_window = min(p["return_window_days"] for p in products)
             if days_since > min_window:
                 return {"eligible": False, "reason": "outside_return_window", "available_action": None}
 
     return {"eligible": True, "reason": "eligible", "available_action": None}
+
+
+# ── ORM adapters — the real tools' entry points to the shared helpers ─────────
+
+def _check_cancel_eligibility_sync(order) -> dict:
+    return _check_cancel_eligibility_data(order.status)
+
+
+def _check_return_eligibility_sync(order, products, reason=None, now=None) -> dict:
+    order_data = {
+        "status": order.status,
+        "delivered_at": order.delivered_at or order.updated_at,
+    }
+    product_data = [
+        {
+            "name": p.name,
+            "category": p.category,
+            "return_window_days": p.return_window_days,
+            "warranty_months": p.warranty_months,
+            "final_sale": bool(p.final_sale),
+        }
+        for p in products
+    ]
+    return _check_return_eligibility_data(order_data, product_data, reason=reason, now=now)
 
 
 def _escalation_rejection(
@@ -175,20 +211,35 @@ def _escalation_rejection(
     return result
 
 
-def _has_prior_confirmation(actions_taken, tool_name: str, resolved_order_id: str) -> bool:
+def _has_prior_confirmation(actions_taken, tool_name: str, resolved_order_id: str,
+                            resolved_reason: str = None) -> bool:
     """
     Returns True if actions_taken contains a confirmation_required entry for
-    tool_name + resolved_order_id that has NOT been superseded by a subsequent
-    successful execution of the same combination.
+    tool_name + resolved_order_id + the same (normalized) reason that has NOT
+    been superseded by a subsequent successful execution of the same combination.
+
+    Binding the reason means what executes is what the customer saw at
+    confirmation time — a second call with a different reason (which can change
+    eligibility routing and the refund record) gets a fresh confirmation_required
+    instead of executing. Synonyms normalize through _REASON_MAP, so a
+    confirmation for "broken" still matches an execution with "damaged".
+
+    An entry with no recorded reason matches any — backward compat with
+    prior_turn_actions persisted before the reason was part of the match.
 
     Scanning forward: a success entry resets the gate, so a new confirmation
     is required for any further calls (e.g. second partial refund on same order).
     """
+    target_reason = _REASON_MAP.get(resolved_reason) if resolved_reason else None
     found = False
     for entry in (actions_taken or []):
         if entry.get("action") != tool_name:
             continue
         if str(entry.get("order_id") or "") != resolved_order_id:
+            continue
+        entry_reason = (entry.get("params") or {}).get("reason")
+        entry_reason = _REASON_MAP.get(entry_reason) if entry_reason else None
+        if entry_reason is not None and target_reason is not None and entry_reason != target_reason:
             continue
         if entry.get("confirmation_required"):
             found = True
@@ -423,7 +474,7 @@ async def initiate_return(
         }
 
     # 4. Confirmation gate — first call returns details for customer to confirm
-    if not _has_prior_confirmation(actions_taken, "initiate_return", resolved_order_id):
+    if not _has_prior_confirmation(actions_taken, "initiate_return", resolved_order_id, reason):
         return {
             "success": False,
             "reason": "confirmation_required",
@@ -553,7 +604,7 @@ async def cancel_order(
         return {"success": False, **_escalation_rejection(resolved_reason)}
 
     # 4. Confirmation gate — first call returns details for customer to confirm
-    if not _has_prior_confirmation(actions_taken, "cancel_order", resolved_order_id):
+    if not _has_prior_confirmation(actions_taken, "cancel_order", resolved_order_id, reason):
         items_result = await db.execute(
             select(Product)
             .join(OrderItem, OrderItem.product_id == Product.id)
@@ -568,6 +619,7 @@ async def cancel_order(
                 "order_id": resolved_order_id,
                 "order_total": float(order.total_amount),
                 "items": [p.name for p in products],
+                "reason": reason,
             },
         }
 

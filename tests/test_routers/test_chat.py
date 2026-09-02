@@ -150,8 +150,7 @@ FAKE_AGENT_OUTPUT = {
 }
 
 
-async def fake_astream(*args, **kwargs):
-    yield {"conversation_agent": FAKE_AGENT_OUTPUT}
+# The stream endpoint calls graph.ainvoke (not astream) — mock it directly.
 
 
 async def test_stream_unknown_conversation_returns_404(client):
@@ -167,26 +166,26 @@ async def test_stream_no_customer_message_returns_422(client, active_conversatio
     assert "No customer message" in response.json()["detail"]
 
 
-@patch("backend.agents.graph.graph.astream", side_effect=fake_astream)
+@patch("backend.agents.graph.graph.ainvoke", new_callable=AsyncMock, return_value=FAKE_AGENT_OUTPUT)
 async def test_stream_returns_sse_content_type(mock_stream, client, conversation_with_messages):
     response = await client.get(f"/api/chat/stream/{conversation_with_messages.id}")
     assert response.status_code == 200
     assert "text/event-stream" in response.headers["content-type"]
 
 
-@patch("backend.agents.graph.graph.astream", side_effect=fake_astream)
+@patch("backend.agents.graph.graph.ainvoke", new_callable=AsyncMock, return_value=FAKE_AGENT_OUTPUT)
 async def test_stream_emits_token_events(mock_stream, client, conversation_with_messages):
     response = await client.get(f"/api/chat/stream/{conversation_with_messages.id}")
     assert "event: token" in response.text
 
 
-@patch("backend.agents.graph.graph.astream", side_effect=fake_astream)
+@patch("backend.agents.graph.graph.ainvoke", new_callable=AsyncMock, return_value=FAKE_AGENT_OUTPUT)
 async def test_stream_emits_done_event(mock_stream, client, conversation_with_messages):
     response = await client.get(f"/api/chat/stream/{conversation_with_messages.id}")
     assert "event: done" in response.text
 
 
-@patch("backend.agents.graph.graph.astream", side_effect=fake_astream)
+@patch("backend.agents.graph.graph.ainvoke", new_callable=AsyncMock, return_value=FAKE_AGENT_OUTPUT)
 async def test_stream_persists_agent_message(mock_stream, client, db, conversation_with_messages):
     await client.get(f"/api/chat/stream/{conversation_with_messages.id}")
 
@@ -204,7 +203,7 @@ async def test_stream_persists_agent_message(mock_stream, client, db, conversati
     assert agent_msgs[0].agent_type == "conversation"
 
 
-@patch("backend.agents.graph.graph.astream", side_effect=fake_astream)
+@patch("backend.agents.graph.graph.ainvoke", new_callable=AsyncMock, return_value=FAKE_AGENT_OUTPUT)
 async def test_stream_creates_audit_log(mock_stream, client, db, conversation_with_messages):
     await client.get(f"/api/chat/stream/{conversation_with_messages.id}")
 

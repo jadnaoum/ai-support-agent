@@ -215,12 +215,13 @@ async def test_known_id_included_in_prompt(mock_complete):
 
 @patch("backend.guardrails.output_guard.settings")
 async def test_handoff_intent_true_when_mock_flag_set(mock_settings):
-    """In test mode, mock_handoff_intent=True flows through to handoff_intent in result."""
+    """When bypassed in test mode, mock_handoff_intent=True flows through to handoff_intent."""
     mock_settings.app_env = "test"
     from backend.guardrails.output_guard import check_output
     result = await check_output(
         "Let me connect you with a specialist.",
         make_state(),
+        bypass=True,
         mock_handoff_intent=True,
     )
     assert result["safe"] is True
@@ -229,10 +230,10 @@ async def test_handoff_intent_true_when_mock_flag_set(mock_settings):
 
 @patch("backend.guardrails.output_guard.settings")
 async def test_handoff_intent_false_when_mock_flag_not_set(mock_settings):
-    """In test mode, mock_handoff_intent defaults to False — existing cases unaffected."""
+    """When bypassed, mock_handoff_intent defaults to False — existing cases unaffected."""
     mock_settings.app_env = "test"
     from backend.guardrails.output_guard import check_output
-    result = await check_output("Your order is on its way.", make_state())
+    result = await check_output("Your order is on its way.", make_state(), bypass=True)
     assert result["safe"] is True
     assert result["handoff_intent"] is False
 
@@ -245,7 +246,23 @@ async def test_handoff_intent_false_when_mock_flag_explicitly_false(mock_setting
     result = await check_output(
         "Your order is on its way.",
         make_state(),
+        bypass=True,
         mock_handoff_intent=False,
+    )
+    assert result["safe"] is True
+    assert result["handoff_intent"] is False
+
+
+@patch("backend.guardrails.output_guard.settings")
+async def test_mock_handoff_ignored_outside_test_env(mock_settings):
+    """Bypass outside APP_ENV=test never reports handoff_intent, even with the mock flag."""
+    mock_settings.app_env = "development"
+    from backend.guardrails.output_guard import check_output
+    result = await check_output(
+        "Let me connect you with a specialist.",
+        make_state(),
+        bypass=True,
+        mock_handoff_intent=True,
     )
     assert result["safe"] is True
     assert result["handoff_intent"] is False

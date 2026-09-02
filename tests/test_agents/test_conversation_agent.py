@@ -167,6 +167,8 @@ async def test_general_intent_responds_directly(mock_complete, mock_guard):
     async def dispatch(*args, **kwargs):
         messages = kwargs.get("messages", [])
         system = messages[0]["content"] if messages else ""
+        if isinstance(system, list):  # cached prompts send system as content blocks
+            system = " ".join(b.get("text", "") for b in system)
         if "intent classifier" in system.lower():
             return make_completion_response('{"intent": "general", "confidence": 0.99}')
         return make_completion_response("Hello! How can I help you today?")
@@ -184,6 +186,8 @@ async def test_malformed_intent_json_falls_back_to_general(mock_complete, mock_g
     async def dispatch(*args, **kwargs):
         messages = kwargs.get("messages", [])
         system = messages[0]["content"] if messages else ""
+        if isinstance(system, list):  # cached prompts send system as content blocks
+            system = " ".join(b.get("text", "") for b in system)
         if "intent classifier" in system.lower():
             return make_completion_response("not valid json")
         return make_completion_response("Sure, I can help with that.")
@@ -224,17 +228,21 @@ async def test_generates_response_with_kb_context(mock_complete, mock_guard):
     assert result["pending_service"] == ""
 
 
+@patch("backend.agents.conversation.check_output", new_callable=AsyncMock, return_value={"safe": True})
 @patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
-async def test_response_pass_uses_top_chunk_similarity_as_confidence(mock_complete):
+async def test_response_pass_propagates_classifier_confidence(mock_complete, mock_guard):
+    # Pass 2 must carry the pass-1 classifier confidence through to the final
+    # state (audit logs record it) — not overwrite it with a hardcoded value.
     mock_complete.return_value = make_completion_response("Here is your answer.")
     state = make_state(
         retrieved_context=[
             {"chunk_text": "...", "title": "T", "category": "c", "similarity": 0.87}
         ],
         actions_taken=FAKE_KB_ACTION,
+        confidence=0.92,
     )
     result = await conversation_agent_node(state, {})
-    assert abs(result["confidence"] - 0.87) < 0.01
+    assert abs(result["confidence"] - 0.92) < 0.001
 
 
 @patch("backend.agents.conversation.check_output", new_callable=AsyncMock, return_value={"safe": True})
@@ -259,22 +267,47 @@ async def test_system_prompt_includes_kb_context(mock_complete, mock_guard):
     assert "Electronics" in system_msg["content"]
 
 
+@patch("backend.agents.conversation.check_output", new_callable=AsyncMock, return_value={"safe": True})
 @patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
-async def test_low_confidence_kb_result_triggers_escalation(mock_complete):
-    """When KB similarity is below the confidence threshold, escalate instead of responding."""
-    # No LLM call should be made — escalation decision is based on similarity score alone
+async def test_below_floor_similarity_drops_kb_context(mock_complete, mock_guard):
+    """Chunks below the 0.15 similarity floor are dropped — the agent answers from
+    empty context (guarded) rather than irrelevant chunks. (The old structural
+    low_confidence escalation was replaced by this floor + the output guard.)"""
+    mock_complete.return_value = make_completion_response("Let me help with that.")
     state = make_state(
         retrieved_context=[
-            {"chunk_text": "...", "title": "T", "category": "c", "similarity": 0.1}
+            {"chunk_text": "irrelevant", "title": "T", "category": "c", "similarity": 0.1}
         ],
         actions_taken=FAKE_KB_ACTION,
     )
     result = await conversation_agent_node(state, {})
-    assert result["pending_service"] == ""
-    assert result["requires_escalation"] is True
-    assert result["escalation_reason"] == "low_confidence"
-    assert isinstance(result["response"], str) and len(result["response"]) > 0
-    mock_complete.assert_not_called()
+    assert result.get("requires_escalation") is not True
+    assert result["response"] == "Let me help with that."
+    # The response LLM must not have seen the below-floor chunk
+    system_content = mock_complete.call_args[1]["messages"][0]["content"]
+    if isinstance(system_content, list):
+        system_content = " ".join(b.get("text", "") for b in system_content)
+    assert "irrelevant" not in system_content
+
+
+@patch("backend.agents.conversation.check_output", new_callable=AsyncMock, return_value={"safe": True})
+@patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
+async def test_keyword_only_chunk_with_none_similarity_is_kept(mock_complete, mock_guard):
+    """Hybrid search emits similarity=None for keyword-only chunks — they matched
+    exact terms, so the floor must keep them (and must not raise on None < float)."""
+    mock_complete.return_value = make_completion_response("Answer from keyword chunk.")
+    state = make_state(
+        retrieved_context=[
+            {"chunk_text": "keyword matched policy text", "title": "T", "category": "c", "similarity": None}
+        ],
+        actions_taken=FAKE_KB_ACTION,
+    )
+    result = await conversation_agent_node(state, {})
+    assert result["response"] == "Answer from keyword chunk."
+    system_content = mock_complete.call_args[1]["messages"][0]["content"]
+    if isinstance(system_content, list):
+        system_content = " ".join(b.get("text", "") for b in system_content)
+    assert "keyword matched policy text" in system_content
 
 
 # ---------------------------------------------------------------------------

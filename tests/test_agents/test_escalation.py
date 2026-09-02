@@ -47,10 +47,12 @@ async def test_returns_handoff_string(db):
     assert len(result) > 0
 
 
-async def test_different_reasons_produce_different_messages(db):
+async def test_all_reasons_use_the_same_handoff_message(db):
+    """One canned handoff message for every reason — single voice by design
+    (per-reason messages were removed with the single-conversation-agent revision)."""
     m1 = await handle_escalation("customer_requested", make_context(db=db))
-    m2 = await handle_escalation("low_confidence", make_context(db=db))
-    assert m1 != m2
+    m2 = await handle_escalation("unable_to_clarify", make_context(db=db))
+    assert m1 == m2
 
 
 async def test_unknown_reason_uses_default_message(db):

@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from backend.tools.order_tools import (
     _has_prior_confirmation, _REASON_MAP, REASON_VALUES,
     _escalation_rejection, ESCALATION_REASONS,
+    _check_cancel_eligibility_data, _check_return_eligibility_data,
 )
 
 _DEFAULT_RETURN_WINDOW_DAYS = 30
@@ -72,89 +73,66 @@ def _item_names(o: dict) -> list:
     return []
 
 
-def _order_return_window_days(o: dict) -> int:
-    """Return the applicable return window for an order based on item categories."""
+# ---------------------------------------------------------------------------
+# Data adapters — translate mock fixtures into the shapes the shared
+# eligibility helpers in order_tools.py expect. All eligibility LOGIC lives
+# there (single source of truth); only fixture normalization lives here.
+# ---------------------------------------------------------------------------
+
+def _order_data(o: dict) -> dict:
+    return {"status": o.get("status", "placed"), "delivered_at": _delivery_date(o)}
+
+
+def _product_data(o: dict) -> list:
+    """Build product dicts from a mock order's items.
+
+    Per-item fields honoured: category (drives the return window per
+    eval-conventions.md), warranty_months (absent/None = no warranty, matching
+    production; explicit 0 also means no warranty), final_sale,
+    return_window_days (explicit override).
+
+    An order with no items at all gets one synthetic generic item (30-day
+    window, 12-month warranty) — legacy eval fixtures predate the items
+    requirement, and this reproduces the old mock defaults for them. New
+    cases should always specify items.
+    """
     items = o.get("items") or []
-    if any(i.get("category", "").lower() == "electronics" for i in items):
-        return _ELECTRONICS_RETURN_WINDOW_DAYS
-    return _DEFAULT_RETURN_WINDOW_DAYS
+    if not items and o.get("item"):
+        # Legacy single-item string format — same era as itemless fixtures,
+        # so it gets the same legacy default warranty.
+        items = [{"name": o["item"], "warranty_months": _DEFAULT_WARRANTY_MONTHS}]
+    if not items:
+        return [{
+            "name": "unspecified item",
+            "category": "",
+            "return_window_days": _DEFAULT_RETURN_WINDOW_DAYS,
+            "warranty_months": _DEFAULT_WARRANTY_MONTHS,
+            "final_sale": False,
+        }]
+    products = []
+    for i in items:
+        category = (i.get("category") or "").lower()
+        window = i.get("return_window_days") or (
+            _ELECTRONICS_RETURN_WINDOW_DAYS if category == "electronics"
+            else _DEFAULT_RETURN_WINDOW_DAYS
+        )
+        products.append({
+            "name": i.get("name", ""),
+            "category": category,
+            "return_window_days": window,
+            "warranty_months": i.get("warranty_months"),
+            "final_sale": bool(i.get("final_sale", False)),
+        })
+    return products
 
-
-# ---------------------------------------------------------------------------
-# Per-status eligibility helpers (inline — avoids ORM dependency)
-# ---------------------------------------------------------------------------
 
 def _cancel_eligibility(status: str) -> dict:
-    if status == "cancelled":
-        return {"eligible": False, "reason": "already_cancelled", "available_action": None}
-    if status == "refunded":
-        return {"eligible": False, "reason": "already_refunded", "available_action": None}
-    if status == "returned":
-        return {"eligible": False, "reason": "already_returned", "available_action": None}
-    if status == "shipped":
-        return {"eligible": False, "reason": "already_shipped", "available_action": None}
-    if status == "delivered":
-        return {"eligible": False, "reason": "already_delivered", "available_action": "check_return_eligibility"}
-    return {"eligible": True, "reason": "eligible", "available_action": None}
+    return _check_cancel_eligibility_data(status)
 
 
 def _return_eligibility(o: dict, reason: str, now: datetime) -> dict:
     """Return eligibility for initiate_return / check_return_eligibility."""
-    if reason and reason.lower() == "duplicate_item":
-        return {"eligible": False, **_escalation_rejection("duplicate_item")}
-
-    if reason and reason.lower() in ("defective", "broken", "damaged"):
-        in_return_window = False
-        in_warranty = False
-        warranty_months = None
-        dt = _delivery_date(o)
-        if dt:
-            days_since = (now - dt).days
-            return_window = _order_return_window_days(o)
-            in_return_window = days_since <= return_window
-            items = o.get("items") or []
-            first_item = items[0] if items else {}
-            wm = first_item.get("warranty_months") or _DEFAULT_WARRANTY_MONTHS
-            in_warranty = days_since <= wm * 30
-            warranty_months = wm
-        if not in_return_window and not in_warranty:
-            return {
-                "eligible": False,
-                "reason": "defective",
-                "available_action": None,
-                "requires_escalation": False,
-                "check_kb": False,
-                "in_return_window": False,
-                "in_warranty": False,
-            }
-        return {
-            "eligible": False,
-            **_escalation_rejection(
-                "defective",
-                in_return_window=in_return_window,
-                in_warranty=in_warranty,
-                warranty_months=warranty_months,
-            ),
-        }
-
-    status = o.get("status", "placed")
-    if status == "return_in_progress":
-        return {"eligible": False, "reason": "already_in_progress", "available_action": None}
-    if status == "returned":
-        return {"eligible": False, "reason": "already_returned", "available_action": None}
-    if status == "refunded":
-        return {"eligible": False, "reason": "already_refunded", "available_action": None}
-    if status != "delivered":
-        return {"eligible": False, "reason": "wrong_status", "available_action": None}
-
-    dt = _delivery_date(o)
-    if dt:
-        days_since = (now - dt).days
-        return_window = _order_return_window_days(o)
-        if days_since > return_window:
-            return {"eligible": False, "reason": "outside_return_window", "available_action": None}
-
-    return {"eligible": True, "reason": "eligible", "available_action": None}
+    return _check_return_eligibility_data(_order_data(o), _product_data(o), reason=reason, now=now)
 
 
 # ---------------------------------------------------------------------------
@@ -273,13 +251,13 @@ def _mock_cancel_order(params: dict, mock: dict, actions_taken: list, now: datet
     if resolved_reason in ESCALATION_REASONS:
         return {"success": False, **_escalation_rejection(resolved_reason)}
 
-    if not _has_prior_confirmation(actions_taken, "cancel_order", oid):
+    if not _has_prior_confirmation(actions_taken, "cancel_order", oid, reason):
         return {
             "success": False,
             "reason": "confirmation_required",
             "confirmation_required": True,
             "details": {"order_id": oid, "order_total": float(o.get("total", 0.0)),
-                        "items": _item_names(o)},
+                        "items": _item_names(o), "reason": reason},
         }
 
     refund_amount = float(o.get("total", 0.0))
@@ -318,7 +296,7 @@ def _mock_initiate_return(params: dict, mock: dict, actions_taken: list, now: da
     if reason not in _REASON_MAP:
         return {"success": False, "reason": "invalid_reason", "available_action": None}
 
-    if not _has_prior_confirmation(actions_taken, "initiate_return", oid):
+    if not _has_prior_confirmation(actions_taken, "initiate_return", oid, reason):
         return {
             "success": False,
             "reason": "confirmation_required",

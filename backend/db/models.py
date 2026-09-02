@@ -180,7 +180,7 @@ class Escalation(Base):
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
     conversation_id = Column(UUID(as_uuid=False), ForeignKey("conversations.id"), nullable=False)
-    reason = Column(String, nullable=False)  # customer_requested, low_confidence, unknown_intent, policy_exception, repeated_failure
+    reason = Column(String, nullable=False)  # one of ESCALATION_TRIGGER_REASONS in backend/agents/escalation.py (single source of truth)
     agent_confidence = Column(Float, nullable=True)
     context_summary = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

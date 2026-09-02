@@ -94,6 +94,8 @@ async def test_graph_invoke_knowledge_query_returns_response(mock_complete, mock
     async def dispatch(*args, **kwargs):
         messages = kwargs.get("messages", [])
         system = messages[0]["content"] if messages else ""
+        if isinstance(system, list):  # cached prompts send system as content blocks
+            system = " ".join(b.get("text", "") for b in system)
         if "intent classifier" in system.lower():
             return make_completion_response('{"intent": "knowledge_query", "confidence": 0.9}')
         return make_completion_response("Here is your answer.")
@@ -115,6 +117,8 @@ async def test_graph_invoke_general_query_skips_knowledge_service(mock_complete,
     async def dispatch(*args, **kwargs):
         messages = kwargs.get("messages", [])
         system = messages[0]["content"] if messages else ""
+        if isinstance(system, list):  # cached prompts send system as content blocks
+            system = " ".join(b.get("text", "") for b in system)
         if "intent classifier" in system.lower():
             return make_completion_response('{"intent": "general", "confidence": 0.99}')
         return make_completion_response("Hello! How can I help?")

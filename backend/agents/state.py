@@ -13,7 +13,7 @@ class AgentState(TypedDict):
     actions_taken: list[dict]   # audit trail of service calls THIS turn (empty at turn start; used by service_ran gate)
     prior_turn_actions: list    # actions_taken persisted from prior turns; used only by the confirmation gate
     response: str               # final customer-facing response text
-    pending_service: str        # internal routing: "knowledge"|"action"|"escalation"|"" (empty = none pending)
+    pending_service: str        # internal routing: "knowledge"|"action"|"" (empty = none pending)
     pending_action: dict        # {"tool": "cancel_order", "params": {...}} set by conversation agent
     inferred_intent: str               # Raw output of _classify_intent: "knowledge_query"|"action_request"|"escalation_request"|"needs_clarification"|"general"
     last_clarification_source: str    # Why the last clarifying question was asked: "intent"|"emotion"|"" (empty = none asked)

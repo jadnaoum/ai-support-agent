@@ -251,6 +251,13 @@ async def _fetch_kb_reference_content(titles: list) -> "str | None":
 # Agent call helpers
 # ---------------------------------------------------------------------------
 
+# Whether full-agent runs execute the real output-guard LLM ("on") or bypass it
+# ("off", historical default — keeps guard API flakiness out of agent-behavior
+# runs). Set from --output-guard in main(). Ask Jad which mode to use before
+# every run — see .claude/rules/eval-logging.md.
+OUTPUT_GUARD_MODE = "off"
+
+
 def _call_agent_full(messages: list, mock_context: dict, customer_id: str = None,
                      test_id: str = "", version_tag: str = "",
                      mock_agent_state: dict = None) -> dict:
@@ -261,6 +268,7 @@ def _call_agent_full(messages: list, mock_context: dict, customer_id: str = None
         "mock_context": mock_context,
         "test_id": test_id,
         "version_tag": version_tag,
+        "disable_output_guard": OUTPUT_GUARD_MODE != "on",
     }
     if mock_agent_state:
         payload["mock_agent_state"] = mock_agent_state
@@ -570,8 +578,17 @@ def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float,
         agent_resp = case.get("agent_response", {})
         verdict    = result.get("verdict", "fail")
 
-        verdict_cell = ws.cell(row, col, label_map.get(verdict, "FAIL"))
-        verdict_cell.fill = fill_map.get(verdict, FILL_FAIL)
+        # display_verdict overrides for special tiers: "TARGET PASS"/"TARGET FAIL"
+        # (aspirational cases — outside the regression rate) and "INFRA".
+        # The Analysis formulas count literal "PASS"/"FAIL" only, so these
+        # labels self-exclude from pass rates.
+        display = case.get("display_verdict")
+        if display:
+            verdict_cell = ws.cell(row, col, display)
+            verdict_cell.fill = FILL_PASS if display == "TARGET PASS" else FILL_SKIP
+        else:
+            verdict_cell = ws.cell(row, col, label_map.get(verdict, "FAIL"))
+            verdict_cell.fill = fill_map.get(verdict, FILL_FAIL)
 
         response_text = str(agent_resp.get("response", "") or "")
         ws.cell(row, col + 1, response_text)
@@ -696,8 +713,13 @@ def _overwrite_case_cells(ws, verdict_col: int, row: int, case: dict, extra_cols
     agent_resp = case.get("agent_response", {})
     verdict    = result.get("verdict", "fail")
 
-    verdict_cell = ws.cell(row, verdict_col, label_map.get(verdict, "FAIL"))
-    verdict_cell.fill = fill_map.get(verdict, FILL_FAIL)
+    display = case.get("display_verdict")
+    if display:
+        verdict_cell = ws.cell(row, verdict_col, display)
+        verdict_cell.fill = FILL_PASS if display == "TARGET PASS" else PatternFill("solid", fgColor="F5F5F5")
+    else:
+        verdict_cell = ws.cell(row, verdict_col, label_map.get(verdict, "FAIL"))
+        verdict_cell.fill = fill_map.get(verdict, FILL_FAIL)
 
     ws.cell(row, verdict_col + 1, str(agent_resp.get("response", "") or ""))
     ws.cell(row, verdict_col + 2, result.get("reasoning", ""))
@@ -748,7 +770,9 @@ def _build_analysis_sheet(wb):
         ws = wb[sheet_name]
         sheet_cols[sheet_name] = {}
         for tag in all_tags_ordered:
-            for c in range(1, ws.max_column + 1):
+            # Right-to-left: the LAST matching column is authoritative when
+            # historical duplicate-tag columns exist — same rule as _find_tag_col.
+            for c in range(ws.max_column, 0, -1):
                 v = ws.cell(2, c).value
                 if v and str(v).startswith(f"{tag} ($"):
                     sheet_cols[sheet_name][tag] = (
@@ -800,16 +824,22 @@ def _build_analysis_sheet(wb):
     CENTER_MID = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
     def _pass_rate_formula(sheet_name, tag):
-        """Build a COUNTIF pass-rate formula for a (sheet, tag) pair."""
+        """Build a COUNTIF pass-rate formula for a (sheet, tag) pair.
+
+        Denominator counts literal PASS + FAIL cells only, so aspirational
+        cases ("TARGET PASS"/"TARGET FAIL"), INFRA, and SKIP rows are excluded
+        from the regression rate — matching the runner's own computation.
+        """
         tag_map = sheet_cols.get(sheet_name, {})
         if not tag or tag not in tag_map:
             return None
         verdict_col = tag_map[tag][0]
         sn          = sheet_name.replace("'", "''")
+        rng = f"'{sn}'!{verdict_col}3:{verdict_col}{ROW_LIMIT}"
         return (
             f"=IFERROR("
-            f"COUNTIF('{sn}'!{verdict_col}3:{verdict_col}{ROW_LIMIT},\"PASS\")"
-            f"/COUNTA('{sn}'!A3:A{ROW_LIMIT})"
+            f"COUNTIF({rng},\"PASS\")"
+            f"/(COUNTIF({rng},\"PASS\")+COUNTIF({rng},\"FAIL\"))"
             f",0)"
         )
 
@@ -1452,7 +1482,8 @@ def _append_run_history(ws, run_id: int, tag: str, desc: str,
 
 def _write_run_history_row(ws, run_id: int, tag: str, desc: str,
                             sheet_name: str, pass_rate: float,
-                            cost: float, tokens: int, calibrate: bool):
+                            cost: float, tokens: int, calibrate: bool,
+                            notes: str = ""):
     """Append a single row to Run History — used for both per-sheet and OVERALL entries."""
     judge_model = (
         JUDGE_MODEL_CALIBRATION if calibrate
@@ -1460,7 +1491,7 @@ def _write_run_history_row(ws, run_id: int, tag: str, desc: str,
     )
     date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     _ws_append(ws, [run_id, date_str, tag, desc, sheet_name,
-                    round(pass_rate * 100, 1), tokens, round(cost, 4), judge_model, ""])
+                    round(pass_rate * 100, 1), tokens, round(cost, 4), judge_model, notes])
     if sheet_name == "OVERALL":
         last_row = _true_last_row(ws)
         for c in range(1, 11):
@@ -1535,8 +1566,10 @@ def _find_sheet_tag_cols(ws, tag: str) -> dict:
     Returns dict with keys: verdict, response, reasoning, failure_reason,
     and optionally escalation_summary. Returns {} if tag columns not found.
     """
+    # Right-to-left: the LAST matching column is authoritative when historical
+    # duplicate-tag columns exist — same rule as _find_tag_col (--cases mode).
     verdict_col = None
-    for c in range(1, ws.max_column + 1):
+    for c in range(ws.max_column, 0, -1):
         v = ws.cell(2, c).value
         if v and str(v).startswith(f"{tag} ($"):
             verdict_col = c
@@ -1716,9 +1749,16 @@ async def _run_judge_only(wb, tag: str, desc: str, target_sheets: list,
             sheet_judge_cost += judgment.get("cost_usd", 0.0)
             verdict = judgment.get("verdict", "fail")
             score   = judgment.get("score", 0.0)
-            scores.append(score)
 
-            verdict_label = {"pass": "PASS", "fail": "FAIL"}.get(verdict, "FAIL")
+            # Aspirational cases stay out of the regression rate here too.
+            is_target = str(test_case.get("aspiration") or "").strip().lower() == "target"
+            display_verdict = None
+            if is_target:
+                display_verdict = "TARGET PASS" if verdict == "pass" else "TARGET FAIL"
+            else:
+                scores.append(score)
+
+            verdict_label = display_verdict or {"pass": "PASS", "fail": "FAIL"}.get(verdict, "FAIL")
             print(f"  {test_id}: {verdict_label}  ({latency:.1f}s)  ${judgment.get('cost_usd', 0.0):.4f}  {judgment.get('reasoning', '')[:70]}")
 
             case_results.append({
@@ -1727,6 +1767,7 @@ async def _run_judge_only(wb, tag: str, desc: str, target_sheets: list,
                 "agent_response": agent_resp,
                 "latency_s":      latency,
                 "cost_usd":       judgment.get("cost_usd", 0.0),
+                "display_verdict": display_verdict,
             })
 
             if delay > 0:
@@ -1887,6 +1928,20 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
         await _run_judge_only(wb, tag, desc, target_sheets, calibrate, yes, delay, from_tag)
         return
 
+    # 1b. Refuse duplicate tags in full-run mode. A full run APPENDS a column per
+    # sheet — running the same tag twice creates twin columns with identical
+    # headers, and readers can then disagree about which one is authoritative
+    # (this happened to 3 sheets). Fail fast before any API spend.
+    if cases_filter is None:
+        dup_sheets = [s for s in target_sheets
+                      if s in wb.sheetnames and _find_tag_col(wb[s], tag) is not None]
+        if dup_sheets:
+            sys.exit(
+                f"Tag '{tag}' already has a run column on: {', '.join(dup_sheets)}.\n"
+                "Pick a new --tag for a fresh run, or use --cases to overwrite "
+                "specific cases in the existing column."
+            )
+
     # 2. Verify agent is reachable
     print(f"Checking agent at {AGENT_TEST_ENDPOINT} ...")
     try:
@@ -1915,6 +1970,7 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
     sheet_pass_rates: dict[str, float] = {}
     sheet_costs: dict[str, float] = {}    # actual costs per sheet
     sheet_tokens: dict[str, int] = {}     # actual tokens per sheet
+    sheet_targets: dict[str, tuple] = {}  # (target_passed, target_total) per sheet
     run_responses: dict = {}              # sidecar: test_id → full agent state
 
     # Initialise Run History (skipped in --cases mode — no history entry is written)
@@ -1948,6 +2004,9 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
 
         case_results = []
         scores = []
+        sheet_infra_count = 0
+        sheet_target_total = 0
+        sheet_target_passed = 0
         sheet_agent_tokens = 0
         sheet_agent_cost   = 0.0
         sheet_judge_cost   = 0.0
@@ -1966,12 +2025,21 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
                                                 test_id=test_id, version_tag=tag)
             latency = time.time() - t0
 
-            # Normalise api_timeout: runners return failure_reason=None on error;
-            # set it explicitly so the Analysis sheet can bucket it correctly.
-            if judgment.get("verdict") == "fail" and not judgment.get("failure_reason"):
-                err = str(agent_resp.get("error", ""))
-                if err == "api_timeout" or "timeout" in err.lower():
-                    judgment = {**judgment, "failure_reason": "api_timeout"}
+            # Normalise infrastructure failures: runners return failure_reason=None
+            # on error; set it explicitly so the Analysis sheet can bucket it and
+            # the pass rate can exclude it (an unreachable server or timeout is
+            # not agent misbehavior and must not read as a regression).
+            is_infra = False
+            if judgment.get("verdict") == "fail" and "error" in agent_resp:
+                is_infra = True
+                if not judgment.get("failure_reason"):
+                    err = str(agent_resp.get("error", ""))
+                    if err == "api_timeout" or "timeout" in err.lower():
+                        judgment = {**judgment, "failure_reason": "api_timeout"}
+                    elif "not reachable" in err.lower():
+                        judgment = {**judgment, "failure_reason": "agent_unreachable"}
+                    else:
+                        judgment = {**judgment, "failure_reason": "infra_error"}
 
             # Accumulate agent token estimates
             p_tok = agent_resp.get("prompt_tokens", 0)
@@ -1987,12 +2055,34 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
 
             verdict = judgment.get("verdict", "fail")
             score   = judgment.get("score", 0.0)
-            scores.append(score)
+
+            # Aspiration tiers (see eval-conventions.md):
+            #   current (default) — the system should pass today; failures are
+            #     regressions/bugs and feed the regression pass rate.
+            #   target — encodes the IDEAL outcome the system cannot reach yet;
+            #     runs and is judged normally, but is EXCLUDED from the
+            #     regression pass rate and reported as its own coverage metric,
+            #     so aspirational cases never mask (or get masked by) regressions.
+            is_target = str(test_case.get("aspiration") or "").strip().lower() == "target"
+
+            # Infra failures are excluded from both metrics and counted
+            # separately — an unreachable server is not agent behavior.
+            display_verdict = None
+            if is_infra:
+                sheet_infra_count += 1
+                display_verdict = "INFRA"
+            elif is_target:
+                sheet_target_total += 1
+                if verdict == "pass":
+                    sheet_target_passed += 1
+                display_verdict = "TARGET PASS" if verdict == "pass" else "TARGET FAIL"
+            else:
+                scores.append(score)
 
             case_cost = judgment.get("cost_usd", 0.0) + _estimate_cost_per_call(
                 AGENT_MODEL, p_tok, c_tok
             )
-            verdict_label = {"pass": "PASS", "partial": "PART", "fail": "FAIL"}.get(verdict, "FAIL")
+            verdict_label = display_verdict or {"pass": "PASS", "partial": "PART", "fail": "FAIL"}.get(verdict, "FAIL")
             print(f"  {test_id}: {verdict_label}  ({latency:.1f}s)  ${case_cost:.4f}  {judgment.get('reasoning', '')[:70]}")
 
             case_results.append({
@@ -2001,6 +2091,7 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
                 "agent_response": agent_resp,
                 "latency_s": latency,
                 "cost_usd": case_cost,
+                "display_verdict": display_verdict,
             })
 
             # Accumulate full agent state for sidecar (only for non-error responses)
@@ -2023,8 +2114,11 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
         sheet_pass_rates[sheet_name] = pass_rate
         sheet_costs[sheet_name]      = sheet_total_cost
         sheet_tokens[sheet_name]     = sheet_agent_tokens
+        sheet_targets[sheet_name]    = (sheet_target_passed, sheet_target_total)
         all_results[sheet_name]      = case_results
-        print(f"  → Pass rate: {pass_rate * 100:.1f}%  |  agent: ${sheet_agent_cost:.4f}  judge: ${sheet_judge_cost:.4f}  total: ${sheet_total_cost:.4f}\n")
+        infra_note = f"  |  INFRA failures excluded: {sheet_infra_count}" if sheet_infra_count else ""
+        target_note = f"  |  target coverage: {sheet_target_passed}/{sheet_target_total}" if sheet_target_total else ""
+        print(f"  → Pass rate: {pass_rate * 100:.1f}%{target_note}{infra_note}  |  agent: ${sheet_agent_cost:.4f}  judge: ${sheet_judge_cost:.4f}  total: ${sheet_total_cost:.4f}\n")
 
         if cases_filter is not None and verdict_col is not None:
             # Overwrite mode: write directly into existing cells, build row index on the fly
@@ -2046,15 +2140,24 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
             _add_notes_column(ws)
             _apply_column_visibility(ws, tag)
 
-        # Incremental persistence
+        # Incremental persistence. pass/total counts cover regression-tier cases
+        # only (targets and infra report separately).
         pass_count  = sum(1 for r in case_results
-                          if not r.get("skipped") and r.get("result", {}).get("verdict") == "pass")
-        total_count = sum(1 for r in case_results if not r.get("skipped"))
+                          if not r.get("skipped") and not r.get("display_verdict")
+                          and r.get("result", {}).get("verdict") == "pass")
+        total_count = sum(1 for r in case_results
+                          if not r.get("skipped") and not r.get("display_verdict"))
         wb.save(TEST_CASES_FILE)
 
         if cases_filter is None:
+            notes_parts = []
+            if sheet_target_total:
+                notes_parts.append(f"target={sheet_target_passed}/{sheet_target_total}")
+            if sheet_infra_count:
+                notes_parts.append(f"infra_failures={sheet_infra_count}")
             _write_run_history_row(rh_ws, run_id, tag, desc, sheet_name,
-                                   pass_rate, sheet_total_cost, sheet_agent_tokens, calibrate)
+                                   pass_rate, sheet_total_cost, sheet_agent_tokens, calibrate,
+                                   notes=" ".join(notes_parts))
             _save_sidecar(tag, run_responses)
             print(f"[{sheet_name}] Complete: {pass_count}/{total_count} passed ({pass_rate * 100:.1f}%) — saved to Run History")
         elif verdict_col is not None:
@@ -2068,8 +2171,15 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
         overall_pass   = sum(overall_scores) / len(overall_scores) if overall_scores else 0.0
         overall_tokens = sum(sheet_tokens.values())
         overall_cost   = sum(sheet_costs.values())
+        overall_target_passed = sum(p for p, _ in sheet_targets.values())
+        overall_target_total  = sum(t for _, t in sheet_targets.values())
         _write_run_history_row(rh_ws, run_id, tag, desc, "OVERALL",
-                               overall_pass, overall_cost, overall_tokens, calibrate)
+                               overall_pass, overall_cost, overall_tokens, calibrate,
+                               notes=(f"target={overall_target_passed}/{overall_target_total}"
+                                      if overall_target_total else ""))
+        if overall_target_total:
+            print(f"\nTarget coverage (aspirational cases, excluded from pass rates): "
+                  f"{overall_target_passed}/{overall_target_total}")
 
         # 6. Rebuild Analysis sheet, apply formatting, then save
         _reformat_workbook(wb)
@@ -2156,7 +2266,18 @@ def main():
              "Results overwrite the existing column for --tag; no new column is created "
              "and Run History is not updated.",
     )
+    parser.add_argument(
+        "--output-guard", choices=["on", "off"], default="off",
+        help="Whether full-agent runs execute the real output-guard LLM. "
+             "'off' (default) bypasses the guard so agent behavior is measured in "
+             "isolation; 'on' runs the real guard end-to-end (needed to measure guard "
+             "blocking and Option-2 handoff detection). The Output Guard sheet's "
+             "dedicated test mode always runs the real guard regardless of this flag.",
+    )
     args = parser.parse_args()
+
+    global OUTPUT_GUARD_MODE
+    OUTPUT_GUARD_MODE = args.output_guard
 
     # --reformat mode: apply all formatting without running evals
     if args.reformat:

@@ -52,6 +52,26 @@ Priority: after baseline eval run. Measure current performance first, then compa
 
 ---
 
+## Performance (deferred 2026-09-01)
+
+Jad's call: performance is not a priority now. Already shipped as behavior-neutral groundwork: parallel input-guard + classifier, cache breakpoints on the intent and input-guard prompts, 30s timeouts on guard calls, and separate `LITELLM_CLASSIFIER_MODEL` / `LITELLM_GUARD_MODEL` config knobs (all still Sonnet). Remaining, in rough order of value:
+
+### 16. Restructure prompts so their static bodies can cache (prompt-owner task)
+`response_prompt`, `loop_decision_prompt`, and `output_guard_prompt` put dynamic content ({context_section} / the five guard placeholders) near the TOP, so their big static bodies (~4.6k / ~1.1k / ~2.5k tokens) render after per-turn content and can never be a cacheable prefix. Moving the dynamic sections to the END of each prompt unlocks caching for ~8k tokens/turn — cache reads bill ~0.1× and do not count toward the Tier-1 30k input-tokens/min limit (roughly 6-10 customer messages/min instead of 2-3). Behavior may shift slightly (content position affects attention) — re-run affected sheets after.
+
+### 17. Haiku tiering for guard + classifier calls
+Flip `LITELLM_CLASSIFIER_MODEL` and `LITELLM_GUARD_MODEL` to Haiku after an eval baseline validates it (regression thresholds per the Future-ideas bullet below: 2% on injection detection, 3% on any intent category). Moves 3 of 4 per-turn calls to Haiku's separate 50k tokens/min bucket and cuts per-turn cost roughly in half. Note: Haiku 4.5's minimum cacheable prefix is 4,096 tokens, so the ~3.4k intent prompt won't cache on Haiku — the 3× cheaper model still wins.
+
+### 18. Real streaming / TTFT decision
+Streaming is fake today (`chat.py` splits the finished response on spaces) because the output guard must see the full response before release — TTFT equals the whole pipeline. Options: accept and document; or tier/parallelize enough that the pipeline is fast; or stream-and-retract (changes the safety story — probably not worth it). Decide deliberately when performance work starts.
+
+### 19. Verify caching + upgrade API tier when concurrency arrives
+On the next real run, confirm `cache_read_input_tokens > 0` in LLM response usage (LangSmith shows it) — zero means a silent prefix invalidator. When more than ~1 concurrent user matters, an API tier upgrade is the cheapest lever; update `.claude/rules/api-rate-limits.md` when the tier changes.
+
+**Eval action for 16/17:** full-sheet re-runs before/after each (they change what the LLMs see); 18/19 are infra-only.
+
+---
+
 ## Implementation notes
 
 - Item 7 is a manual testing task, not a code change
@@ -68,7 +88,7 @@ Priority: after baseline eval run. Measure current performance first, then compa
 
 - **Chat history context engineering:** the full conversation history is currently passed to every LLM call. For long conversations this inflates context unnecessarily. Options to explore: sliding window (last N turns only), summarisation (compress older turns into a running summary), or role-filtered history (strip agent reasoning turns, keep only customer messages + final responses). Should be measured against the Context Retention eval sheet — any approach that drops score there is a regression.
 
-- **Parallel guardrail execution:** The input guard and intent classification currently run in series — the customer waits for both LLM calls sequentially. Since they're independent (the guard checks the raw message, the classifier reads the same message), they can run concurrently with asyncio.gather() and the guard result checked first. If the guard blocks, discard the classification result. This cuts ~200-500ms off every message. Evaluate when latency becomes noticeable during demos or when the cheaper guard model (LITELLM_GUARD_MODEL) is in place, since the savings are most impactful when both calls hit an external API.
+- **Parallel guardrail execution:** DONE 2026-09-01 — input guard and intent classifier now run concurrently via asyncio.gather() in `conversation_agent_node`; the classification result is discarded when the guard blocks.
 
 - **Output guard KB gap on action turns:** The output guard receives KB content only when the knowledge service ran that turn. On action-only turns (tool call → response, no KB lookup), kb_content is "(none)" and the guard cannot verify policy claims against KB. This is the highest-risk scenario — agent adds policy commentary ("refunds take 5-10 business days") alongside real tool results, and the guard is blind to whether that commentary is accurate. Multi-step loop partially mitigates this when the agent chains action → KB, but not when the agent responds directly after a clean tool success. Fix options: (1) always run a lightweight KB lookup on action turns to populate the guard's context, (2) embed key policy facts in tool return values so the guard can verify against tool results alone. Evaluate after baseline.
 

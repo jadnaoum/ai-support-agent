@@ -1,5 +1,12 @@
 # Tech Debt
 
+## ~~run_graceful_failure should read mock_account_state~~ RESOLVED 2026-09-01
+
+The runner now reads `mock_account_state` (evals/run_evals.py `run_graceful_failure`), the
+Graceful Failure sheet has a `mock_account_state` column, GF-002 carries
+`{"mock_handoff_intent": true}`, and its judge_rubric includes the structural
+escalation check (same IMPORTANT pattern as ES cases). Original entry kept below for context.
+
 ## run_graceful_failure should read mock_account_state
 
 **Filed:** 2026-04-19

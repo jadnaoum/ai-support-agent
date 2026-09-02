@@ -8,7 +8,7 @@ import { useRef } from 'react'
 export function useSSE() {
   const esRef = useRef(null)
 
-  function connect(conversationId, { onToken, onDone, onError }) {
+  function connect(conversationId, { onToken, onDone, onError, onEscalated }) {
     // Close any existing connection
     esRef.current?.close()
 
@@ -17,6 +17,10 @@ export function useSSE() {
 
     es.addEventListener('token', (e) => {
       onToken(e.data)
+    })
+
+    es.addEventListener('escalated', () => {
+      onEscalated?.()
     })
 
     es.addEventListener('done', () => {

@@ -240,10 +240,14 @@ async def _hybrid_search(db: AsyncSession, state: AgentState, query: str) -> dic
 
 
 def _error_result(state: AgentState, query: str, e: Exception) -> dict:
+    # unhandled_error=True routes pass 2 straight to escalation (same contract as
+    # action_service failures) — without it, a KB infrastructure failure would let
+    # the agent improvise from incomplete data, and could bury a requires_escalation
+    # flag from an earlier action result under this plain failure dict.
     return {
         "retrieved_context": [],
         "action_results": (state.get("action_results") or []) + [
-            {"success": False, "error": f"Knowledge search failed: {str(e)}"}
+            {"success": False, "error": f"Knowledge search failed: {str(e)}", "unhandled_error": True}
         ],
         "pending_service": "",
         "actions_taken": (state.get("actions_taken") or []) + [

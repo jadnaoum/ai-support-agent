@@ -13,14 +13,19 @@ context keys used by the default implementation:
     actions_taken:   list[dict] — action history for the context summary
     retrieved_context: list[dict] — KB chunks for the context summary
 """
+import logging
 import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.models import Escalation, Conversation
 
+logger = logging.getLogger(__name__)
+
 # All reason codes that may be passed to run_escalation_side_effects().
-# Every call site must pass a value from this set.
+# Every call site must pass a value from this set — enforced with a logged
+# warning (not a raise) in run_escalation_side_effects, so a drifting label
+# is visible in logs without dropping the escalation itself.
 #
 # Distinct from tools/constants.py::ESCALATION_REASONS, which is a tool-layer
 # gate: the set of customer-provided *input* reasons that trigger tool-level
@@ -30,15 +35,18 @@ ESCALATION_TRIGGER_REASONS: frozenset = frozenset({
     # Tool-signalled: tool returned requires_escalation=True
     "defective",              # defective/damaged item claim
     "duplicate_item",         # duplicate order claim
+    "carrier_claim_eligible", # missing package eligible for a carrier claim
     # Output guard failure paths
-    "output_guard_block",     # guard failed with a named failure type
+    "output_guard_block",     # guard failed — specific failure_type is in the
+                              #   context summary and the output_guard audit log
     "guard_error",            # guard LLM/parse error (fails closed)
     # Infrastructure failure
-    "unhandled_error",        # tool or service raised an unexpected error
+    "unhandled_error",        # tool/service error, or repeated system failures (chat.py)
     # Intent-classifier-triggered
-    "unable_to_clarify",      # repeated guard blocks or clarification cap hit
+    "unable_to_clarify",      # clarification cap hit or clarification blocked
     "customer_requested",     # classifier returned escalation_request intent
     "abusive_input",          # input guard flagged abusive language
+    "repeated_blocks",        # 3 consecutive input-guard blocks
     # Output-guard handoff detection (Option 2)
     "llm_escalation_intent",  # agent wrote handoff language on knowledge_query path
 })
@@ -121,6 +129,15 @@ async def run_escalation_side_effects(reason: str, context: dict) -> str:
     conversation_id: str = context.get("conversation_id", "")
     confidence: float = context.get("confidence", 0.0)
     messages: list = context.get("messages") or []
+
+    # Vocabulary enforcement: the reason column is what human triage and the
+    # admin dashboard filter by. An off-list value is stored as-is (never drop
+    # data silently) but logged loudly so the drift is fixed at the call site.
+    if reason not in ESCALATION_TRIGGER_REASONS:
+        logger.warning(
+            "Escalation reason %r is not in ESCALATION_TRIGGER_REASONS — "
+            "add it to the set or fix the call site", reason,
+        )
 
     context_summary = context.get("context_summary") or build_context_summary(messages)
 

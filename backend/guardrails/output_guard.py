@@ -106,6 +106,7 @@ async def check_output(
     response: str,
     state: AgentState,
     *,
+    bypass: bool = False,
     mock_handoff_intent: bool = False,
 ) -> dict:
     """
@@ -119,16 +120,25 @@ async def check_output(
             handoff_intent is not included on the fail path — guard failure is
             handled via _do_escalate() in conversation.py.
 
-    mock_handoff_intent (keyword-only):
-        Only honoured in test mode (APP_ENV=test). When True, the returned dict
-        includes handoff_intent=True, exercising the downstream path in
-        conversation.py without making a real LLM call. Defaults to False so
-        existing eval cases that don't set this flag are unaffected.
+    bypass (keyword-only):
+        Skip the guard LLM call and return safe=True. Only settable via the
+        eval endpoint's disable_output_guard flag (chat.py test mode) — the
+        production stream path never sets it, so the guard always runs live.
+        Replaces the old APP_ENV=test short-circuit, which made the guard
+        untestable through the eval harness.
 
-    Fails closed on any LLM error or parse failure in non-test environments.
+    mock_handoff_intent (keyword-only):
+        Only honoured when bypassing in test mode (APP_ENV=test). When True,
+        the returned dict includes handoff_intent=True, exercising the
+        downstream path in conversation.py without a real LLM call.
+
+    Fails closed on any LLM error or parse failure.
     """
-    if settings.app_env == "test":
-        return {"safe": True, "handoff_intent": mock_handoff_intent}
+    if bypass:
+        return {
+            "safe": True,
+            "handoff_intent": mock_handoff_intent and settings.app_env == "test",
+        }
 
     prompt = _build_guard_context(response, state)
     try:
@@ -136,6 +146,7 @@ async def check_output(
             model=settings.litellm_guard_model,
             messages=[{"role": "user", "content": prompt}],
             stream=False,
+            request_timeout=30,
         )
         raw = result.choices[0].message.content.strip()
         if raw.startswith("```"):

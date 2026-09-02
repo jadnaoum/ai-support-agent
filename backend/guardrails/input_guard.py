@@ -11,13 +11,16 @@ Returns a dict:
   {"safe": True}
   {"safe": False, "reason": str, "blocked_response": str}
 """
-import json
+import logging
 import re
 import uuid
 import litellm
 
 from backend.config import get_settings
+from backend.llm_json import extract_json_object
 from prompts.loader import get_prompt
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
@@ -92,19 +95,27 @@ async def check_input(message: str) -> dict:
     # Stage 2: LLM classification
     try:
         result = await litellm.acompletion(
-            model=settings.litellm_model,
+            model=settings.litellm_guard_model,
             messages=[
-                {"role": "system", "content": INPUT_GUARD_PROMPT},
+                # Static prompt block carries a cache breakpoint — identical on
+                # every call, so repeat turns read it from the prompt cache.
+                {"role": "system", "content": [
+                    {"type": "text", "text": INPUT_GUARD_PROMPT, "cache_control": {"type": "ephemeral"}},
+                ]},
                 {"role": "user", "content": message},
             ],
             stream=False,
+            request_timeout=30,
         )
         raw = result.choices[0].message.content.strip()
-        parsed = json.loads(raw)
+        parsed = extract_json_object(raw, caller="input_guard")
         category = parsed.get("category", "safe")
         emotion = parsed.get("emotion", "") if category == "safe" else ""
-    except Exception:
-        # On any failure, fail open — let the message through
+    except Exception as e:
+        # On any failure, fail open — let the message through. Deliberate
+        # polarity (a broken guard shouldn't lock customers out), but never
+        # silent: a rising rate of these lines means the guard is effectively off.
+        logger.warning("input_guard failing open (%s)", type(e).__name__)
         return {"safe": True}
 
     if category == "safe":

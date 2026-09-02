@@ -87,9 +87,16 @@ def _add_item(order, product):
     )
 
 
-def _confirmed(tool_name: str, order_id: str) -> list:
-    """Return an actions_taken list that satisfies the confirmation gate for one call."""
-    return [{"action": tool_name, "order_id": order_id, "confirmation_required": True}]
+def _confirmed(tool_name: str, order_id: str, reason: str = None) -> list:
+    """Return an actions_taken list that satisfies the confirmation gate for one call.
+
+    Entries without a recorded reason match any reason (backward compat);
+    pass reason to exercise the reason-bound match.
+    """
+    entry = {"action": tool_name, "order_id": order_id, "confirmation_required": True}
+    if reason is not None:
+        entry["params"] = {"reason": reason}
+    return [entry]
 
 
 @pytest.fixture
@@ -469,6 +476,40 @@ async def test_initiate_return_succeeds_with_prior_confirmation(db, customer, de
     assert result["return_label"].startswith("RETURN-")
     assert result["order_id"] == delivered_order.id
     assert "refund_id" in result
+
+
+async def test_initiate_return_reason_switch_requires_fresh_confirmation(db, customer, delivered_order):
+    """The gate binds the confirmed reason — a different reason on the second
+    call must re-trigger confirmation, not execute what the customer never saw."""
+    result = await initiate_return(
+        db, customer_id=customer.id, order_id=delivered_order.id,
+        reason="wrong_size",
+        actions_taken=_confirmed("initiate_return", delivered_order.id, reason="changed_mind"),
+    )
+    assert result["success"] is False
+    assert result.get("reason") == "confirmation_required"
+    assert result["details"]["reason"] == "wrong_size"
+
+
+async def test_initiate_return_same_reason_passes_bound_confirmation(db, customer, delivered_order):
+    result = await initiate_return(
+        db, customer_id=customer.id, order_id=delivered_order.id,
+        reason="changed_mind",
+        actions_taken=_confirmed("initiate_return", delivered_order.id, reason="changed_mind"),
+    )
+    assert result["success"] is True
+
+
+def test_has_prior_confirmation_normalizes_reason_synonyms():
+    """A confirmation recorded for 'broken' matches an execution with 'damaged' —
+    both normalize to 'defective' through _REASON_MAP."""
+    from backend.tools.order_tools import _has_prior_confirmation
+    actions = [{
+        "action": "initiate_return", "order_id": "o1",
+        "confirmation_required": True, "params": {"reason": "broken"},
+    }]
+    assert _has_prior_confirmation(actions, "initiate_return", "o1", "damaged") is True
+    assert _has_prior_confirmation(actions, "initiate_return", "o1", "changed_mind") is False
 
 
 async def test_initiate_return_flips_status_to_return_in_progress(db, customer, delivered_order):

@@ -8,6 +8,7 @@ Two-pass design:
           (if the result signals more may be needed and the call limit allows),
           then generate the customer-facing response.
 """
+import asyncio
 import json
 import logging
 import litellm
@@ -21,6 +22,7 @@ from backend.agents.state import AgentState
 from backend.agents.escalation import handle_escalation, build_context_summary, run_escalation_side_effects
 from backend.guardrails.input_guard import check_input, log_blocked_attempt
 from backend.guardrails.output_guard import check_output, log_output_guard_blocked
+from backend.llm_json import extract_json_object
 from prompts.loader import get_prompt
 
 settings = get_settings()
@@ -68,54 +70,30 @@ async def _classify_intent(state: AgentState, config: dict = None) -> tuple[str,
             for m in state["messages"][-10:]
             if m["role"] in role_map
         ]
-        system_prompt = INTENT_PROMPT
+        # Static prompt block carries a cache breakpoint: the intent prompt is
+        # identical on every call, so repeat turns read it from the prompt cache
+        # (cache reads bill ~0.1x and don't count toward input-token rate limits).
+        # The debug suffix goes in a separate block AFTER the breakpoint so
+        # enabling it doesn't invalidate the cached prefix.
+        system_blocks = [
+            {"type": "text", "text": INTENT_PROMPT, "cache_control": {"type": "ephemeral"}},
+        ]
         if debug:
-            system_prompt += "\nInclude a 'reasoning' field explaining your classification in 1-2 sentences."
+            system_blocks.append({
+                "type": "text",
+                "text": "\nInclude a 'reasoning' field explaining your classification in 1-2 sentences.",
+            })
         result = await litellm.acompletion(
-            model=settings.litellm_model,
+            model=settings.litellm_classifier_model,
             messages=[
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": system_blocks},
                 *history_turns,
             ],
             stream=False,
             request_timeout=LLM_TIMEOUT,
         )
         raw = result.choices[0].message.content.strip()
-        # Strip markdown code fences if the LLM wraps the JSON
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        # Extract JSON from anywhere in the response — handles reasoning preambles
-        start = raw.find("{")
-        end = raw.rfind("}")
-        if start != -1 and end != -1:
-            raw = raw[start:end + 1]
-        try:
-            parsed = json.loads(raw.strip())
-        except Exception:
-            # Multiple JSON blocks (model self-correction): depth-count from first `{`
-            # to find the matching `}` and use only the first complete object.
-            first_start = raw.find("{")
-            if first_start != -1:
-                depth = 0
-                first_end = -1
-                for i, ch in enumerate(raw[first_start:], start=first_start):
-                    if ch == "{":
-                        depth += 1
-                    elif ch == "}":
-                        depth -= 1
-                        if depth == 0:
-                            first_end = i
-                            break
-                if first_end != -1:
-                    first_block = raw[first_start:first_end + 1]
-                    parsed = json.loads(first_block)
-                    logger.info("_classify_intent recovered first JSON block after parse failure")
-                else:
-                    raise
-            else:
-                raise
+        parsed = extract_json_object(raw, caller="_classify_intent")
         intent = parsed.get("intent", "general")
         confidence = float(parsed.get("confidence", 0.8))
         action_details = {}
@@ -227,6 +205,15 @@ def _service_needs_loop(state: AgentState) -> bool:
         return False
 
     last = action_results[-1]
+
+    # Structural terminal: a pending confirmation must reach the customer this
+    # turn. Without this, the loop-decision LLM could re-invoke the same write
+    # tool in the same turn — the gate would see its own confirmation entry in
+    # actions_taken and execute without the customer ever seeing the question.
+    # This preserves the documented 2-turn minimum on every state change.
+    if last.get("confirmation_required"):
+        return False
+
     return (
         not last.get("success", True)
         or bool(last.get("available_action"))
@@ -245,9 +232,10 @@ async def _classify_next_step(state: AgentState) -> dict:
         (m["content"] for m in reversed(state["messages"]) if m["role"] == "customer"),
         "",
     )
+    raw = ""
     try:
         result = await litellm.acompletion(
-            model=settings.litellm_model,
+            model=settings.litellm_classifier_model,
             messages=[
                 {"role": "system", "content": LOOP_DECISION_PROMPT.replace("{context_section}", context_section)},
                 {"role": "user", "content": last_message},
@@ -256,22 +244,33 @@ async def _classify_next_step(state: AgentState) -> dict:
             request_timeout=LLM_TIMEOUT,
         )
         raw = result.choices[0].message.content.strip()
-        # Strip markdown code fences if the LLM wraps the JSON
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        return json.loads(raw.strip())
-    except Exception:
+        return extract_json_object(raw, caller="_classify_next_step")
+    except Exception as e:
+        # Falling back to "respond" is fail-safe (the agent answers from the
+        # results it already has) but must never be silent — a quiet collapse
+        # here degrades multi-step turns with no trace.
+        logger.warning("_classify_next_step fallback to respond (%s): raw=%r", type(e).__name__, raw[:500])
         return {"next": "respond"}
 
 
-async def _do_escalate(reason: str, state: AgentState, config: dict) -> dict:
+async def _do_escalate(
+    reason: str,
+    state: AgentState,
+    config: dict,
+    confidence: "float | None" = None,
+    detail: str = "",
+) -> dict:
     """
     Call the escalation handler inline and return the full state update.
 
     Callers may spread extra fields (e.g. confidence, consecutive_blocks) over
     the returned dict to supply turn-specific values.
+
+    confidence: value stored in the Escalation row. Pass it explicitly on
+        pass-1 paths — the classifier's confidence is a local there, and
+        state still holds the initial 0.0 when the row is written.
+    detail: sub-reason appended to the context summary's reason line (e.g. the
+        output guard's specific failure_type behind "output_guard_block").
     """
     _db = config.get("configurable", {}).get("db")
     _conv_id = config.get("configurable", {}).get("conversation_id", "")
@@ -279,12 +278,12 @@ async def _do_escalate(reason: str, state: AgentState, config: dict) -> dict:
         messages=state.get("messages") or [],
         actions_taken=state.get("actions_taken") or [],
         retrieved_context=state.get("retrieved_context") or [],
-        reason=reason,
+        reason=f"{reason} ({detail})" if detail else reason,
     )
     context = {
         "db": _db,
         "conversation_id": _conv_id,
-        "confidence": state.get("confidence", 0.0),
+        "confidence": confidence if confidence is not None else state.get("confidence", 0.0),
         "messages": state.get("messages") or [],
         "context_summary": summary,
     }
@@ -316,14 +315,25 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
     # because those can be empty lists even after a service ran (e.g. no KB chunks found).
     service_ran = bool(state.get("actions_taken"))
 
+    # Output-guard bypass — only the eval endpoint can set disable_output_guard
+    # (chat.py test mode); the production stream path never does, so the guard
+    # always runs live for real customers.
+    _guard_bypass = bool(config.get("configurable", {}).get("disable_output_guard"))
+
     # Pass 1: intent classification
     if not service_ran:
-        # --- Input guard ---
         last_message = next(
             (m["content"] for m in reversed(state["messages"]) if m["role"] == "customer"),
             "",
         )
-        guard = await check_input(last_message)
+        # Input guard and intent classification are independent — run them
+        # concurrently to cut turn latency by one full LLM round trip. When the
+        # guard blocks, the classification result is discarded (a wasted call on
+        # the rare blocked message, a saved round trip on every normal one).
+        guard, classified = await asyncio.gather(
+            check_input(last_message),
+            _classify_intent(state, config),
+        )
         if not guard["safe"]:
             # Persist audit log for blocked attempts (skip in test mode where conversation_id is "")
             _db = config.get("configurable", {}).get("db")
@@ -333,9 +343,10 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 await _db.commit()
 
             # Abusive → immediate escalation, bypasses the block counter entirely
+            # (confidence 1.0 — the trigger is a deterministic guard verdict)
             if guard.get("reason") == "abusive":
                 return {
-                    **await _do_escalate("abusive_input", state, config),
+                    **await _do_escalate("abusive_input", state, config, confidence=1.0),
                     "confidence": 1.0,
                     "consecutive_blocks": state.get("consecutive_blocks", 0),
                     "service_call_count": 0,
@@ -346,7 +357,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             # 3rd consecutive block → escalate to human
             if new_blocks >= 3:
                 return {
-                    **await _do_escalate("repeated_blocks", state, config),
+                    **await _do_escalate("repeated_blocks", state, config, confidence=1.0),
                     "confidence": 1.0,
                     "consecutive_blocks": new_blocks,
                     "service_call_count": 0,
@@ -365,7 +376,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
 
         # Message passed the guard — reset the consecutive block counter
         emotion = guard.get("emotion", "")
-        intent, confidence, action_details, classifier_reasoning = await _classify_intent(state, config)
+        intent, confidence, action_details, classifier_reasoning = classified
 
         # --- Emotion path ---
         # High negative emotion + unclear intent + no clarifying question asked yet this
@@ -382,7 +393,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 "Could you tell me more about what happened?",
             )
             question = await _generate_emotion_clarification(state, clarification_hint)
-            out_guard = await check_output(question, state)
+            out_guard = await check_output(question, state, bypass=_guard_bypass)
             if out_guard["safe"]:
                 return {
                     "response": question,
@@ -399,7 +410,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 await log_output_guard_blocked(_db, _conv_id, question, out_guard["reason"])
                 await _db.commit()
             return {
-                **await _do_escalate("unable_to_clarify", state, config),
+                **await _do_escalate("unable_to_clarify", state, config, confidence=confidence),
                 "confidence": confidence,
                 "inferred_intent": intent,
                 "consecutive_blocks": 0,
@@ -431,7 +442,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
 
         if intent == "escalation_request":
             return {
-                **await _do_escalate("customer_requested", state, config),
+                **await _do_escalate("customer_requested", state, config, confidence=confidence),
                 "confidence": confidence,
                 "inferred_intent": intent,
                 "consecutive_blocks": 0,
@@ -443,7 +454,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             # escalate instead of asking again.
             if state.get("last_clarification_source", ""):
                 return {
-                    **await _do_escalate("unable_to_clarify", state, config),
+                    **await _do_escalate("unable_to_clarify", state, config, confidence=confidence),
                     "confidence": confidence,
                     "inferred_intent": intent,
                     "consecutive_blocks": 0,
@@ -453,7 +464,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 "clarification_prompt",
                 "Could you provide a bit more detail so I can help you?",
             )
-            out_guard = await check_output(clarification_question, state)
+            out_guard = await check_output(clarification_question, state, bypass=_guard_bypass)
             if out_guard["safe"]:
                 return {
                     "response": clarification_question,
@@ -472,7 +483,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 await log_output_guard_blocked(_db, _conv_id, clarification_question, out_guard["reason"])
                 await _db.commit()
             return {
-                **await _do_escalate("unable_to_clarify", state, config),
+                **await _do_escalate("unable_to_clarify", state, config, confidence=confidence),
                 "inferred_intent": intent,
                 "confidence": confidence,
                 "consecutive_blocks": 0,
@@ -481,15 +492,22 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
 
         # general — answer directly without a service call
         response = await _generate_response(state)
-        out_guard = await check_output(response, state)
+        out_guard = await check_output(response, state, bypass=_guard_bypass)
         if not out_guard["safe"]:
             _db = config.get("configurable", {}).get("db")
             _conv_id = config.get("configurable", {}).get("conversation_id", "")
             if _db and _conv_id:
                 await log_output_guard_blocked(_db, _conv_id, response, out_guard["reason"])
                 await _db.commit()
+            # Canonical reason for triage/dashboards; the specific failure type
+            # (unsupported_claim, hallucinated_id, ...) is preserved in the
+            # context summary and the output_guard audit log entry.
+            _reason, _detail = (
+                ("guard_error", "") if out_guard["reason"] == "guard_error"
+                else ("output_guard_block", out_guard["reason"])
+            )
             return {
-                **await _do_escalate(out_guard["reason"], state, config),
+                **await _do_escalate(_reason, state, config, confidence=confidence, detail=_detail),
                 "confidence": confidence,
                 "inferred_intent": intent,
                 "consecutive_blocks": 0,
@@ -509,7 +527,9 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
     retrieved = state.get("retrieved_context") or []
     # Minimal floor: below 0.15 indicates no meaningful match.
     # Pass empty context to the LLM rather than irrelevant chunks.
-    if retrieved and retrieved[0]["similarity"] < 0.15:
+    # Hybrid search sets similarity=None for keyword-only chunks — those matched
+    # exact terms, so they are kept (and `None < 0.15` would raise on Py3.9).
+    if retrieved and retrieved[0].get("similarity") is not None and retrieved[0]["similarity"] < 0.15:
         retrieved = []
 
     # Unhandled action errors (DB failures, timeouts, unexpected exceptions) — escalate
@@ -520,7 +540,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
     if action_results and action_results[-1].get("unhandled_error"):
         return {
             **await _do_escalate("unhandled_error", state, config),
-            "confidence": 0.85,
+            "confidence": state.get("confidence", 0.0),
         }
 
     # Structural check: if the last action result carries check_kb: True and KB hasn't been
@@ -569,6 +589,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
     out_guard = await check_output(
         response,
         {**state, "retrieved_context": retrieved},
+        bypass=_guard_bypass,
         mock_handoff_intent=_mock_handoff,
     )
     if not out_guard["safe"]:
@@ -577,15 +598,16 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
         if _db and _conv_id:
             await log_output_guard_blocked(_db, _conv_id, response, out_guard["reason"])
             await _db.commit()
+        # Canonical reason for triage/dashboards; specific failure type kept as
+        # detail (see the matching pass-1 site).
+        _reason, _detail = (
+            ("guard_error", "") if out_guard["reason"] == "guard_error"
+            else ("output_guard_block", out_guard["reason"])
+        )
         return {
-            **await _do_escalate(out_guard["reason"], state, config),
-            "confidence": 0.85,
+            **await _do_escalate(_reason, state, config, detail=_detail),
+            "confidence": state.get("confidence", 0.0),
         }
-
-    # Idempotency flag: prevents run_escalation_side_effects from being called
-    # twice in one turn if both the output-guard handoff path and the
-    # tool-signalled path match (e.g. defective item + agent writes handoff language).
-    _escalation_fired = False
 
     # Output-guard handoff detection: guard passed AND detected the agent is
     # handing the conversation off to a human. Keep the rich LLM response —
@@ -609,13 +631,12 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             "messages": state.get("messages") or [],
             "context_summary": summary,
         })
-        _escalation_fired = True
         return {
             "response": response,
             "requires_escalation": True,
             "escalation_reason": esc_reason,
             "context_summary": summary,
-            "confidence": 0.85,
+            "confidence": state.get("confidence", 0.0),
             "pending_service": "",
             "last_clarification_source": "",
             "actions_taken": (state.get("actions_taken") or []) + [
@@ -623,14 +644,23 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             ],
         }
 
-    # Tool-signalled escalation: the last action result carries requires_escalation=True
-    # (e.g. defective/damaged item claims). The LLM has already generated a KB-rich
-    # response with policy details and handoff language — keep that response and fire
-    # the backend side effects (DB record, conversation status) separately.
-    # Other escalation paths (abusive input, output guard, repeated failures, customer
-    # request) use _do_escalate() directly above and never reach this point.
-    if action_results and action_results[-1].get("requires_escalation") and not _escalation_fired:
-        esc_reason = action_results[-1].get("reason") or "defective_item"
+    # Tool-signalled escalation: any action result this turn carries
+    # requires_escalation=True (e.g. defective/damaged item claims). Scanning the
+    # whole turn — not just the last result — so a later hop (KB follow-up, loop
+    # re-invocation, KB failure) cannot bury the flag and silently drop a
+    # designed-as-structural escalation. The LLM has already generated a KB-rich
+    # response with policy details and handoff language — keep that response and
+    # fire the backend side effects (DB record, conversation status) separately.
+    # Other escalation paths (abusive input, output guard, repeated failures,
+    # customer request) use _do_escalate() directly above and never reach this
+    # point; the handoff-detection branch above returns, so this cannot double-fire.
+    esc_entry = next(
+        (r for r in reversed(action_results)
+         if isinstance(r, dict) and r.get("requires_escalation")),
+        None,
+    )
+    if esc_entry is not None:
+        esc_reason = esc_entry.get("reason") or "defective"
         _db = config.get("configurable", {}).get("db")
         _conv_id = config.get("configurable", {}).get("conversation_id", "")
         summary = build_context_summary(
@@ -651,7 +681,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             "requires_escalation": True,
             "escalation_reason": esc_reason,
             "context_summary": summary,
-            "confidence": 0.85,
+            "confidence": state.get("confidence", 0.0),
             "pending_service": "",
             "last_clarification_source": "",
             "actions_taken": (state.get("actions_taken") or []) + [
@@ -661,7 +691,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
 
     return {
         "response": response,
-        "confidence": 0.85,
+        "confidence": state.get("confidence", 0.0),
         "pending_service": "",
         "last_clarification_source": "",
     }
