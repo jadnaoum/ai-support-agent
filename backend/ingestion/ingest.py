@@ -117,6 +117,19 @@ async def ingest_all() -> None:
     total_chunks = 0
 
     async with AsyncSessionLocal() as db:
+        # Remove documents whose source files no longer exist. ingest_file only
+        # replaces per-filename, so without this a deleted KB file's old content
+        # stays embedded and retrievable forever (this is how a stale faq.md
+        # contaminated eval retrieval for months).
+        current_files = {p.name for p in md_files}
+        result = await db.execute(select(KBDocument))
+        for doc in result.scalars().all():
+            if doc.filename not in current_files:
+                print(f"  Removing orphaned document '{doc.title}' ({doc.filename}) — source file no longer exists")
+                await db.execute(delete(KBChunk).where(KBChunk.document_id == doc.id))
+                await db.delete(doc)
+        await db.flush()
+
         for path in md_files:
             file_start = time.time()
             n = await ingest_file(db, path)

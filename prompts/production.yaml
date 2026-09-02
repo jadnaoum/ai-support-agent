@@ -102,7 +102,8 @@ intent_prompt: |
     Purpose: Start the return process for a delivered order. Refund is
     processed automatically once the return is received and inspected.
     Customer signal: Requesting to return an item. The customer wants to send it
-    back, not just ask about the possibility.
+    back, not just ask about the possibility. Includes receiving a duplicate or
+    extra item they didn't order (reason: duplicate_item).
     Extract: order_id, reason (one of: {reason_enum}; null if not stated)
 
   check_missing_package
@@ -132,9 +133,8 @@ intent_prompt: |
 
   No matching tool: if no tool handles what the customer is asking
   about — changing an order, adding items, exchanging sizes, applying
-  a promo code, how a process works, reporting a fulfillment error or 
-  missing item, requesting compensation— classify as knowledge_query.
-  Do not force-fit a nearby tool.
+  a promo code, how a process works, requesting compensation — classify
+  as knowledge_query. Do not force-fit a nearby tool.
 
   Reason extraction: map the customer's stated reason to the closest value from
   this list: {reason_enum}. Use "other" only when none of the specific values

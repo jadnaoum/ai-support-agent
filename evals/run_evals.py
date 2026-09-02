@@ -166,16 +166,19 @@ def _parse_conversation(raw) -> list:
 
 
 def resolve_relative_dates(obj):
-    """Recursively resolve $EVAL_DATE-Xd placeholders in a parsed JSON object.
+    """Recursively resolve $EVAL_DATE-Xd / $EVAL_DATE+Xd placeholders in a
+    parsed JSON object.
 
-    Each placeholder is replaced with (date.today() - timedelta(days=X)).strftime("%Y-%m-%d").
+    $EVAL_DATE-3d → three days ago; $EVAL_DATE+3d → three days from now (for
+    plausible future ETAs on shipped orders); bare $EVAL_DATE-0d → today.
     Called on mock_account_state and mock_agent_state before injection into API calls.
     """
     if isinstance(obj, str):
-        match = re.fullmatch(r'\$EVAL_DATE-(\d+)d', obj)
+        match = re.fullmatch(r'\$EVAL_DATE([+-])(\d+)d', obj)
         if match:
-            days = int(match.group(1))
-            return (date.today() - timedelta(days=days)).strftime("%Y-%m-%d")
+            days = int(match.group(2))
+            delta = timedelta(days=days if match.group(1) == "+" else -days)
+            return (date.today() + delta).strftime("%Y-%m-%d")
         return obj
     elif isinstance(obj, dict):
         return {k: resolve_relative_dates(v) for k, v in obj.items()}
@@ -257,6 +260,55 @@ async def _fetch_kb_reference_content(titles: list) -> "str | None":
 # every run — see .claude/rules/eval-logging.md.
 OUTPUT_GUARD_MODE = "off"
 
+_KB_DIR = os.path.join(os.path.dirname(__file__), "..", "docs", "kb")
+_KB_CATEGORY = {
+    "returns_and_refunds.md": "returns", "shipping.md": "shipping",
+    "payments.md": "payments", "account_management.md": "account",
+    "warranties.md": "warranty", "business_limitations.md": "limitations",
+}
+
+
+def _resolve_kb_refs(mock_agent_state: dict) -> dict:
+    """Resolve kb_ref entries in mock_agent_state.retrieved_context to live KB text.
+
+    Fixture format:  {"kb_ref": {"file": "returns_and_refunds.md",
+                                 "heading": "<## section heading>"},
+                      "similarity": 0.85}
+    resolves at RUN TIME to {chunk_text, title, category, similarity} pulled from
+    docs/kb/<file> — so injected KB context can never drift from the real KB
+    (hand-pasted chunk text rotted silently for months; see the 2026-09 audit).
+    Raises with a clear message when the file/heading no longer exists, so a KB
+    restructure breaks the run loudly instead of grading against stale text.
+    Plain chunk entries (with chunk_text) pass through unchanged.
+    """
+    if not mock_agent_state or not mock_agent_state.get("retrieved_context"):
+        return mock_agent_state
+    resolved = []
+    for entry in mock_agent_state["retrieved_context"]:
+        ref = entry.get("kb_ref") if isinstance(entry, dict) else None
+        if not ref:
+            resolved.append(entry)
+            continue
+        path = os.path.join(_KB_DIR, ref["file"])
+        if not os.path.exists(path):
+            raise ValueError(f"kb_ref file not found: {ref['file']} — fix the fixture or the KB")
+        with open(path, encoding="utf-8") as fh:
+            content = fh.read()
+        m = re.search(rf"^## {re.escape(ref['heading'])}\s*\n(.*?)(?=^## |\Z)", content, re.S | re.M)
+        if not m:
+            raise ValueError(
+                f"kb_ref heading not found: {ref['file']} ## {ref['heading']} — "
+                "fix the fixture heading or update it after the KB restructure"
+            )
+        title_m = re.search(r"^# (.+)$", content, re.M)
+        resolved.append({
+            "chunk_text": " ".join(m.group(1).split()),
+            "title": title_m.group(1).strip() if title_m else ref["file"],
+            "category": _KB_CATEGORY.get(ref["file"], "general"),
+            "similarity": entry.get("similarity", 0.85),
+        })
+    return {**mock_agent_state, "retrieved_context": resolved}
+
 
 def _call_agent_full(messages: list, mock_context: dict, customer_id: str = None,
                      test_id: str = "", version_tag: str = "",
@@ -271,7 +323,7 @@ def _call_agent_full(messages: list, mock_context: dict, customer_id: str = None
         "disable_output_guard": OUTPUT_GUARD_MODE != "on",
     }
     if mock_agent_state:
-        payload["mock_agent_state"] = mock_agent_state
+        payload["mock_agent_state"] = _resolve_kb_refs(mock_agent_state)
     try:
         resp = requests.post(AGENT_TEST_ENDPOINT, json=payload, timeout=AGENT_TIMEOUT)
         resp.raise_for_status()
@@ -2040,6 +2092,12 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
                         judgment = {**judgment, "failure_reason": "agent_unreachable"}
                     else:
                         judgment = {**judgment, "failure_reason": "infra_error"}
+            elif (judgment.get("verdict") == "fail"
+                  and agent_resp.get("output_guard_failure_type") == "guard_error"):
+                # The guard LLM itself errored (fails closed) — that's guard-API
+                # flakiness, not a wrong guard judgment. Count as infra.
+                is_infra = True
+                judgment = {**judgment, "failure_reason": "guard_error_infra"}
 
             # Accumulate agent token estimates
             p_tok = agent_resp.get("prompt_tokens", 0)

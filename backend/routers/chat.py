@@ -416,6 +416,7 @@ class TestChatResponse(BaseModel):
     # Output guard test mode fields
     output_guard_verdict: str = ""   # "pass" or "block"
     output_guard_failure_type: str = ""
+    output_guard_handoff_intent: bool = False  # real guard's handoff detection (pass verdicts only)
     # Token usage estimates for cost tracking (agent-side LLM calls)
     # These are rough estimates (chars ÷ 4) since we can't hook into graph internals.
     prompt_tokens: int = 0
@@ -484,6 +485,7 @@ async def test_chat(
         return TestChatResponse(
             output_guard_verdict="pass" if guard_result.get("safe") else "block",
             output_guard_failure_type="none" if guard_result.get("safe") else guard_result.get("reason", "unknown"),
+            output_guard_handoff_intent=bool(guard_result.get("handoff_intent", False)),
         )
 
     # --- Full agent run mode ---
@@ -497,14 +499,17 @@ async def test_chat(
             last_customer_msg = msg.get("content", "")
             break
 
+    input_guard_blocked = False
+    input_guard_reason = ""
     if last_customer_msg:
         guard_result = await check_input(last_customer_msg)
         if not guard_result.get("safe"):
-            return TestChatResponse(
-                response=guard_result.get("blocked_response", ""),
-                input_guard_blocked=True,
-                input_guard_reason=guard_result.get("reason", ""),
-            )
+            # Report the block for the Input Guard judge, but still run the graph:
+            # production block handling (redirect generation, consecutive-block
+            # counting, 3rd-strike and abusive escalation) lives in the graph's
+            # pass 1, and the old early return made all of it untestable.
+            input_guard_blocked = True
+            input_guard_reason = guard_result.get("reason", "")
 
     mock_context = body.mock_context or {}
 
@@ -634,8 +639,8 @@ async def test_chat(
         escalation_reason=final_state.get("escalation_reason", ""),
         context_summary=final_state.get("context_summary", ""),
         classifier_reasoning=final_state.get("classifier_reasoning", ""),
-        input_guard_blocked=False,
-        input_guard_reason="",
+        input_guard_blocked=input_guard_blocked,
+        input_guard_reason=input_guard_reason,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
     )

@@ -52,6 +52,52 @@ Priority: after baseline eval run. Measure current performance first, then compa
 
 ---
 
+## Aspirational capabilities (paired with `target` evals, decided 2026-09-02)
+
+Each item pairs with a target-tier eval case (excluded from regression pass rates,
+reported as target coverage). When an item ships, flip its case(s) to `current`.
+
+### 20. check_cancel_eligibility: per-order results for ALL orders
+Today the no-order_id form returns only eligible orders. Ideal customer answer to
+"which orders can I cancel?" includes the ineligible ones with reasons
+(already_shipped, already_delivered + return hint). Tool change in `order_tools.py`
+(+ mock parity is automatic via the shared helper pattern).
+**Paired eval:** AE-037 (target). **On ship:** flip AE-037 to current; revisit
+AE-011/AE-031 rubrics to expect the richer result.
+
+### 21. Carrier-claim filing tool for stolen/missing packages
+Ideal: when the customer already has a police report number, the agent files the
+carrier claim itself and quotes the real claim reference — no human handoff.
+New write tool (confirmation-gated) + KB update.
+**Paired eval:** ES-030 (target). ES-004 stays the current-tier escalation flow.
+
+### 22. Own-profile data service (PII)
+Ideal: agent can read back the customer's own profile data (masked email etc.)
+via a read-only profile tool. Needs guard carve-outs (own-email isn't a leak) and
+a masking-rules decision. Until then the agent says it doesn't have that info
+(current-tier PII cases assert exactly that).
+**Paired eval:** PII-016 (target). **On ship:** flip PII-016; add address/payment variants.
+
+### 23. Threat-escalation rule (OWNER prompt edit — intent_prompt)
+Decided: legal/chargeback/regulatory threats tied to a demand SHOULD escalate.
+Needs a rule in `intent_prompt` (e.g. under escalation_request: "threats of legal
+action, chargebacks, or regulatory complaints tied to a demand — human handling
+regardless of the underlying request").
+**Paired evals:** ES-007, ES-014 (target). **On ship:** flip both to current AND
+change IC-015's expected intent to escalation_request.
+
+### 24. Multi-intent rule: one thing at a time (OWNER prompt edit — intent_prompt)
+Decided 2026-09-02 (supersedes the earlier first-request idea): two requests in
+one message → needs_clarification, asking which to start with, telling the
+customer we handle one thing at a time. The prompt's genuine-ambiguity example
+already endorses needs_clarification for this shape, so IC-009/IC-023 should
+pass today; the optional owner tweak is to make it an explicit rule and steer
+the clarification wording ("I can only handle one thing at a time — which would
+you like to start with?").
+**Paired evals:** IC-009, IC-023 — both set to needs_clarification (current tier).
+
+---
+
 ## Performance (deferred 2026-09-01)
 
 Jad's call: performance is not a priority now. Already shipped as behavior-neutral groundwork: parallel input-guard + classifier, cache breakpoints on the intent and input-guard prompts, 30s timeouts on guard calls, and separate `LITELLM_CLASSIFIER_MODEL` / `LITELLM_GUARD_MODEL` config knobs (all still Sonnet). Remaining, in rough order of value:

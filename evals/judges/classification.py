@@ -102,11 +102,61 @@ _INTENT_ALIASES = {
 }
 
 
+def _check_extraction(test_case: dict, agent_response: dict) -> "str | None":
+    """Validate expected_action / expected_params (when present) against the
+    first action_service entry in actions_taken.
+
+    Returns None when extraction matches (or nothing is expected); otherwise a
+    failure description. This is what makes the extraction cases (IC-026+)
+    actually test extraction instead of passing on intent alone.
+
+    expected_params is a JSON object; each non-null value must match the
+    recorded param (case-insensitive string compare), and an explicit null
+    means the param must be absent/None.
+    """
+    import json
+
+    expected_action = (test_case.get("expected_action") or "").strip()
+    expected_params_raw = (test_case.get("expected_params") or "").strip()
+    if not expected_action and not expected_params_raw:
+        return None
+
+    entry = next(
+        (a for a in (agent_response.get("actions_taken") or [])
+         if a.get("service") == "action_service"),
+        None,
+    )
+    if entry is None:
+        return f"expected action '{expected_action}' but no action_service call was recorded"
+
+    if expected_action:
+        accepted_actions = {t.strip() for t in expected_action.split("|") if t.strip()}
+        if entry.get("action") not in accepted_actions:
+            return f"expected action '{expected_action}' but got '{entry.get('action')}'"
+
+    if expected_params_raw:
+        try:
+            expected_params = json.loads(expected_params_raw)
+        except Exception:
+            return f"expected_params cell is not valid JSON: {expected_params_raw!r}"
+        actual_params = entry.get("params") or {}
+        for key, want in expected_params.items():
+            got = actual_params.get(key)
+            if want is None:
+                if got not in (None, ""):
+                    return f"param '{key}' expected absent but got {got!r}"
+            elif str(got).strip().lower() != str(want).strip().lower():
+                return f"param '{key}' expected {want!r} but got {got!r}"
+    return None
+
+
 def judge_intent_classifier(test_case: dict, agent_response: dict) -> dict:
     """Programmatic comparison of inferred_intent against expected_intent.
 
     expected_intent may contain pipe-separated alternatives
     (e.g. "action_request|needs_clarification") — a match against any value passes.
+    When expected_action / expected_params cells are present, the recorded
+    action_service call must match them too (see _check_extraction).
     """
     expected_raw = test_case.get("expected_intent", "")
     actual = agent_response.get("inferred_intent", "")
@@ -118,6 +168,13 @@ def judge_intent_classifier(test_case: dict, agent_response: dict) -> dict:
         accepted |= _INTENT_ALIASES.get(token.strip(), {token.strip()})
 
     if actual_norm in accepted:
+        extraction_problem = _check_extraction(test_case, agent_response)
+        if extraction_problem:
+            return _verdict(
+                "fail",
+                f"Intent '{actual}' is correct but extraction failed: {extraction_problem}.",
+                failure_reason="wrong_extraction",
+            )
         return _verdict("pass", f"Intent correctly classified as '{actual}'.")
 
     # Escalation cases: if the agent escalated when the expected intent was
@@ -158,7 +215,13 @@ async def judge_output_guard(test_case: dict, agent_response: dict) -> dict:
     actual_failure   = (agent_response.get("output_guard_failure_type") or "none").strip().lower()
 
     verdict_match = (expected_verdict == actual_verdict)
-    expected_failure_set = _OG_FAILURE_ALIASES.get(expected_failure, {expected_failure})
+    # Pipe-separated alternatives: "hallucinated_id|unsupported_claim" accepts
+    # either type — for multi-violation responses where the guard legitimately
+    # picks one of several correct categories.
+    expected_failure_set: set = set()
+    for token in expected_failure.split("|"):
+        token = token.strip()
+        expected_failure_set |= _OG_FAILURE_ALIASES.get(token, {token})
     failure_match = actual_failure in expected_failure_set
 
     if verdict_match and failure_match:

@@ -38,3 +38,13 @@ Rules for target cases:
 - Every target case must be paired with a PENDING_CHANGES item describing the capability it waits on. When the capability ships, flip the case to `current`.
 - Target rubrics must demand **structural evidence** (a tool result, a state flag), never just response text — otherwise a hallucinating agent "reaches" the ideal by fabricating it, and tuning against the case trains dishonesty.
 - The ideal is conditioned on truth: given the world the fixture describes, what would the ideal agent do? A pass path that requires the agent to claim data or actions it doesn't have is invalid in any tier.
+
+## Injected KB context: use kb_ref, never pasted text
+
+When a fixture pre-loads KB content via `mock_agent_state.retrieved_context`, reference the KB instead of pasting text:
+
+```json
+{"retrieved_context": [{"kb_ref": {"file": "returns_and_refunds.md", "heading": "Condition Requirements for Returns"}, "similarity": 0.85}]}
+```
+
+The runner resolves refs to live `docs/kb/` text at run time (`_resolve_kb_refs` in run_evals.py) — chunk_text, title, and category are filled from the file. A missing file/heading fails the run loudly. Pasted chunk_text is forbidden in new cases: it drifts silently when the KB changes (this rotted for months before the 2026-09 audit).
