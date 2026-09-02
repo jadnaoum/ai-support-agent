@@ -1,10 +1,11 @@
 import asyncio
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select, update as sa_update
+from sqlalchemy import select, func, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 
@@ -126,6 +127,31 @@ async def create_conversation(
     return NewConversationResponse(conversation_id=conversation.id)
 
 
+class EndConversationResponse(BaseModel):
+    conversation_id: str
+    status: str
+
+
+@router.post("/conversations/{conversation_id}/end", response_model=EndConversationResponse)
+async def end_conversation(
+    conversation_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Visitor ended the chat. Active → resolved (so CSAT is accepted);
+    escalated/resolved conversations are left as they are."""
+    result = await db.execute(
+        select(Conversation).where(Conversation.id == conversation_id)
+    )
+    conversation = result.scalar_one_or_none()
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if conversation.status == "active":
+        conversation.status = "resolved"
+        conversation.ended_at = datetime.now(timezone.utc)
+        await db.commit()
+    return EndConversationResponse(conversation_id=conversation.id, status=conversation.status)
+
+
 @router.post("/chat", response_model=SendMessageResponse)
 async def send_message(
     body: SendMessageRequest,
@@ -139,6 +165,26 @@ async def send_message(
         raise HTTPException(status_code=404, detail="Conversation not found")
     if conversation.customer_id != body.customer_id:
         raise HTTPException(status_code=403, detail="Customer does not own this conversation")
+    if conversation.status != "active":
+        raise HTTPException(status_code=409, detail={"code": "conversation_closed", "status": conversation.status})
+
+    # Public-demo rails: bound message length and turns per conversation so a
+    # single visitor cannot burn the shared rate limit (see backend/config.py).
+    if len(body.message) > settings.demo_max_message_chars:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "message_too_long", "max_chars": settings.demo_max_message_chars},
+        )
+    sent = await db.execute(
+        select(func.count(Message.id)).where(
+            Message.conversation_id == body.conversation_id, Message.role == "customer",
+        )
+    )
+    if int(sent.scalar() or 0) >= settings.demo_max_messages_per_conversation:
+        raise HTTPException(
+            status_code=429,
+            detail={"code": "conversation_cap", "max_messages": settings.demo_max_messages_per_conversation},
+        )
 
     message = Message(
         id=str(uuid.uuid4()),

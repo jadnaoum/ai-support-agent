@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.models import Order, OrderItem, Product, Refund
-from backend.tools.constants import REASON_VALUES, ESCALATION_REASONS
+from backend.tools.constants import REASON_VALUES, ESCALATION_REASONS, RETURN_REVIEW_THRESHOLD_EUR
 
 # Accepted reason inputs: all canonical values (map to themselves) plus
 # natural-language synonyms the LLM or customer might supply.
@@ -491,7 +491,7 @@ async def initiate_return(
     order.status = "return_in_progress"
     resolved_reason = _REASON_MAP.get(reason, "other")
 
-    if float(order.total_amount) > 50:
+    if float(order.total_amount) > RETURN_REVIEW_THRESHOLD_EUR:
         refund = Refund(
             id=str(uuid.uuid4()),
             order_id=resolved_order_id,

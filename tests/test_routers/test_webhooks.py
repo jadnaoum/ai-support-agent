@@ -46,7 +46,8 @@ async def test_csat_response_shape(client, resolved_conversation):
     })
     body = response.json()
     assert body["conversation_id"] == resolved_conversation.id
-    assert body["score"] == 4
+    assert body["rating"] == 4
+    assert body["tags"] == []
     assert "message" in body
 
 
@@ -131,4 +132,59 @@ async def test_csat_missing_score_returns_422(client, resolved_conversation):
 
 async def test_csat_missing_conversation_id_returns_422(client):
     response = await client.post("/api/csat", json={"score": 4})
+    assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Structured feedback: rating / tags / free_text (score / comment kept as aliases)
+# ---------------------------------------------------------------------------
+
+async def test_csat_new_field_names_and_tags_are_stored(client, db, resolved_conversation):
+    response = await client.post("/api/csat", json={
+        "conversation_id": resolved_conversation.id,
+        "rating": 5,
+        "tags": ["quick_and_easy", "handled_tricky_situation", "quick_and_easy"],
+        "free_text": "Nice.",
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()["tags"] == ["quick_and_easy", "handled_tricky_situation"]  # de-duplicated
+
+    await db.refresh(resolved_conversation)
+    assert resolved_conversation.csat_score == 5
+    assert resolved_conversation.csat_comment == "Nice."
+    assert resolved_conversation.csat_tags == ["quick_and_easy", "handled_tricky_situation"]
+
+
+async def test_csat_negative_tags_with_low_rating(client, db, resolved_conversation):
+    response = await client.post("/api/csat", json={
+        "conversation_id": resolved_conversation.id,
+        "rating": 2,
+        "tags": ["made_things_up", "too_slow"],
+    })
+    assert response.status_code == 200
+    await db.refresh(resolved_conversation)
+    assert resolved_conversation.csat_tags == ["made_things_up", "too_slow"]
+
+
+async def test_csat_tags_must_match_rating_band(client, resolved_conversation):
+    response = await client.post("/api/csat", json={
+        "conversation_id": resolved_conversation.id,
+        "rating": 5,
+        "tags": ["made_things_up"],
+    })
+    assert response.status_code == 422
+    response = await client.post("/api/csat", json={
+        "conversation_id": resolved_conversation.id,
+        "rating": 1,
+        "tags": ["quick_and_easy"],
+    })
+    assert response.status_code == 422
+
+
+async def test_csat_unknown_tag_returns_422(client, resolved_conversation):
+    response = await client.post("/api/csat", json={
+        "conversation_id": resolved_conversation.id,
+        "rating": 4,
+        "tags": ["loved_it"],
+    })
     assert response.status_code == 422

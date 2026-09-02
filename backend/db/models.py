@@ -117,11 +117,13 @@ class Conversation(Base):
     messages_purged = Column(Boolean, default=False)
     csat_score = Column(Integer, nullable=True)  # 1-5
     csat_comment = Column(Text, nullable=True)
+    csat_tags = Column(JSONB, nullable=True)  # list of CSAT_TAGS values (backend/routers/webhooks.py)
 
     customer = relationship("Customer", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation")
     audit_logs = relationship("AuditLog", back_populates="conversation")
     escalations = relationship("Escalation", back_populates="conversation")
+    turns = relationship("Turn", back_populates="conversation")
 
     __table_args__ = (
         Index("idx_conversations_customer", "customer_id"),
@@ -222,4 +224,34 @@ class KBChunk(Base):
 
     __table_args__ = (
         Index("idx_kb_chunks_document", "document_id"),
+    )
+
+
+class Turn(Base):
+    """One agent turn's telemetry — the pipeline steps the demo's "behind the
+    scenes" panel renders, persisted so the timeline can be replayed, and so the
+    admin dashboard and evals can read the same structure the live stream sends."""
+    __tablename__ = "turns"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    conversation_id = Column(UUID(as_uuid=False), ForeignKey("conversations.id"), nullable=False)
+    index = Column(Integer, nullable=False)  # 1-based turn number within the conversation
+    customer_message_id = Column(UUID(as_uuid=False), ForeignKey("messages.id"), nullable=True)
+    agent_message_id = Column(UUID(as_uuid=False), ForeignKey("messages.id"), nullable=True)
+    started_at = Column(DateTime(timezone=True), server_default=func.now())
+    latency_ms = Column(Integer, nullable=True)
+    llm_calls = Column(Integer, nullable=True)
+    prompt_tokens = Column(Integer, nullable=True)
+    completion_tokens = Column(Integer, nullable=True)
+    cost_usd = Column(Numeric(10, 6), nullable=True)
+    cost_basis = Column(String, nullable=False, default="unavailable")  # measured | unavailable
+    events = Column(JSONB, nullable=False, default=list)  # ordered pipeline steps (backend/demo/events.py)
+    escalation_reason = Column(String, nullable=True)
+    context_summary = Column(Text, nullable=True)
+    error = Column(String, nullable=True)  # graph_timeout | graph_error | None
+
+    conversation = relationship("Conversation", back_populates="turns")
+
+    __table_args__ = (
+        Index("idx_turns_conversation", "conversation_id"),
     )

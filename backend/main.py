@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
 
-from backend.routers import chat, admin, webhooks
+from backend.routers import chat, admin, webhooks, demo
 from backend.tracing.setup import init_tracing
 
 init_tracing()
@@ -27,6 +27,7 @@ app.add_middleware(
 app.include_router(chat.router)
 app.include_router(admin.router)
 app.include_router(webhooks.router)
+app.include_router(demo.router)
 
 
 @app.get("/health")

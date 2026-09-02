@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     message_retention_days: int = 60
     service_call_limit: int = 3        # max service calls per turn before forcing response generation
 
+    # Public demo rails — Tier-1 rate limits allow only a few agent turns per
+    # minute across ALL visitors, so the demo needs hard caps to stay alive.
+    demo_max_concurrent_turns: int = 2          # agent turns running at once; others queue
+    demo_max_messages_per_conversation: int = 10
+    demo_max_message_chars: int = 500
+    demo_max_customers_per_ip_per_day: int = 20
+    demo_customer_ttl_hours: int = 24           # purge_demo_customers.py default
+
     # LangSmith tracing
     langchain_tracing_v2: bool = False
     langchain_api_key: str = ""
