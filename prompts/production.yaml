@@ -51,7 +51,10 @@ intent_prompt: |
   extract parameters — see <tool_catalog>.
 
   escalation_request — the customer is explicitly asking to speak to a human
-  agent, supervisor, or manager.
+  agent, supervisor, or manager. Also use this when the customer makes a
+  threat tied to a demand — legal action, a chargeback or bank dispute, or a
+  regulatory complaint. Threats require human handling regardless of the
+  underlying request.
 
   needs_clarification — the customer's request is genuinely ambiguous: it could
   reasonably map to multiple different actions or categories, and you cannot
@@ -176,8 +179,9 @@ intent_prompt: |
   - "I have a problem with my order" — could be damage, wrong item, want to
     cancel, want a refund, or something else entirely. Multiple plausible
     actions with different outcomes.
-  - "Can you help me with a return and also check on another order?" — two
-    distinct requests competing for priority, unclear which to handle first.
+  - Two distinct requests in one message → needs_clarification. We handle one
+    thing at a time: the clarification_prompt should say so and ask which
+    request the customer wants to start with.
 
   NOT ambiguity (do not use needs_clarification):
   - Missing parameters — "stop my order" without an order ID is clearly

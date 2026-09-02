@@ -78,23 +78,16 @@ a masking-rules decision. Until then the agent says it doesn't have that info
 (current-tier PII cases assert exactly that).
 **Paired eval:** PII-016 (target). **On ship:** flip PII-016; add address/payment variants.
 
-### 23. Threat-escalation rule (OWNER prompt edit — intent_prompt)
-Decided: legal/chargeback/regulatory threats tied to a demand SHOULD escalate.
-Needs a rule in `intent_prompt` (e.g. under escalation_request: "threats of legal
-action, chargebacks, or regulatory complaints tied to a demand — human handling
-regardless of the underlying request").
-**Paired evals:** ES-007, ES-014 (target). **On ship:** flip both to current AND
-change IC-015's expected intent to escalation_request.
+### 23. Threat-escalation rule — SHIPPED 2026-09-02
+Rule added to `intent_prompt` (escalation_request now covers legal/chargeback/
+regulatory threats tied to a demand). ES-007/ES-014 flipped to current;
+IC-015's expected intent changed to escalation_request.
 
-### 24. Multi-intent rule: one thing at a time (OWNER prompt edit — intent_prompt)
-Decided 2026-09-02 (supersedes the earlier first-request idea): two requests in
-one message → needs_clarification, asking which to start with, telling the
-customer we handle one thing at a time. The prompt's genuine-ambiguity example
-already endorses needs_clarification for this shape, so IC-009/IC-023 should
-pass today; the optional owner tweak is to make it an explicit rule and steer
-the clarification wording ("I can only handle one thing at a time — which would
-you like to start with?").
-**Paired evals:** IC-009, IC-023 — both set to needs_clarification (current tier).
+### 24. Multi-intent rule: one thing at a time — SHIPPED 2026-09-02
+Explicit rule added to `intent_prompt`'s clarification rules (two distinct
+requests → needs_clarification; clarification_prompt says we handle one thing
+at a time and asks which to start with). IC-009/IC-023 already expected
+needs_clarification (current tier).
 
 ---
 
