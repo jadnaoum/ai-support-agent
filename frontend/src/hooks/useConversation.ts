@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, friendlyError } from '@/lib/api'
 import { streamTurn } from './useSSE'
-import type { Check, Csat, DemoCustomer, Timeline, Totals, TurnRecord } from '@/lib/types'
+import type { Check, Csat, DemoCustomer, PipelineEvent, Timeline, Totals, TurnRecord } from '@/lib/types'
 
 export interface ChatMessage {
   id: string
@@ -19,6 +19,8 @@ export interface TurnView {
   index: number
   customerMessage: string
   record: TurnRecord | null
+  /** Steps received while the turn is still running (before `record`). */
+  liveEvents: PipelineEvent[]
   status: TurnStatus
   queuePosition: number
   startedAt: number
@@ -111,6 +113,7 @@ function fromTimeline(t: Timeline): ConversationState {
     index: tt.index,
     customerMessage: tt.customer_message ?? '',
     record: tt,
+    liveEvents: [],
     status: tt.error ? 'error' : 'done',
     queuePosition: 0,
     startedAt: 0,
@@ -190,12 +193,30 @@ export function useConversation(conversationId: string) {
         ],
         turns: [
           ...s.turns,
-          { index, customerMessage: trimmed, record: null, status: 'running', queuePosition: 0, startedAt: Date.now() },
+          {
+            index,
+            customerMessage: trimmed,
+            record: null,
+            liveEvents: [],
+            status: 'running',
+            queuePosition: 0,
+            startedAt: Date.now(),
+          },
         ],
       }))
 
       closeRef.current = streamTurn(conversationId, {
         onQueued: (position) => patchTurn(index, (t) => ({ ...t, status: 'queued', queuePosition: position })),
+        onStep: (step) => {
+          const { index: _i, ...event } = step
+          void _i
+          patchTurn(index, (t) => ({
+            ...t,
+            status: 'running',
+            queuePosition: 0,
+            liveEvents: [...t.liveEvents, event as PipelineEvent],
+          }))
+        },
         onTurn: (record) =>
           patchTurn(index, (t) => ({ ...t, record, status: record.error ? 'error' : 'streaming', queuePosition: 0 })),
         onToken: (token) => patchAgentMessage(agentId, (m) => ({ ...m, content: m.content + token })),

@@ -3,6 +3,7 @@ import { Loader2, UserCheck } from 'lucide-react'
 import type { ChatMessage, TurnView } from '@/hooks/useConversation'
 import { useElapsed } from '@/hooks/useConversation'
 import { fmtLatency } from '@/lib/format'
+import { nextStepLabel } from '@/components/behind/TurnCard'
 
 function Avatar() {
   return (
@@ -18,7 +19,10 @@ function Placeholder({ turn }: { turn: TurnView | undefined }) {
   let text = 'Working on it'
   if (turn?.status === 'queued')
     text = `Waiting for a free slot · ${turn.queuePosition === 1 ? 'you’re next' : `${turn.queuePosition - 1} ahead of you`}`
-  else if (elapsed > 0) text = `Working on it · ${elapsed}s`
+  else {
+    const stage = turn ? nextStepLabel(turn.liveEvents) : 'Working on it'
+    text = elapsed > 0 ? `${stage} · ${elapsed}s` : stage
+  }
   return (
     <div className="flex animate-soft-pulse items-center gap-2 rounded-2xl rounded-bl-[4px] border border-dashed border-neutral-200 bg-neutral-50 px-3.5 py-2.5 text-[13px] text-neutral-500">
       <Loader2 className="h-3.5 w-3.5 animate-spin" />

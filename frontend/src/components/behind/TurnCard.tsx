@@ -1,5 +1,6 @@
 import { UserCheck } from 'lucide-react'
 import type { TurnView } from '@/hooks/useConversation'
+import type { PipelineEvent } from '@/lib/types'
 import { useElapsed } from '@/hooks/useConversation'
 import { stepView } from '@/lib/pipeline'
 import { fmtLatency, humanize, truncate } from '@/lib/format'
@@ -29,6 +30,24 @@ function Briefing({ reason, summary }: { reason: string; summary: string }) {
       </div>
     </div>
   )
+}
+
+/** What the pipeline is most likely doing after the last reported step. */
+export function nextStepLabel(events: PipelineEvent[]): string {
+  const last = events[events.length - 1]
+  if (!last) return 'Checking the message'
+  switch (last.type) {
+    case 'input_guard':
+      return last.verdict === 'safe' ? 'Deciding what to do' : 'Writing a redirect'
+    case 'tool_call':
+      return 'Deciding what to do with the result'
+    case 'kb_retrieval':
+      return 'Writing a reply from the policy'
+    case 'output_guard':
+      return 'Sending'
+    default:
+      return 'Working'
+  }
 }
 
 export function TurnCard({ turn }: { turn: TurnView }) {
@@ -63,7 +82,15 @@ export function TurnCard({ turn }: { turn: TurnView }) {
         ) : turn.status === 'error' ? (
           <PipelineStep step={{ tone: 'red', icon: 'error', label: 'The stream dropped before the turn finished' }} />
         ) : (
-          <PipelineStep pulse step={{ tone: 'indigo', icon: 'spinner', label: 'Running the pipeline', detail: 'safety check, tools, knowledge base, verification' }} />
+          <>
+            {turn.liveEvents.map((e, i) => (
+              <PipelineStep key={i} step={stepView(e)} />
+            ))}
+            <PipelineStep
+              pulse
+              step={{ tone: 'indigo', icon: 'spinner', label: nextStepLabel(turn.liveEvents) }}
+            />
+          </>
         )}
         {escalation && escalation.type === 'escalation' && (
           <Briefing reason={escalation.reason} summary={escalation.context_summary} />

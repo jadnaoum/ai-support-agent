@@ -16,6 +16,8 @@ import re
 import uuid
 import litellm
 
+from backend.demo.sink import emit
+
 from backend.config import get_settings
 from backend.llm_json import extract_json_object
 from prompts.loader import get_prompt
@@ -77,6 +79,19 @@ _BLOCKED_RESPONSES: dict[str, str] = {
 
 
 async def check_input(message: str) -> dict:
+    """Run the input guard and report its verdict to the demo's turn sink
+    (a no-op outside the live stream). Logic lives in _check_input."""
+    result = await _check_input(message)
+    emit(
+        "input_guard",
+        verdict="safe" if result.get("safe") else "blocked",
+        reason=result.get("reason"),
+        strike=None,
+    )
+    return result
+
+
+async def _check_input(message: str) -> dict:
     """
     Check a customer message before passing it to the conversation agent.
 

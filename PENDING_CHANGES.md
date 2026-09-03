@@ -93,8 +93,8 @@ needs_clarification (current tier).
 
 ## Demo experience follow-ups (branch demo-experience, 2026-09-02)
 
-### 25. Progressive pipeline events (prompt-adjacent — needs approval)
-Steps currently arrive in one batch at end of turn (`backend/demo/events.derive_events`). The progressive version emits from inside the pipeline so the panel fills in step by step and the chat placeholder can name the current stage: one `emit()` line at the return of `check_input` and `check_output`, one in each of `knowledge_service_node` / `action_service_node` (with a `time.monotonic` duration around the tool handler), reporting into a ContextVar sink the stream endpoint drains while the graph runs. Behaviour-neutral; `emit()` is a no-op without a sink, so `/chat/test` and evals are untouched. Also gives guard verdicts on paths that leave no audit trace.
+### 25. Progressive pipeline events — SHIPPED 2026-09-03 (approved by Jad)
+`check_input` / `check_output` (thin wrappers around the unchanged `_check_*` logic), `knowledge_service_node` and `action_service_node` call `backend.demo.sink.emit()`; the stream endpoint drains the sink into SSE `step` events while the graph runs and reconciles them with the derived list in the `turn` event (`events.merge_live`). `emit()` is a no-op without a sink, so `/chat/test` and evals are untouched. Eval action: none required for expected values; a smoke run of one sheet after merge confirms the wrappers are inert.
 
 ### 26. Non-UUID order_id raises inside tools
 See `docs/tech_debt.md` (top entry). A product name passed as `order_id` becomes an `unhandled_error` escalation. Option 1 there (structured rejection at tool entry) is small but changes agent behaviour; option 2 is item-name resolution (#Item-name resolution in ARCHITECTURE).

@@ -120,6 +120,9 @@ export type PipelineEvent =
   | EscalationEvent
   | ErrorEvent
 
+/** A pipeline event forwarded while the turn is still running. */
+export type StepEvent = PipelineEvent & { index: number }
+
 export type CostBasis = 'measured' | 'partial' | 'unavailable'
 
 export interface TurnRecord {

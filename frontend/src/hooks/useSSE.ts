@@ -1,7 +1,8 @@
-import type { TurnRecord } from '@/lib/types'
+import type { StepEvent, TurnRecord } from '@/lib/types'
 
 export interface StreamHandlers {
   onQueued?: (position: number) => void
+  onStep?: (step: StepEvent) => void
   onTurn?: (record: TurnRecord) => void
   onToken?: (token: string) => void
   onTurnComplete?: (record: TurnRecord) => void
@@ -12,7 +13,7 @@ export interface StreamHandlers {
 
 /**
  * Open the SSE stream for the turn the customer just sent.
- * Event order from the backend: [queued] → turn → token… → turn_complete → [escalated] → done.
+ * Event order from the backend: [queued] → step… → turn → token… → turn_complete → [escalated] → done.
  * Returns a function that closes the stream.
  */
 export function streamTurn(conversationId: string, h: StreamHandlers): () => void {
@@ -30,6 +31,10 @@ export function streamTurn(conversationId: string, h: StreamHandlers): () => voi
   es.addEventListener('queued', (e) => {
     const p = parse<{ position: number }>(e as MessageEvent)
     if (p) h.onQueued?.(p.position)
+  })
+  es.addEventListener('step', (e) => {
+    const st = parse<StepEvent>(e as MessageEvent)
+    if (st) h.onStep?.(st)
   })
   es.addEventListener('turn', (e) => {
     const r = parse<TurnRecord>(e as MessageEvent)

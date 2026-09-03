@@ -18,7 +18,8 @@ from backend.agents.state import AgentState
 from backend.tools.customer_tools import get_customer_context
 from backend.demo.rails import TurnGate
 from backend.demo import usage as turn_usage
-from backend.demo.events import derive_events, error_events, turn_payload
+from backend.demo import sink as turn_sink
+from backend.demo.events import derive_events, error_events, turn_payload, merge_live
 
 logger = logging.getLogger(__name__)
 
@@ -354,11 +355,12 @@ async def stream_response(
 
     # 6. SSE event generator
     #
-    # Event order: [queued] → turn (pipeline steps) → token… → turn_complete
-    # → [escalated] → done. Pipeline steps go out BEFORE the response text so
-    # the behind-the-scenes panel fills in first; streaming is still the
-    # finished response split on spaces (PENDING #18), so the steps are
-    # derived from the graph's final output in one batch for now.
+    # Event order: [queued] → step… → turn (final step list) → token… →
+    # turn_complete → [escalated] → done. Steps are emitted from inside the
+    # pipeline (guards, service nodes) and forwarded while the graph runs; the
+    # `turn` event carries the reconciled list (live steps + the escalation
+    # record derived from the final output). Response text is still the
+    # finished response split on spaces (PENDING #18).
     async def event_generator():
         position = _turn_gate.queue_position()
         if position:
@@ -367,14 +369,32 @@ async def stream_response(
         async with _turn_gate.slot():
             usage = turn_usage.TurnUsage()
             usage_token = turn_usage.start(usage)
+            sink = turn_sink.TurnSink()
+            sink_token = turn_sink.start(sink)
             t0 = time.monotonic()
             try:
                 config = {"configurable": {"db": db, "conversation_id": conversation_id}}
+                loop = asyncio.get_running_loop()
+                graph_task = asyncio.ensure_future(graph.ainvoke(initial_state, config=config))
+                deadline = loop.time() + 90
                 try:
-                    final_output = await asyncio.wait_for(
-                        graph.ainvoke(initial_state, config=config),
-                        timeout=90,
-                    )
+                    while not graph_task.done():
+                        remaining = deadline - loop.time()
+                        if remaining <= 0:
+                            graph_task.cancel()
+                            raise asyncio.TimeoutError
+                        getter = asyncio.ensure_future(sink.queue.get())
+                        done, _ = await asyncio.wait(
+                            {graph_task, getter}, timeout=min(remaining, 1.0),
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        if getter in done:
+                            yield _sse("step", {"index": turn_index, **getter.result()})
+                        else:
+                            getter.cancel()
+                    while not sink.queue.empty():
+                        yield _sse("step", {"index": turn_index, **sink.queue.get_nowait()})
+                    final_output = graph_task.result()
                 except asyncio.TimeoutError:
                     latency_ms = int((time.monotonic() - t0) * 1000)
                     escalated = await _record_turn_failure(db, conversation_id, "graph_timeout")
@@ -405,6 +425,7 @@ async def stream_response(
                     return
                 finally:
                     turn_usage.stop(usage_token)
+                    turn_sink.stop(sink_token)
 
                 latency_ms = int((time.monotonic() - t0) * 1000)
                 await usage.wait_settled()
@@ -417,7 +438,7 @@ async def stream_response(
                     ).order_by(AuditLog.created_at)
                 )
                 turn_audit = [r for r in audit_result.scalars().all() if r.id not in prior_audit_ids]
-                events = derive_events(final_output, turn_audit)
+                events = merge_live(sink.events, derive_events(final_output, turn_audit))
                 payload = turn_payload(turn_index, events, latency_ms, usage.as_dict(), final_output)
 
                 # Pipeline steps first, then the response.

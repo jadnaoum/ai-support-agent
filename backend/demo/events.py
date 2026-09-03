@@ -29,6 +29,53 @@ _RESPONSE_KEPT_ESCALATIONS = frozenset({
 _KB_SIMILARITY_FLOOR = 0.15
 
 
+def tool_result_code(result_detail: str, reason) -> str:
+    """The code shown for a tool row: the tool's own reason ("eligible",
+    "already_shipped", …) when it has one, else the coarse result_detail.
+    Confirmation gates keep their explicit marker."""
+    if result_detail != "confirmation_pending" and isinstance(reason, str) and reason:
+        return reason
+    return result_detail
+
+
+def kb_articles(retrieved: list) -> list:
+    """Distinct article titles the agent will actually use (same floor as the
+    conversation node)."""
+    usable = retrieved or []
+    if usable and usable[0].get("similarity") is not None and usable[0]["similarity"] < _KB_SIMILARITY_FLOOR:
+        usable = []
+    seen: list = []
+    for chunk in usable:
+        title = chunk.get("title")
+        if title and title not in seen:
+            seen.append(title)
+    return seen
+
+
+def merge_live(live: list, derived: list) -> list:
+    """Combine events emitted from inside the pipeline (live, with durations
+    and direct guard verdicts) with the ones derived from the final output.
+    Live wins where both exist; derived fills what the pipeline never emits
+    (the escalation record, the strike count on a blocked input)."""
+    if not live:
+        return derived
+    events = [dict(e) for e in live]
+    derived_ig = next((e for e in derived if e.get("type") == "input_guard"), None)
+    live_ig = next((e for e in events if e.get("type") == "input_guard"), None)
+    if live_ig is None and derived_ig is not None:
+        events.insert(0, derived_ig)
+    elif live_ig is not None and derived_ig is not None:
+        live_ig["strike"] = derived_ig.get("strike")
+    if not any(e.get("type") == "output_guard" for e in events):
+        derived_og = next((e for e in derived if e.get("type") == "output_guard"), None)
+        if derived_og is not None:
+            events.append(derived_og)
+    esc = next((e for e in derived if e.get("type") == "escalation"), None)
+    if esc is not None:
+        events.append(esc)
+    return events
+
+
 def derive_events(final_output: dict, audit_rows: list, retrieved_context: "list | None" = None) -> list:
     """Build the ordered event list for a completed turn.
 
@@ -66,13 +113,10 @@ def derive_events(final_output: dict, audit_rows: list, retrieved_context: "list
             # more telling than the coarse result_detail; confirmation gates
             # keep their explicit marker.
             detail = a.get("result_detail") or ("success" if a.get("success") else "failed")
-            reason = result.get("reason")
-            if detail != "confirmation_pending" and isinstance(reason, str) and reason:
-                detail = reason
             events.append({
                 "type": "tool_call",
                 "tool": a.get("action") or "unknown",
-                "result": detail,
+                "result": tool_result_code(detail, result.get("reason")),
                 "success": bool(a.get("success")),
                 "order_id": a.get("order_id"),
                 "confirmation_required": bool(a.get("confirmation_required")),
@@ -85,15 +129,7 @@ def derive_events(final_output: dict, audit_rows: list, retrieved_context: "list
             # Only the last search's chunks survive in state; earlier ones keep
             # their count but not their titles.
             if a is kb_entries[-1]:
-                usable = retrieved
-                if usable and usable[0].get("similarity") is not None and usable[0]["similarity"] < _KB_SIMILARITY_FLOOR:
-                    usable = []
-                seen: list = []
-                for chunk in usable:
-                    title = chunk.get("title")
-                    if title and title not in seen:
-                        seen.append(title)
-                articles = seen
+                articles = kb_articles(retrieved)
             events.append({
                 "type": "kb_retrieval",
                 "query": a.get("query", ""),
