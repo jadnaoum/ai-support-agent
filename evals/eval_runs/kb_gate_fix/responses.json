@@ -1,0 +1,453 @@
+{
+  "KB-001": {
+    "response": "You have two options to start a return. Via chat, just share your order number here and I'll generate a prepaid return label and email it to you within 2 hours. Or you can do it yourself through the online portal \u2014 log into your account, go to Order History, select the order, and click \"Start a Return.\"\n\nOnce we receive the item, allow 3\u20135 business days for inspection and processing. Do you have an order number handy?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "How do I return an item?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.5319
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-002": {
+    "response": "Yes, we do. International shipping is calculated at checkout based on your destination and package weight, with delivery typically taking 10\u201321 business days. Just keep in mind that customs duties and import taxes aren't included in our shipping charges \u2014 those are collected by your local customs authority upon delivery. Anything specific you'd like to know?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "Do you ship internationally?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4748
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-003": {
+    "response": "Go to the login page and click \"Forgot Password,\" enter your email, and you'll get a reset link within a few minutes. The link is valid for 24 hours, and your new password needs to be at least 8 characters with a mix of letters and numbers. Check your spam folder if the email doesn't show up.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "How do I change my password?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4321
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-004": {
+    "response": "This request needs a review by our support team. I'm connecting you with a specialist who can help.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "I washed my jacket and it shrunk \u2014 is that covered?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.3538
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "Customer issue: I washed my jacket and it shrunk \u2014 is that covered?\nKB retrieved: Product Warranties, Returns and Refunds Policy\nEscalation reason: policy_exception"
+  },
+  "KB-005": {
+    "response": "This request needs a review by our support team. I'm connecting you with a specialist who can help.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "What if I opened it but didn't use it?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.2545
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "Customer issue: What's your return policy?\nKB retrieved: Product Warranties, Frequently Asked Questions, Returns and Refunds Policy\nEscalation reason: policy_exception"
+  },
+  "KB-006": {
+    "response": "I'd be happy to look into that for you. Could you share your order number so I can check the details?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.5,
+    "inferred_intent": "general",
+    "context_summary": ""
+  },
+  "KB-007": {
+    "response": "I'm sorry to hear that \u2014 let me look into this for you right away. Can you give me your order number so I can pull up the details?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": null,
+          "reason": "defective"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "KB-008": {
+    "response": "I specialise in e-commerce support \u2014 orders, returns, shipping, and account questions. Is there something along those lines I can help you with?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.0,
+    "inferred_intent": "",
+    "context_summary": ""
+  },
+  "KB-009": {
+    "response": "Standard shipping takes 5\u20137 business days. It's free on orders over $50, or $4.99 for orders under that.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "How long does standard shipping take?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.5187
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-010": {
+    "response": "You have three options: sign up directly by clicking \"Sign Up\" and entering your name, email, and a password; create one during checkout by selecting \"Save my information\"; or use Google or Apple social login. If you already have an account with the same email, the social login will connect to it automatically.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "How do I create an account?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.5041
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-011": {
+    "response": "This request needs a review by our support team. I'm connecting you with a specialist who can help.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "Is the Horizon backpack waterproof? I'm going hiking in the rain.",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.1969
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "Customer issue: Is the Horizon backpack waterproof? I'm going hiking in the rain.\nKB retrieved: Product Warranties, Frequently Asked Questions, Business Limitations, Returns and Refunds Policy\nEscalation reason: policy_exception"
+  },
+  "KB-012": {
+    "response": "No \u2014 liquid damage and water exposure aren't covered, unless the product is specifically rated waterproof.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "Does that include water damage?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4047
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-013": {
+    "response": "We offer Express shipping but don't have a \"Priority\" tier. Our shipping options are Standard (5\u20137 business days, free over $50 or $4.99 under), Express (2\u20133 business days, $9.99 flat), and Overnight (next business day, $24.99 flat). Is one of those what you were thinking of?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "What's the difference between your Express and Priority shipping?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.5123
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-014": {
+    "response": "Not yet \u2014 it's on the roadmap. If you sign up for our newsletter, you'll be notified when it launches. The plan is to offer points on every purchase that can be redeemed for store credit.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "Do you have a loyalty program or rewards?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4077
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-015": {
+    "response": "I don't have product ingredient information in our system, so I can't give you a reliable answer on that \u2014 especially for something as important as a nut allergy. Let me connect you with a specialist who can get you accurate details for the specific products you're looking at.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "What are the ingredients in your products? Are they safe for someone with nut allergies?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.3059
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-016": {
+    "response": "That's a fair point \u2014 defective items are a different situation. To get this handled properly, I'll need to pull up your order. Could you give me your order number or the email address on your account?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": null,
+          "reason": "defective"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "KB-017": {
+    "response": "This request needs a review by our support team. I'm connecting you with a specialist who can help.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "Can I track my order on your website?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4976
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "Customer issue: Can I track my order on your website?\nKB retrieved: Frequently Asked Questions, Shipping and Delivery, Account Management, Payment Methods and Billing\nEscalation reason: policy_exception"
+  },
+  "KB-018": {
+    "response": "This request needs a review by our support team. I'm connecting you with a specialist who can help.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "I'm buying a gift. Can the receipt be excluded from the package?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.3546
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "Customer issue: I'm buying a gift. Can the receipt be excluded from the package?\nKB retrieved: Frequently Asked Questions, Business Limitations, Returns and Refunds Policy\nEscalation reason: policy_exception"
+  },
+  "KB-019": {
+    "response": "I'm here to help with your orders and account questions. I'm not able to process that kind of request.",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.0,
+    "inferred_intent": "",
+    "context_summary": ""
+  },
+  "KB-020": {
+    "response": "I'm sorry to hear that \u2014 that's frustrating! Could you share your order number so I can look into this for you? And just to confirm, would you like to report the item as missing and explore options like a refund or replacement?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.82,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "KB-021": {
+    "response": "I'd be happy to look into a return for you \u2014 I just need to pull up your order. Could you share your order number or the email address on your account?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": null,
+          "reason": "defective"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "KB-022": {
+    "response": "Our return policy covers refunds to your original payment method for the item cost, but I don't have any information about how customs fees are handled in that situation \u2014 that's likely specific to international orders and may involve the Canada Border Services Agency as well as our policy.\n\nLet me connect you with a specialist who can give you a straight answer on that. Can you share your order number so I can pull up your details?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "I ordered from Canada and paid $40 in customs when it arrived. Now I want to return the item \u2014 will I get the customs fees refunded too?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4325
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-023": {
+    "response": "For split-payment returns like this, the gift card portion is refunded as store credit rather than back to the original gift card. The remainder that you paid on your Visa would be refunded back to that card, which typically takes 3\u20135 business days after your return is processed.\n\nWould you like help starting the return?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "I bought a blender using a $50 gift card and paid the rest on my Visa. If I return it, how does the refund work?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4474
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-024": {
+    "response": "This request needs a review by our support team. I'm connecting you with a specialist who can help.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "I used a 20% promo code on my order 10 days ago, and now the same item is on sale for even less. Can I get a price adjustment to the sale price?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.5616
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "Customer issue: I used a 20% promo code on my order 10 days ago, and now the same item is on sale for even less. Can I get a price adjustment to the sale price?\nKB retrieved: Returns and Refunds Policy, Business Limitations, Payment Methods and Billing, Frequently Asked Questions\nEscalation reason: policy_exception"
+  },
+  "KB-025": {
+    "response": "That's a fair question to check before deleting. I tried to pull up your refund history but ran into a technical issue on my end. Let me try that again \u2014 can you share your order number so I can look into the refund status directly?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "get_refund_status",
+        "params": {
+          "order_id": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "KB-026": {
+    "response": "I can help with that! Unfortunately we aren't able to directly change the size on an existing order, but we may be able to cancel it so you can reorder in the right size. Would you like me to check if your order is still eligible for cancellation? If so, could you share your order number?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.78,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  }
+}

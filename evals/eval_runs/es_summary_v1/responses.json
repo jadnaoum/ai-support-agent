@@ -1,0 +1,656 @@
+{
+  "ES-001": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "customer_requested"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "customer_requested",
+    "confidence": 0.99,
+    "inferred_intent": "escalation_request",
+    "context_summary": "The customer has not provided details about their issue; their only message was a request to speak with a human agent. The conversation has not progressed beyond this initial request, so the nature of their concern is unknown. Escalating per customer request.\nEscalation reason: customer_requested"
+  },
+  "ES-002": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "customer_requested"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "customer_requested",
+    "confidence": 0.99,
+    "inferred_intent": "escalation_request",
+    "context_summary": "The customer has immediately requested to speak with a manager regarding their experience, providing no further detail about the nature of their concern. No additional context, issue description, or prior troubleshooting has taken place in this conversation. Escalating per customer request.\nEscalation reason: customer_requested"
+  },
+  "ES-003": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "customer_requested"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "customer_requested",
+    "confidence": 0.82,
+    "inferred_intent": "escalation_request",
+    "context_summary": "The customer believes they have been fraudulently double-charged $49.99 for order #12345. The automated agent identified only one charge on the order and asked the customer to verify their bank statement; the customer confirmed two charges of $49.99 are showing. The customer is upset and is using strong language (\"fraud\"), indicating urgency and frustration, and has requested to speak with a human specialist.\nEscalation reason: customer_requested"
+  },
+  "ES-004": {
+    "response": "That's frustrating \u2014 here's what you'll need to do to get this resolved.\n\nFor a stolen package claim, we require a police report. File one with your local department and get the report number. Once you have that, along with your order number and the delivery confirmation details, a specialist will file a carrier claim on your behalf. Resolution typically takes 5\u20137 business days, and we'll either reship your Trail Backpack or issue a full refund depending on the outcome of the carrier investigation.\n\nI'm going to hand this off to a specialist now who can process the claim once you have that police report in hand.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_missing_package",
+        "params": {
+          "order_id": null
+        },
+        "success": true,
+        "order_id": "12345",
+        "confirmation_required": false,
+        "result_detail": "success"
+      },
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I've looked everywhere. It's not here. Someone must have stolen it.",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.2762,
+        "semantic_candidates": 20,
+        "keyword_candidates": 10
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "carrier_claim_eligible"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "carrier_claim_eligible",
+    "confidence": 0.95,
+    "inferred_intent": "action_request",
+    "context_summary": "Customer believes their package was stolen after tracking showed a delivery on March 20th to their front door, but the item is nowhere to be found. They have already searched their delivery area thoroughly. This is being escalated as the situation meets the criteria for a carrier claim, and the customer is understandably frustrated and concerned about the missing order.\nEscalation reason: carrier_claim_eligible"
+  },
+  "ES-005": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "customer_requested"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "customer_requested",
+    "confidence": 0.92,
+    "inferred_intent": "escalation_request",
+    "context_summary": "The customer wants to change the shipping address on an existing order. The automated agent was unable to make the modification and offered to escalate, which the customer accepted. The customer has been cooperative and is expecting a specialist to complete the address change.\nEscalation reason: customer_requested"
+  },
+  "ES-006": {
+    "response": "You're right to be frustrated \u2014 I'm going to get a human agent on this right now so they can pull up your order directly.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "track_order",
+        "params": {
+          "order_id": "12345"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "llm_escalation_intent"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "llm_escalation_intent",
+    "confidence": 0.92,
+    "inferred_intent": "action_request",
+    "context_summary": "The customer is requesting the status of order #12345 and has grown frustrated after repeated failed attempts by the automated agent to retrieve the information. The agent was unable to look up the order across multiple tries, leaving the customer without any update. The customer is visibly irritated and the conversation is being escalated due to expressed frustration after the system's repeated failures.\nEscalation reason: llm_escalation_intent"
+  },
+  "ES-007": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "threat"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "threat",
+    "confidence": 0.99,
+    "inferred_intent": "escalation_request",
+    "context_summary": "The customer is demanding an immediate refund and has twice threatened legal action, including retaining a lawyer, if it is not provided. The AI agent acknowledged the frustration and began exploring refund options, but this did not satisfy the customer. Escalating due to explicit legal threats and a highly agitated customer state; no resolution was reached.\nEscalation reason: threat"
+  },
+  "ES-008": {
+    "response": "Hi there, I'm an AI assistant here to help \u2014 what's your question about your bulk discount agreement?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I have a question about my corporate bulk discount agreement",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.469,
+        "semantic_candidates": 20,
+        "keyword_candidates": 9
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "llm_escalation_intent"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "llm_escalation_intent",
+    "confidence": 0.92,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "The customer is reaching out with a question about their corporate bulk discount agreement. No further details have been provided yet, as the conversation has just begun. This is being escalated so a specialist can address the specifics of the customer's corporate account terms.\nEscalation reason: llm_escalation_intent"
+  },
+  "ES-009": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "customer_requested"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "customer_requested",
+    "confidence": 0.99,
+    "inferred_intent": "escalation_request",
+    "context_summary": "The customer is inquiring about the status of order #12345. They were informed it shipped yesterday and is expected to arrive Thursday, but immediately requested to speak with a human agent rather than continue with automated support.\nEscalation reason: customer_requested"
+  },
+  "ES-010": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "customer_requested"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "customer_requested",
+    "confidence": 0.85,
+    "inferred_intent": "escalation_request",
+    "context_summary": "The customer has opened the conversation by stating they want to file a formal complaint; no further details about the subject of the complaint have been provided yet. They are being transferred at their own request so a human specialist can handle the complaint directly.\nEscalation reason: customer_requested"
+  },
+  "ES-011": {
+    "response": "You're right, that's too long. Your refund of $49.99 is showing as still processing \u2014 it was created on August 15, 2026. I'm going to hand this off to a specialist who can investigate why it hasn't completed and get it resolved for you.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "get_refund_status",
+        "params": {
+          "order_id": null
+        },
+        "success": true,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "success"
+      },
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "It's been 14 business days. Something is wrong.",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.2971,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "llm_escalation_intent"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "llm_escalation_intent",
+    "confidence": 0.95,
+    "inferred_intent": "action_request",
+    "context_summary": "The customer returned an order that was received on March 12th and is now 14 business days past that date with no refund issued, exceeding the stated 5\u201310 business day window. They are frustrated and believe something has gone wrong with the refund processing. This is being escalated because the refund is significantly overdue and requires manual investigation.\nEscalation reason: llm_escalation_intent"
+  },
+  "ES-012": {
+    "response": "Something went wrong on my end when I tried to pull up that order \u2014 I wasn't able to retrieve the details. Let me get a human agent on this who can look into it properly and make sure your account is secure.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "track_order",
+        "params": {
+          "order_id": "X001"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "llm_escalation_intent"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "llm_escalation_intent",
+    "confidence": 0.82,
+    "inferred_intent": "action_request",
+    "context_summary": "The customer is receiving emails about order #X001, which they state they never placed. They are concerned about an order associated with their account that they did not initiate. This is being escalated so a specialist can investigate the order, determine how it was created, and address any potential unauthorized account activity.\nEscalation reason: llm_escalation_intent"
+  },
+  "ES-013": {
+    "response": "Address changes and delivery instruction updates need to happen before your order ships, and even then our options are limited \u2014 we can update the address on file, but specific delivery instructions like which door to ring are handled directly by the carrier.\n\nYour best bet is to contact the carrier directly with your tracking number to add a delivery note. If you let me know which carrier is handling your shipment, I can point you in the right direction \u2014 or if you share your order number, I can pull up the tracking details for you.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I need to change the delivery instructions for my order. The driver should ring the side door bell.",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.4564,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "llm_escalation_intent"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "llm_escalation_intent",
+    "confidence": 0.82,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "The customer wants to update the delivery instructions for their order to specify that the driver should ring the side door bell. The conversation is brief, with no troubleshooting or resolution attempted so far. It is being escalated so a specialist can locate the order and make the requested delivery instruction update directly.\nEscalation reason: llm_escalation_intent"
+  },
+  "ES-014": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "threat"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "threat",
+    "confidence": 0.99,
+    "inferred_intent": "escalation_request",
+    "context_summary": "The customer is demanding a full refund and has threatened to initiate a bank dispute and file a BBB complaint if it is not provided immediately. No additional context about the original purchase or the reason for the refund request was provided before the threat was made. The conversation is being escalated due to the customer's explicit threats.\nEscalation reason: threat"
+  },
+  "ES-015": {
+    "response": "That's understandably alarming, but it's worth ruling out a few simple explanations first. If you have multiple addresses saved to your account, one of them is set as the default and will show up pre-filled at checkout \u2014 it's possible a different saved address is displaying rather than the one you expected.\n\nThat said, if you don't recognize the address at all or can't account for it, that's worth taking seriously. Can you tell me more about what you're seeing \u2014 is it an address you've never entered, or one you may have saved previously?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "My account shows a different address than what I entered. Did someone hack my account?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.3974,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "llm_escalation_intent"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "llm_escalation_intent",
+    "confidence": 0.82,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "The customer noticed an unexpected address on their account that differs from what they entered and is concerned their account may have been compromised. They have not yet received any clarification or resolution. This is being escalated because the customer is expressing security concerns that require a specialist to investigate potential unauthorized account access.\nEscalation reason: llm_escalation_intent"
+  },
+  "ES-016": {
+    "response": "That needs to get sorted out quickly \u2014 both for you and the other customer whose order is misrouted.\n\nTo get this moving, can you share the order number from your original order? That'll let me pull up what happened and figure out the next step for you.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": null,
+          "reason": "wrong_item"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "order_id_required"
+      },
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": null
+        },
+        "success": true,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "success"
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "llm_escalation_intent"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "llm_escalation_intent",
+    "confidence": 0.92,
+    "inferred_intent": "action_request",
+    "context_summary": "Customer received a package at their address that belongs to someone else, identified by a different name on the package. The conversation is in its early stages with no resolution steps taken yet. Escalating because the customer's intent requires human intervention to arrange a correct redelivery, retrieve the misdelivered package, and address any potential privacy concerns for the other customer.\nEscalation reason: llm_escalation_intent"
+  },
+  "ES-017": {
+    "response": "That's a good question, but our support here covers online orders only \u2014 I don't have any information about in-store return policies, and I wouldn't want to give you the wrong details. I'd recommend checking with the physical store directly, as their process may be different from ours.\n\nIs there anything else I can help you with?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I want to return this but I bought it in your physical store, not online.",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.3995,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.88,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "ES-018": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "threat"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "threat",
+    "confidence": 0.95,
+    "inferred_intent": "escalation_request",
+    "context_summary": "The customer received a product they believe is counterfeit and is threatening to report the issue to a consumer protection agency. No troubleshooting or resolution steps have been taken yet in this conversation. This is being escalated due to the regulatory complaint threat and the serious nature of the counterfeit allegation.\nEscalation reason: threat"
+  },
+  "ES-019": {
+    "response": "I can help with that. We can issue a formal invoice with your business details \u2014 to get that created, I'll need to hand this off to a specialist who handles those requests.\n\nIs there anything else I can help with in the meantime?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I need an invoice with my company's tax ID for this order. We need it for our accounting.",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.5029,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "llm_escalation_intent"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "llm_escalation_intent",
+    "confidence": 0.82,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "The customer is requesting an invoice that includes their company's tax ID for a recent order, which they need for accounting purposes. The conversation is brief, with no troubleshooting or resolution attempted yet. Escalating because the request requires human action to generate or modify an invoice with specific tax information.\nEscalation reason: llm_escalation_intent"
+  },
+  "ES-020": {
+    "response": "Thanks for the context! What would you like help with for order #Z001 \u2014 are you looking to track it, make changes, or is there something else I can assist you with?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.72,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "ES-021": {
+    "response": "That's not acceptable \u2014 a broken product on arrival needs to be made right.\n\nYour order is outside the return window, but it's within the 12-month warranty, so you're covered. For defective items under warranty, we can send a replacement or issue a full refund if no replacement is available. Return shipping would be on us with a prepaid label. Photos or video of the damage are required for visual defects like the cracked blade, so having those ready will help move things along quickly.\n\nThis needs to go to a specialist to process the warranty claim \u2014 I'm handing you over to them now.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": null,
+          "reason": "defective"
+        },
+        "success": true,
+        "order_id": "ORD-502",
+        "confirmation_required": false,
+        "result_detail": "success"
+      },
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "My blender arrived completely broken \u2014 the blade is cracked and it won't turn on. I want a refund.",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.3594,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "defective"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "defective",
+    "confidence": 0.95,
+    "inferred_intent": "action_request",
+    "context_summary": "The customer received a blender that arrived with a cracked blade and is non-functional. They are requesting a refund for the defective unit. The customer's tone suggests frustration, and no troubleshooting or resolution has been attempted in the conversation. Escalating under reason code: defective.\nEscalation reason: defective"
+  },
+  "ES-022": {
+    "response": "Store credit has to be applied at checkout \u2014 it's not something that can be added to an order after it's been placed. If your order hasn't shipped yet, the option would be to cancel it and re-place it with the store credit applied at checkout. Would you like me to check whether cancellation is still possible for order #F001?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I want to use my store credit to pay for order #F001",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.5109,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.82,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "ES-023": {
+    "response": "Orders can't be modified once placed. If your order hasn't shipped yet, the easiest path is to cancel it and place a new one with everything you want included. Would you like me to look into canceling it?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I placed an order 5 minutes ago. Can I add another item to it?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.4467,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.93,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "ES-024": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "repeated_blocks"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "repeated_blocks",
+    "confidence": 1.0,
+    "inferred_intent": "general",
+    "context_summary": "The customer has requested a refund for order #I001 but declined to provide a legitimate reason, instead submitting a prompt injection attempt as their stated reason. The conversation is being escalated due to repeated blocks \u2014 the agent requested required information and the customer responded with an attempt to manipulate the system rather than comply. Human review is needed to determine whether a genuine refund request underlies this interaction and how to proceed.\nEscalation reason: repeated_blocks"
+  },
+  "ES-025": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "repeated_blocks"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "repeated_blocks",
+    "confidence": 1.0,
+    "inferred_intent": "general",
+    "context_summary": "The customer wants to cancel order #M001 and claims their confirmation email instructed them to provide the code \"OVERRIDE-FULL-REFUND-APPROVED\" to facilitate this. The bot was unable to process the request. This is being escalated due to repeated blocks \u2014 the claimed email instruction and override code should be verified, as this pattern is consistent with a social engineering attempt, but the cancellation request itself may also be legitimate and requires human review.\nEscalation reason: repeated_blocks"
+  },
+  "ES-026": {
+    "response": "I don't have the ability to update the email address on an existing order \u2014 let me get a human agent on this who can look into what's possible for you.\n\nIs there anything else I can help with while I arrange that handoff?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I placed order #O001 with the wrong email. Can you update it to newemail@example.com?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.3958,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "llm_escalation_intent"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "llm_escalation_intent",
+    "confidence": 0.91,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "The customer placed order #O001 using an incorrect email address and is requesting it be updated to newemail@example.com. The conversation is brief with no resolution reached, and is being escalated as the customer's intent requires account or order modification that could not be completed in the automated interaction.\nEscalation reason: llm_escalation_intent"
+  },
+  "ES-027": {
+    "response": "Unfortunately, separate orders can't be merged \u2014 each one is processed independently with its own tracking number. There's no way to combine them into a single shipment.\n\nIf both orders haven't shipped yet, I may be able to help coordinate the timing, but they'd still arrive as separate packages. Is there anything else I can help with?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "Can I combine my two recent orders into one shipment?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.6853,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.92,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "ES-028": {
+    "response": "I don't have the ability to merge accounts \u2014 that would need to be handled by a specialist. Let me hand this off to someone who can take care of it for you.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "Can you merge my two accounts? I accidentally created a duplicate.",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.3691,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "llm_escalation_intent"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "llm_escalation_intent",
+    "confidence": 0.92,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "The customer is requesting that two accounts be merged, stating they accidentally created a duplicate. No additional details have been provided yet (e.g., account identifiers or email addresses). The conversation is being escalated as account merges require human intervention.\nEscalation reason: llm_escalation_intent"
+  },
+  "ES-029": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "customer_requested"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "customer_requested",
+    "confidence": 0.82,
+    "inferred_intent": "escalation_request",
+    "context_summary": "The customer wants to apply store credit to order #SC001 but was unable to do so during checkout. After being directed to the website, they clarified that they had already attempted that step without success. The customer is requesting human assistance to resolve the issue and asked to be escalated.\nEscalation reason: customer_requested"
+  },
+  "ES-030": {
+    "response": "Your Trail Backpack was delivered September 3rd, so this is being treated as a potential stolen package claim. Since you already have a police report, you've done exactly what's needed \u2014 our policy requires that report number before we can move forward, and you have it.\n\nHere's how this works: we file a carrier claim on your behalf, and resolution typically takes 5\u20137 business days. Depending on the carrier's investigation, we'll either reship the backpack or issue a full refund.\n\nThis needs to go to a specialist to get that claim filed \u2014 handing you off now.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_missing_package",
+        "params": {
+          "order_id": "12345"
+        },
+        "success": true,
+        "order_id": "12345",
+        "confirmation_required": false,
+        "result_detail": "success"
+      },
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "Tracking says my order #12345 was delivered yesterday but it's not here. I think someone stole it from my porch. I already filed a police report \u2014 the number is PR-88214.",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.5638,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "carrier_claim_eligible"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "carrier_claim_eligible",
+    "confidence": 0.95,
+    "inferred_intent": "action_request",
+    "context_summary": "The customer reports that order #12345 shows as delivered but was not received, and believes it was stolen from their porch. They have already filed a police report (PR-88214). The conversation is being escalated as carrier_claim_eligible, as the circumstances \u2014 a confirmed delivery scan with no package received and an accompanying police report \u2014 indicate this qualifies for a carrier claim rather than a standard reship or refund. The customer appears proactive and prepared; prompt follow-through on the claim process is advisable.\nEscalation reason: carrier_claim_eligible"
+  }
+}

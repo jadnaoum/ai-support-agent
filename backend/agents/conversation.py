@@ -32,6 +32,51 @@ INTENT_PROMPT = get_prompt("intent_prompt")
 RESPONSE_PROMPT = get_prompt("response_prompt")
 REDIRECT_PROMPT = get_prompt("redirect_prompt")
 LOOP_DECISION_PROMPT = get_prompt("loop_decision_prompt")
+ESCALATION_SUMMARY_PROMPT = get_prompt("escalation_summary_prompt")
+
+
+async def summarize_for_handoff(
+    messages: list,
+    reason: str,
+    actions_taken: list = None,
+    retrieved_context: list = None,
+) -> str:
+    """LLM-written handoff briefing for the human specialist (internal-facing,
+    never shown to the customer). One call per escalation — escalations are
+    rare and terminal, so the added latency is acceptable.
+
+    Decided 2026-09-04: the summary is a synthesis of the CONVERSATION only —
+    the specialist has full account access, so no data extraction belongs
+    here. Falls back to the deterministic build_context_summary() on any LLM
+    error (if the LLM is down, escalations are exactly what still must work).
+    """
+    role_label = {"customer": "Customer", "agent": "Agent"}
+    convo = "\n".join(
+        f"{role_label.get(m.get('role'), m.get('role', '?'))}: {m.get('content', '')}"
+        for m in (messages or [])[-12:]
+        if m.get("role") in role_label
+    ) or "(no messages)"
+    try:
+        result = await litellm.acompletion(
+            model=settings.litellm_classifier_model,
+            messages=[{
+                "role": "user",
+                "content": ESCALATION_SUMMARY_PROMPT.format(reason=reason, conversation=convo),
+            }],
+            stream=False,
+            request_timeout=LLM_TIMEOUT,
+        )
+        text = (result.choices[0].message.content or "").strip()
+        if text:
+            return f"{text}\nEscalation reason: {reason}"
+    except Exception as e:
+        logger.warning("summarize_for_handoff fell back to deterministic summary (%s)", type(e).__name__)
+    return build_context_summary(
+        messages=messages or [],
+        actions_taken=actions_taken or [],
+        retrieved_context=retrieved_context or [],
+        reason=reason,
+    )
 
 
 def _result_guidance_notes(action_results: list) -> "list[str]":
@@ -137,6 +182,13 @@ async def _classify_intent(state: AgentState, config: dict = None) -> tuple[str,
             action_details = {
                 "clarification_prompt": parsed.get("clarification_prompt", "Could you provide a bit more detail so I can help you?"),
             }
+        if intent == "escalation_request":
+            # trigger disambiguates the two reasons that share this intent as
+            # their detector: "threat" vs explicit human request. Anything else
+            # (missing, garbage) falls back to customer_requested — the
+            # classifier forgetting the field can never produce a worse label
+            # than the pre-trigger behavior.
+            action_details = {"trigger": parsed.get("trigger", "")}
         reasoning = parsed.get("reasoning", "") if debug else ""
         return intent, confidence, action_details, reasoning
     except Exception as e:
@@ -305,11 +357,11 @@ async def _do_escalate(
     """
     _db = config.get("configurable", {}).get("db")
     _conv_id = config.get("configurable", {}).get("conversation_id", "")
-    summary = build_context_summary(
+    summary = await summarize_for_handoff(
         messages=state.get("messages") or [],
+        reason=f"{reason} ({detail})" if detail else reason,
         actions_taken=state.get("actions_taken") or [],
         retrieved_context=state.get("retrieved_context") or [],
-        reason=f"{reason} ({detail})" if detail else reason,
     )
     context = {
         "db": _db,
@@ -472,8 +524,9 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             }
 
         if intent == "escalation_request":
+            esc_reason = "threat" if action_details.get("trigger") == "threat" else "customer_requested"
             return {
-                **await _do_escalate("customer_requested", state, config, confidence=confidence),
+                **await _do_escalate(esc_reason, state, config, confidence=confidence),
                 "confidence": confidence,
                 "inferred_intent": intent,
                 "consecutive_blocks": 0,
@@ -646,14 +699,22 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
     # side effects (DB record, conversation status) the same way the
     # tool-signalled path does.
     if out_guard.get("handoff_intent"):
-        esc_reason = "llm_escalation_intent"
+        # Structural split of the handoff catch-all: if the KB was searched
+        # this turn and came back empty (post-floor), the agent is handing off
+        # because we genuinely lack the information — a different triage queue
+        # than "found policy, needs a human anyway".
+        kb_searched = any(
+            e.get("service") == "knowledge_service"
+            for e in (state.get("actions_taken") or [])
+        )
+        esc_reason = "no_information" if (kb_searched and not retrieved) else "llm_escalation_intent"
         _db = config.get("configurable", {}).get("db")
         _conv_id = config.get("configurable", {}).get("conversation_id", "")
-        summary = build_context_summary(
+        summary = await summarize_for_handoff(
             messages=state.get("messages") or [],
+            reason=esc_reason,
             actions_taken=state.get("actions_taken") or [],
             retrieved_context=retrieved,
-            reason=esc_reason,
         )
         await run_escalation_side_effects(esc_reason, {
             "db": _db,
@@ -694,11 +755,11 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
         esc_reason = esc_entry.get("reason") or "defective"
         _db = config.get("configurable", {}).get("db")
         _conv_id = config.get("configurable", {}).get("conversation_id", "")
-        summary = build_context_summary(
+        summary = await summarize_for_handoff(
             messages=state.get("messages") or [],
+            reason=esc_reason,
             actions_taken=state.get("actions_taken") or [],
             retrieved_context=retrieved,
-            reason=esc_reason,
         )
         await run_escalation_side_effects(esc_reason, {
             "db": _db,

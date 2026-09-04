@@ -125,10 +125,40 @@ _ESCALATION_PROMPT = get_prompt("escalation_prompt")
 
 
 async def judge_escalation(test_case: dict, agent_response: dict, calibrate: bool = False) -> dict:
+    # Structural reason check (hybrid design, 2026-09-03): the sheet's
+    # escalation_reason column holds SYSTEM ENUM CODES (pipe-separated
+    # alternatives allowed) from ESCALATION_TRIGGER_REASONS, so the reason
+    # match is exact and programmatic — the LLM judge evaluates only the
+    # decision, framing, and context summary. "none"/empty means no
+    # escalation expected; the rubric governs that case.
+    expected_raw = str(test_case.get("escalation_reason") or "").strip().lower()
+    actual_reason = str(agent_response.get("escalation_reason") or "").strip()
+    escalated = bool(agent_response.get("requires_escalation"))
+    reason_note = expected_raw
+    if expected_raw and expected_raw != "none" and escalated:
+        expected_set = {t.strip() for t in expected_raw.split("|") if t.strip()}
+        if actual_reason not in expected_set:
+            return {
+                "verdict": "fail",
+                "score": 0.0,
+                "reasoning": (
+                    f"Structural reason check: agent escalated with reason code "
+                    f"'{actual_reason}' but the expected code(s) are '{expected_raw}'. "
+                    "No LLM judgment involved — exact enum comparison."
+                ),
+                "failure_reason": "wrong_escalation_reason",
+                "cost_usd": 0.0,
+            }
+        reason_note = (
+            f"{expected_raw} (STRUCTURALLY VERIFIED: the agent's reason code "
+            f"'{actual_reason}' matches — do not judge reason labels; evaluate "
+            "only the decision, the response framing, and the context summary)"
+        )
+
     prompt = _ESCALATION_PROMPT.format(
         conversation=test_case.get("conversation", ""),
         mock_account_state=test_case.get("mock_account_state", "{}"),
-        escalation_reason=test_case.get("escalation_reason", ""),
+        escalation_reason=reason_note,
         expected_behavior=test_case.get("expected_behavior", ""),
         judge_rubric=test_case.get("judge_rubric", ""),
         agent_response=agent_response.get("response", ""),

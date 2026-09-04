@@ -44,11 +44,16 @@ ESCALATION_TRIGGER_REASONS: frozenset = frozenset({
     "unhandled_error",        # tool/service error, or repeated system failures (chat.py)
     # Intent-classifier-triggered
     "unable_to_clarify",      # clarification cap hit or clarification blocked
-    "customer_requested",     # classifier returned escalation_request intent
+    "customer_requested",     # explicit ask for a human (classifier trigger "requested" or absent)
+    "threat",                 # legal/chargeback/regulatory threat tied to a demand
+                              #   (classifier trigger "threat" on escalation_request)
     "abusive_input",          # input guard flagged abusive language
     "repeated_blocks",        # 3 consecutive input-guard blocks
-    # Output-guard handoff detection (Option 2)
-    "llm_escalation_intent",  # agent wrote handoff language on knowledge_query path
+    # Output-guard handoff detection (Option 2) — split structurally by whether
+    # the KB search this turn actually found anything (retrieved_context state):
+    "no_information",         # agent handed off after the KB came back empty
+    "llm_escalation_intent",  # agent handed off with KB content present
+                              #   (needs approval / human process / judgment call)
 })
 
 _HANDOFF_MESSAGE = "This one needs a human — let me connect you with someone who can help."

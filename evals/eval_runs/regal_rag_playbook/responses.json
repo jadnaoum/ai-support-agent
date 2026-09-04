@@ -1,0 +1,462 @@
+{
+  "KB-001": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "How do I return an item?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4873
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "Customer issue: How do I return an item?\nKB retrieved: Returns and Refunds\nEscalation reason: policy_exception"
+  },
+  "KB-002": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "Do you ship internationally?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4648
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "Customer issue: Do you ship internationally?\nKB retrieved: Shipping and Delivery, Frequently Asked Questions, Payment Methods and Billing\nEscalation reason: policy_exception"
+  },
+  "KB-003": {
+    "response": "Go to the login page and click \"Forgot Password,\" enter your account email, and you'll receive a reset link within a few minutes \u2014 check your spam folder if it doesn't show up. The link is valid for 24 hours, and your new password will need to be at least 8 characters with a mix of letters and numbers.\n\nNote that we can't retrieve your current password, only reset it.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "How do I change my password?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.5455
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-004": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "I washed my jacket and it shrunk \u2014 is that covered?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.3235
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "Customer issue: I washed my jacket and it shrunk \u2014 is that covered?\nKB retrieved: Product Warranties, Returns and Refunds\nEscalation reason: policy_exception"
+  },
+  "KB-005": {
+    "response": "I don't have the specific policy details on opened but unused items in our knowledge base. Let me connect you with a specialist who can give you a definitive answer on that.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "What if I opened it but didn't use it?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.3533
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-006": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "Can I exchange my size M for a size L?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4788
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "Customer issue: Can I exchange my size M for a size L?\nKB retrieved: Business Limitations, Payment Methods and Billing, Returns and Refunds\nEscalation reason: policy_exception"
+  },
+  "KB-007": {
+    "response": "I'm sorry to hear that! To help you out, could you tell me what you'd like to do \u2014 would you like to return the item or get a refund?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.78,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "KB-008": {
+    "response": "I specialise in e-commerce support \u2014 orders, returns, shipping, and account questions. Is there something along those lines I can help you with?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.0,
+    "inferred_intent": "",
+    "context_summary": ""
+  },
+  "KB-009": {
+    "response": "Standard shipping takes 5\u20137 business days. It's free on orders over $50, otherwise $4.99.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "How long does standard shipping take?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.5939
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-010": {
+    "response": "You can sign up by clicking \"Sign Up\" and entering your name, email, and password, or create one during checkout by checking \"Save my information.\" You can also sign in with Google or Apple if you prefer.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "How do I create an account?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.6609
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-011": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "Is the Horizon backpack waterproof? I'm going hiking in the rain.",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.1974
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "Customer issue: Is the Horizon backpack waterproof? I'm going hiking in the rain.\nKB retrieved: Product Warranties, Returns and Refunds, Frequently Asked Questions\nEscalation reason: policy_exception"
+  },
+  "KB-012": {
+    "response": "Only if the product is rated waterproof \u2014 liquid damage on non-waterproof items isn't covered.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "Does that include water damage?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4647
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-013": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "What's the difference between your Express and Priority shipping?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.5339
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "Customer issue: What's the difference between your Express and Priority shipping?\nKB retrieved: Shipping and Delivery\nEscalation reason: policy_exception"
+  },
+  "KB-014": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.5,
+    "inferred_intent": "general",
+    "context_summary": "Customer issue: Do you have a loyalty program or rewards?\nEscalation reason: policy_exception"
+  },
+  "KB-015": {
+    "response": "That's not something I have information on \u2014 our knowledge base covers orders, returns, payments, and account questions, but not product ingredients or allergen details.\n\nLet me connect you with a specialist who can give you accurate answers on that. One moment.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "What are the ingredients in your products? Are they safe for someone with nut allergies?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.3305
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-016": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.5,
+    "inferred_intent": "general",
+    "context_summary": "Customer issue: I want to return my order but I threw away the packaging\nEscalation reason: policy_exception"
+  },
+  "KB-017": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "Can I track my order on your website?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.5351
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "Customer issue: Can I track my order on your website?\nKB retrieved: Shipping and Delivery, Account Management, Frequently Asked Questions, Payment Methods and Billing\nEscalation reason: policy_exception"
+  },
+  "KB-018": {
+    "response": "Yes \u2014 when you add gift wrapping at checkout ($4.99), the packing slip won't include any prices. You can also add a personalized message up to 150 characters at no extra charge.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "I'm buying a gift. Can the receipt be excluded from the package?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4311
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-020": {
+    "response": "Since your neighbor doesn't have it, here's where things stand: check around your property in case it was left somewhere less obvious, and confirm the shipping address on the order is correct. If it's still missing after one additional business day (carriers sometimes mark delivered early), I can open a case to get you reshipped or fully refunded.\n\nIf you've already done all that and you're confident it's gone, let me know and I'll get the process started now.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "My neighbor says they don't have it. What are my options?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.2685
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-021": {
+    "response": "Since you're about 3 weeks in, this falls within the 30-day return window, but electronics have a 14-day return window \u2014 so headphones would likely be past that cutoff.\n\nThe good news is that a defective item within the warranty period is handled as a warranty claim, which means you're still covered. The process involves our team reviewing the claim and then either sending a replacement or issuing a full refund. Return shipping would be covered with a prepaid label.\n\nI'll need to escalate this to a specialist to get the claim started \u2014 can you share your order number so we have that ready?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": null,
+          "reason": "defective"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "defective_within_warranty"
+      },
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "warranty claim defective product outside return window warranty coverage repair",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.6197
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "KB-022": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "I ordered from Canada and paid $40 in customs when it arrived. Now I want to return the item \u2014 will I get the customs fees refunded too?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4187
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "Customer issue: I ordered from Canada and paid $40 in customs when it arrived. Now I want to return the item \u2014 will I get the customs fees refunded too?\nKB retrieved: Returns and Refunds, Frequently Asked Questions\nEscalation reason: policy_exception"
+  },
+  "KB-023": {
+    "response": "I'm having trouble processing your request right now. Please try again in a moment.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "I bought a blender using a $50 gift card and paid the rest on my Visa. If I return it, how does the refund work?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4848
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-024": {
+    "response": "Good question \u2014 these are actually two separate policies, so let me break down where you stand.\n\nOn the price adjustment: if the item went on sale within 14 days of your purchase, you're entitled to a one-time adjustment for the difference, refunded to your original payment method. Since you're at 10 days, you're still within that window. However, there's a catch \u2014 this doesn't apply to items originally purchased during a limited-time promotion or flash sale. If your 20% promo code qualifies as one of those, the price adjustment may not be available.\n\nIf the promo code was a standard discount rather than a flash sale or limited-time promotion, you should be eligible. Would you like me to look up your order and check?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "I used a 20% promo code on my order 10 days ago, and now the same item is on sale for even less. Can I get a price adjustment to the sale price?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.5802
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-025": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "If I delete my account, will my pending refund still go through?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4854
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "Customer issue: If I delete my account, will my pending refund still go through?\nKB retrieved: Account Management, Frequently Asked Questions, Returns and Refunds\nEscalation reason: policy_exception"
+  },
+  "KB-026": {
+    "response": "This one needs a human \u2014 let me connect you with someone who can help.",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.5,
+    "inferred_intent": "general",
+    "context_summary": "Customer issue: I ordered the wrong size. Can I change it to a Large?\nEscalation reason: policy_exception"
+  }
+}

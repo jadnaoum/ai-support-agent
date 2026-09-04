@@ -1,0 +1,858 @@
+{
+  "AE-001": {
+    "response": "Your Trail Running Shoes shipped and are estimated to arrive on March 28, 2026. Is there anything else I can help you with?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "track_order",
+        "params": {
+          "order_id": "12345"
+        },
+        "success": true,
+        "order_id": "12345",
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-002": {
+    "response": "To process that cancellation, I need to know the reason. Could you tell me why you'd like to cancel \u2014 for example, did you change your mind, order the wrong item or size, or something else?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": "67890",
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "reason_required"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-003": {
+    "response": "That's not okay \u2014 let me explain what you're entitled to here.\n\nYour Ceramic Mug from order #11111 arrived 10 days ago, which puts it well within the 30-day return window. For a defective item in this situation, you're eligible for either a free replacement (ships within 1\u20132 business days) or a full refund including original shipping charges. Photos of the damage help speed things up but aren't required to get started.\n\nI'm going to connect you with a specialist now to process this for you \u2014 they'll get it sorted out quickly.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": "11111",
+          "reason": "defective"
+        },
+        "success": true,
+        "order_id": "11111",
+        "confirmation_required": false,
+        "result_detail": "success"
+      },
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "defective damaged item return policy within return window refund replacement",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.7379,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "defective_within_return_window"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "defective_within_return_window",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": "Customer issue: I want a refund for order #11111\nOrders: #11111\nActions attempted: check_return_eligibility(#11111) \u2192 success\nKB retrieved: Returns and Refunds, Product Warranties, Shipping and Delivery\nEscalation reason: defective_within_return_window"
+  },
+  "AE-004": {
+    "response": "That order has already shipped, so cancellation isn't possible. Once your Leather Belt arrives, you can return it for a refund. Would you like more information about how the return process works?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": "22222",
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "shipped"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-005": {
+    "response": "Both of your recent orders are eligible for a return. You have the Hiking Boots from order #33333, delivered 15 days ago, and the Denim Jacket from order #44444, delivered 8 days ago \u2014 both are within the 30-day return window.\n\nWhich one would you like to return, or is it both?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": null,
+          "reason": null
+        },
+        "success": true,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-006": {
+    "response": "Sure \u2014 before I can process that cancellation, could you tell me why you'd like to cancel order #77777?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": "77777",
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "reason_required"
+      },
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": "77777",
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "reason_required"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-007": {
+    "response": "Sizing changes aren't possible once an order is placed. Here's what you can do depending on where things stand:\n\nIf your order hasn't shipped yet, I can cancel it so you can place a new one in the correct size. If it's already been delivered, you'd return it for a refund and place a new order.\n\nDo you know whether your order has shipped yet, or would you like me to look that up?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I ordered the wrong size. Can I change it to a Large?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.5651,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "AE-008": {
+    "response": "Sure \u2014 can you tell me why you'd like to return all three? That'll help me get the process started for the Canvas Tote Bag, Running Shoes, and Ceramic Mug.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": null,
+          "reason": null
+        },
+        "success": true,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-009": {
+    "response": "Hi Test Customer, I'm an AI assistant here to help with your orders \u2014 what can I do for you?\n\nOrder #99001 contains a Desk Lamp ($54.99) and is currently in **placed** status, meaning it's been received but hasn't shipped yet. Would you like to do anything with this order, such as cancel it?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "track_order",
+        "params": {
+          "order_id": "99001"
+        },
+        "success": true,
+        "order_id": "99001",
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-010": {
+    "response": "Your Polo Shirt from order #77001 is within the 30-day return window (10 days since delivery), so you're good to go for a return and refund.\n\nA couple of things to keep in mind: the item needs to be in its original condition with tags attached. If there are signs of use or packaging is missing or damaged, a partial refund may apply instead of a full one \u2014 the warehouse inspects the item on receipt.\n\nWould you like me to go ahead and initiate the return?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": "77001",
+          "reason": "not_as_described"
+        },
+        "success": true,
+        "order_id": "77001",
+        "confirmation_required": false,
+        "result_detail": "success"
+      },
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I'd like a refund for order #77001. The item was the wrong color.",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.4393,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-011": {
+    "response": "Your only order eligible for cancellation is order A001 \u2014 a Beanie, currently in \"placed\" status. Would you like me to go ahead and cancel it?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": null,
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "order_id_required"
+      },
+      {
+        "service": "action_service",
+        "action": "check_cancel_eligibility",
+        "params": {
+          "order_id": null
+        },
+        "success": true,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-012": {
+    "response": "I don't have enough information in my system right now to confirm whether a return is possible in this situation. Let me connect you with a specialist who can review the details and help you from there.",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.5,
+    "inferred_intent": "general",
+    "context_summary": ""
+  },
+  "AE-013": {
+    "response": "Unfortunately, once an order is cancelled it can't be reinstated. You'd need to place a new order for the Horizon Backpack.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "Wait, I changed my mind. Can you undo that?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.2378,
+        "semantic_candidates": 20,
+        "keyword_candidates": 6
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "AE-014": {
+    "response": "Your order #D001 is eligible for a return, so we can get that sorted out. Items need to be returned within the 30-day window, and the warehouse will inspect on receipt. Would you like me to go ahead and initiate a return for the duplicate item?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": "D001",
+          "reason": "wrong_item"
+        },
+        "success": true,
+        "order_id": "D001",
+        "confirmation_required": false,
+        "result_detail": "success"
+      },
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I got two of the same item but only ordered one. Order #D001.",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.3137,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-015": {
+    "response": "Refunds can only be issued to the original payment method used for the order \u2014 we're not able to redirect them to a different card.\n\nIf your original card is no longer active, your bank can typically forward the refund to your new account once it's received. It's worth checking with them directly on that.\n\nIs there anything else I can help you with?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "Process a refund for order #E001 to a different card ending in 9999",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.4433,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "AE-016": {
+    "response": "Your Cotton Hoodie from order #G001 was delivered on April 8th. Is there anything else I can help you with?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "track_order",
+        "params": {
+          "order_id": "G001"
+        },
+        "success": true,
+        "order_id": "G001",
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-017": {
+    "response": "Unfortunately, items can't be added to an existing order once it's placed. If you need something else, you'd need to place a separate order. If both orders end up shipping together, you won't be charged extra for shipping.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I placed an order 5 minutes ago. Can I add another item to it?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.3964,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "AE-018": {
+    "response": "Promo codes can't be applied after an order is placed \u2014 that's a firm system limitation, not something support can override either.\n\nThe only way to use the code is to cancel order #K001 (if it hasn't shipped yet) and re-place it with SAVE20 applied at checkout. Would you like me to check if the order is still cancellable?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "Apply promo code SAVE20 to my order #K001",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.4483,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "AE-019": {
+    "response": "That's frustrating \u2014 a missing item isn't acceptable. Based on what I can see, your order L001 has been delivered and is eligible for a carrier investigation, which can result in either a reship or a full refund.\n\nThis does need to go to a specialist to file the carrier claim on your behalf. Let me connect you with someone who can get that moving right now.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_missing_package",
+        "params": {
+          "order_id": "L001"
+        },
+        "success": true,
+        "order_id": "L001",
+        "confirmation_required": false,
+        "result_detail": "success"
+      },
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I received order #L001 but one of the three items was missing.",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.3766,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "defective_item"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "defective_item",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": "Customer issue: I received order #L001 but one of the three items was missing.\nOrders: #L001\nActions attempted: check_missing_package(#L001) \u2192 success\nKB retrieved: Business Limitations, Frequently Asked Questions, Shipping and Delivery, Account Management\nEscalation reason: defective_item"
+  },
+  "AE-020": {
+    "response": "Unfortunately, Amazon doesn't qualify for price matching \u2014 our policy covers competitor authorized retailers, but marketplace sellers don't meet that criteria, and Amazon operates as a marketplace.\n\nIf you find the same backpack at a traditional authorized retailer for less, I can look into a price match for you. Is there anything else I can help with?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "Can I get a price match? I found the same backpack for $10 less on Amazon.",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.5614,
+        "semantic_candidates": 20,
+        "keyword_candidates": 14
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "AE-021": {
+    "response": "To confirm: I'll process a return for the Wireless Headphones from order R001, with the reason listed as \"changed mind.\" The USB-C Cable will stay as-is.\n\nShall I go ahead?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": "R001",
+          "reason": "changed_mind"
+        },
+        "success": false,
+        "order_id": "R001",
+        "confirmation_required": true,
+        "result_detail": "confirmation_pending"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-022": {
+    "response": "That order has already been cancelled \u2014 no action needed on that front. Is there anything else I can help you with?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": "S001",
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "already_cancelled"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-023": {
+    "response": "Direct exchanges aren't available, but here's how to get the size you need: if your order hasn't shipped yet, I can cancel it so you can place a new one in large. If it's already been delivered, you'd return it for a refund and place a new order.\n\nLet me check the status of order #T001 \u2014 would you like me to look into that now?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I want to exchange my jacket for a size large. Order #T001.",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.4361,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "AE-024": {
+    "response": "That order has already been delivered, so cancellation isn't possible. You can request a return/refund instead \u2014 would you like me to look into that for you?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": "U001",
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "delivered"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-025": {
+    "response": "Hi Test Customer, I'm an AI assistant here to help with your orders!\n\nYour Baseball Cap order (V001) was placed about an hour ago and is currently in \"placed\" status \u2014 meaning it's being processed and hasn't shipped yet. Once it ships, you'll be able to track it.\n\nIs there anything else you'd like to do with this order?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "track_order",
+        "params": {
+          "order_id": null
+        },
+        "success": true,
+        "order_id": "V001",
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-026": {
+    "response": "Before I proceed, I want to confirm what will happen: the Wireless Headphones from order ORD-501 will be returned with the reason \"changed mind.\" Can you confirm you'd like to go ahead with this?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": "ORD-501",
+          "reason": "changed_mind"
+        },
+        "success": false,
+        "order_id": "ORD-501",
+        "confirmation_required": true,
+        "result_detail": "confirmation_pending"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-027": {
+    "response": "Based on the tool results, there are no refunds on file for your account at the moment.\n\nIt's possible the return is still being processed \u2014 once the warehouse receives and inspects your item, that typically takes 1\u20133 business days, followed by 3\u20135 business days for a card refund or 1\u20133 days for PayPal. Total time from return delivery to money in your account is usually 5\u20138 business days.\n\nIf it's been longer than that and you haven't received a refund confirmation email, I'd like to get a specialist to take a closer look. Would you like me to escalate this?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "get_refund_status",
+        "params": {
+          "order_id": "WB001"
+        },
+        "success": true,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "success"
+      },
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I returned my water bottle last week. Where's my refund? Order #WB001.",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.4437,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-028": {
+    "response": "That's a defect \u2014 and since your blender is only 10 days into a 30-day return window, you're entitled to either a free replacement (ships within 1\u20132 business days) or a full refund including your original shipping charges.\n\nThis needs to be handled by a specialist to process the claim. Let me connect you with one now.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": "BL001",
+          "reason": "defective"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "defective_within_return_window"
+      },
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "defective damaged item return policy within return window refund replacement",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.7379,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "defective_within_return_window"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "defective_within_return_window",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": "Customer issue: I want to return my blender. The blade is cracked and it won't turn on. Order #BL001.\nKB retrieved: Returns and Refunds, Product Warranties, Shipping and Delivery\nEscalation reason: defective_within_return_window"
+  },
+  "AE-029": {
+    "response": "Your Canvas Backpack from order W001 is eligible for a return \u2014 it's been 10 days since delivery, well within the 30-day return window.\n\nTo start the return, you can either message here with your order number (already have it) and a prepaid label will be emailed to you within 2 hours, or you can go through the online portal via Order History. Once the return is received, allow 3\u20135 business days for inspection, then typically another 3\u20135 days for the refund to hit your card (or 1\u20133 days for PayPal).\n\nWould you like me to go ahead and start the return for you?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": "W001",
+          "reason": null
+        },
+        "success": true,
+        "order_id": "W001",
+        "confirmation_required": false,
+        "result_detail": "success"
+      },
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "Can I get a refund on order #W001?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.4315,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-030": {
+    "response": "Unfortunately, your Fleece Vest (order #X001) has already shipped, so cancellation isn't possible at this point. Once it arrives, you'll be able to return it for a refund.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_cancel_eligibility",
+        "params": {
+          "order_id": "X001"
+        },
+        "success": true,
+        "order_id": "X001",
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-031": {
+    "response": "Your Scarf order (Y001) is currently eligible for cancellation. Would you like me to go ahead and cancel it?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_cancel_eligibility",
+        "params": {
+          "order_id": null
+        },
+        "success": true,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-032": {
+    "response": "Done \u2014 order #Z001 has been cancelled and a refund of $84.99 has been issued to your original payment method. Is there anything else I can help you with?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": "Z001",
+          "reason": "changed_mind"
+        },
+        "success": true,
+        "order_id": "Z001",
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-033": {
+    "response": "Before I can process the return, I just need to know \u2014 what's the reason you'd like to return the jacket?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": "AA001",
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "reason_required"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-034": {
+    "response": "Separate orders can't be merged \u2014 each one is processed independently with its own tracking number. If both orders haven't shipped yet, we may be able to coordinate timing so they go out together, but they'll remain separate orders with separate tracking.\n\nIs there anything else I can help you with?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "Can I combine my two orders into one?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.6667,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "AE-035": {
+    "response": "That's frustrating \u2014 broken headphones only 5 days in is not okay. Here's the good news: since you're still within the 14-day return window for electronics, you're entitled to either a free replacement (ships within 1\u20132 business days) or a full refund including original shipping.\n\nThis does need to be handled by a specialist to process the claim, so I'm connecting you with someone now who can get that sorted for you right away.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": "CC001",
+          "reason": "defective"
+        },
+        "success": true,
+        "order_id": "CC001",
+        "confirmation_required": false,
+        "result_detail": "success"
+      },
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "defective damaged item return policy within return window refund replacement",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.7379,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "defective_within_return_window"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "defective_within_return_window",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": "Customer issue: Can I get a refund for my broken headphones? Order #CC001.\nOrders: #CC001\nActions attempted: check_return_eligibility(#CC001) \u2192 success\nKB retrieved: Returns and Refunds, Product Warranties, Shipping and Delivery\nEscalation reason: defective_within_return_window"
+  }
+}

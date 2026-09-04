@@ -48,3 +48,7 @@ When a fixture pre-loads KB content via `mock_agent_state.retrieved_context`, re
 ```
 
 The runner resolves refs to live `docs/kb/` text at run time (`_resolve_kb_refs` in run_evals.py) — chunk_text, title, and category are filled from the file. A missing file/heading fails the run loudly. Pasted chunk_text is forbidden in new cases: it drifts silently when the KB changes (this rotted for months before the 2026-09 audit).
+
+## Escalation sheet: expected reasons are system enum codes
+
+The `escalation_reason` column holds ESCALATION_TRIGGER_REASONS codes (backend/agents/escalation.py), pipe-separated for alternatives (e.g. `llm_escalation_intent|no_information` for Option-2 handoffs, where which side fires depends on live retrieval). `none` = no escalation expected. The match is checked PROGRAMMATICALLY in judge_escalation (exact code comparison before any LLM call) — never write semantic labels here; scenario semantics belong in expected_behavior.
