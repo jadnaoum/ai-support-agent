@@ -1,5 +1,9 @@
 # Tech Debt
 
+## ~~Tools raise on non-UUID order_id~~ GUARDED 2026-09-04 (option 1 shipped; options 2-3 open)
+
+`_find_order` in order_tools.py treats anything not UUID-shaped as not found, so the agent asks for the order number instead of escalating. Jad is adding the order_id format to the intent prompt (eval fixtures with short ids will then need UUID-shaped ids). Item-name resolution (option 2) is still the real fix. Original entry kept below.
+
 ## Tools raise on non-UUID order_id (found 2026-09-02 via the demo UI)
 
 **Area:** `backend/tools/order_tools.py` — every tool that takes `order_id`

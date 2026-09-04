@@ -96,8 +96,8 @@ needs_clarification (current tier).
 ### 25. Progressive pipeline events — SHIPPED 2026-09-03 (approved by Jad)
 `check_input` / `check_output` (thin wrappers around the unchanged `_check_*` logic), `knowledge_service_node` and `action_service_node` call `backend.demo.sink.emit()`; the stream endpoint drains the sink into SSE `step` events while the graph runs and reconciles them with the derived list in the `turn` event (`events.merge_live`). `emit()` is a no-op without a sink, so `/chat/test` and evals are untouched. Eval action: none required for expected values; a smoke run of one sheet after merge confirms the wrappers are inert.
 
-### 26. Non-UUID order_id raises inside tools
-See `docs/tech_debt.md` (top entry). A product name passed as `order_id` becomes an `unhandled_error` escalation. Option 1 there (structured rejection at tool entry) is small but changes agent behaviour; option 2 is item-name resolution (#Item-name resolution in ARCHITECTURE).
+### 26. Non-UUID order_id raises inside tools — GUARDED 2026-09-04
+Tool side shipped: `_find_order` returns not-found for non-UUID ids (approved by Jad 2026-09-04). Prompt side: Jad adds the order_id format line to the intent prompt; eval fixtures using short ids ("44455") will then need UUID-shaped ids, and an Intent Classifier + action sheet case for "customer names the product" is still to add. Item-name resolution remains the real fix (ARCHITECTURE).
 
 ### 27. Schedule the demo purge
 `python -m scripts.purge_demo_customers` (24 h TTL, `--dry-run`, keeps `metadata.pinned`). Wire it to the deploy's scheduler when Railway is set up.
@@ -107,6 +107,19 @@ The timeline endpoint + `compute_checks` are the intended data source for the ad
 
 ### 29. One price table
 `backend/demo/pricing.py` duplicates `evals/config.py MODEL_PRICE_PER_TOKEN`; import one from the other when evals are next touched.
+
+### 30. Guard-classified handoff reasons (hybrid escalation labels, phase 2)
+Decided 2026-09-03: escalation reasons are code-stamped where a mechanism knows
+the fact (tools, guards, counters, retrieved_context) and LLM-chosen only where
+the answer is semantic — piggybacked on existing calls, never a dedicated
+labeler. Phase 2: the output guard's handoff detector emits one more field,
+`handoff_reason ∈ {out_of_scope, security_concern, complaint, needs_approval,
+other}` (validated against the enum in code), which subtypes the
+`llm_escalation_intent` residual and unlocks the deferred `security_concern` /
+`complaint` labels (ES-012/015/026-type triage). Zero extra LLM calls.
+**Eval action on ship:** re-map the Option-2 pipes in the Escalation sheet's
+escalation_reason column to the finer codes; add a guard-on case asserting the
+field parses.
 
 ## Performance (deferred 2026-09-01)
 

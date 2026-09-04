@@ -5,6 +5,7 @@ Each tool validates parameters, interacts with the DB, and returns a structured
 result dict. No external API calls — the value is in the registry pattern,
 parameter validation, and audit trail.
 """
+import re
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import select
@@ -36,6 +37,25 @@ _NON_RETURNABLE_CATEGORIES = frozenset({
 #   order:    {"status": str, "delivered_at": datetime|None}
 #   products: [{"name": str, "category": str, "return_window_days": int,
 #               "warranty_months": int|None, "final_sale": bool}]
+
+_ORDER_ID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
+
+
+async def _find_order(db: AsyncSession, order_id: str):
+    """Load an order by id, or None when it does not exist.
+
+    Anything that is not UUID-shaped (a product name the classifier passed as
+    order_id, "my only order", …) is treated as not found instead of reaching
+    the database, where asyncpg would raise on the invalid UUID and the turn
+    would escalate as an unhandled error.
+    """
+    if not isinstance(order_id, str) or not _ORDER_ID_RE.match(order_id.strip()):
+        return None
+    result = await db.execute(select(Order).where(Order.id == order_id.strip()))
+    return result.scalar_one_or_none()
+
 
 def _check_cancel_eligibility_data(status: str) -> dict:
     """
@@ -258,8 +278,7 @@ async def track_order(
 ) -> dict:
     """Return order status and item details. Uses most recent order if order_id is omitted."""
     if order_id:
-        result = await db.execute(select(Order).where(Order.id == order_id))
-        order = result.scalar_one_or_none()
+        order = await _find_order(db, order_id)
         if not order:
             return {"success": False, "error": f"Order {order_id} not found."}
         if str(order.customer_id) != customer_id:
@@ -311,8 +330,7 @@ async def check_cancel_eligibility(
     Never modifies state. Returns structured eligibility result.
     """
     if order_id:
-        result = await db.execute(select(Order).where(Order.id == order_id))
-        order = result.scalar_one_or_none()
+        order = await _find_order(db, order_id)
         if not order:
             return {"success": False, "error": f"Order {order_id} not found."}
         if str(order.customer_id) != customer_id:
@@ -357,8 +375,7 @@ async def check_return_eligibility(
     Never modifies state.
     """
     if order_id:
-        result = await db.execute(select(Order).where(Order.id == order_id))
-        order = result.scalar_one_or_none()
+        order = await _find_order(db, order_id)
         if not order:
             return {"success": False, "error": f"Order {order_id} not found."}
         if str(order.customer_id) != customer_id:
@@ -424,8 +441,7 @@ async def initiate_return(
 
     # 1. Locate order
     if order_id:
-        result = await db.execute(select(Order).where(Order.id == order_id))
-        order = result.scalar_one_or_none()
+        order = await _find_order(db, order_id)
         if not order:
             return {"success": False, "error": f"Order {order_id} not found."}
         if str(order.customer_id) != customer_id:
@@ -557,8 +573,7 @@ async def cancel_order(
 
     # 1. Locate order
     if order_id:
-        result = await db.execute(select(Order).where(Order.id == order_id))
-        order = result.scalar_one_or_none()
+        order = await _find_order(db, order_id)
         if not order:
             return {"success": False, "error": f"Order {order_id} not found."}
         if str(order.customer_id) != customer_id:
@@ -655,8 +670,7 @@ async def get_refund_status(
 ) -> dict:
     """Read-only: look up refund records for this customer (optionally filtered by order)."""
     if order_id:
-        result = await db.execute(select(Order).where(Order.id == order_id))
-        order = result.scalar_one_or_none()
+        order = await _find_order(db, order_id)
         if not order:
             return {"success": False, "error": f"Order {order_id} not found."}
         if str(order.customer_id) != customer_id:
@@ -705,8 +719,7 @@ async def check_missing_package(
     Returns wait (< 1 business day since delivery) or file_claim (≥ 1 business day).
     """
     if order_id:
-        result = await db.execute(select(Order).where(Order.id == order_id))
-        order = result.scalar_one_or_none()
+        order = await _find_order(db, order_id)
         if not order:
             return {"success": False, "error": f"Order {order_id} not found."}
         if str(order.customer_id) != customer_id:
