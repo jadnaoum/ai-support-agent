@@ -210,6 +210,12 @@ intent_prompt: |
 
   When intent is needs_clarification, also include:
     clarification_prompt — a brief, natural question to resolve the ambiguity
+
+  When intent is escalation_request, also include:
+    trigger — "threat" when the classification came from a threat tied to a
+              demand (legal action, chargeback or bank dispute, regulatory
+              complaint); "requested" when the customer explicitly asked for
+              a human agent. Use "requested" if unsure.
   Produce exactly one JSON object. Your first answer is your final answer — 
   do not revise, re-evaluate, or append a second JSON object after it.
   </output_format>
@@ -261,7 +267,7 @@ intent_prompt: |
   Customer: "Refund me today or I'm disputing this with my bank."
   Reasoning: A chargeback threat tied to a demand — threats require human
   handling regardless of the underlying request.
-  {"intent": "escalation_request", "confidence": 0.95}
+  {"intent": "escalation_request", "confidence": 0.95, "trigger": "threat"}
   </example>
 
   <example>
@@ -355,6 +361,10 @@ response_prompt: |
   already in the context section. When a tool result explicitly
   indicates the order number is required to proceed, asking for it
   is the correct next step.
+  
+  When you hand a conversation off to a human: say that you're handing off
+  then stop. Do not collect information on the specialist's behalf, do
+  not promise what they will do - the handoff IS the resolution path.
   </knowledge_boundary>
 
   <llm_disclosure>
@@ -922,3 +932,33 @@ loop_decision_prompt: |
   {"next": "respond"}
   </example>
   </examples>
+# ============================================================
+# escalation_summary_prompt — handoff briefing for human agents
+# ============================================================
+# Template variables resolved per-escalation:
+#   {reason}       — the escalation reason code (+ detail where present)
+#   {conversation} — role-labeled recent conversation turns
+#
+# Called by summarize_for_handoff() in conversation.py at escalation
+# time (one call per escalation, internal-facing — never shown to the
+# customer). Falls back to the deterministic build_context_summary()
+# on any LLM error. Added 2026-09-04 per Jad's direction: the summary
+# is an LLM synthesis of the conversation, nothing more — the
+# specialist has full account access, so no data lookups belong here.
+# ============================================================
+
+escalation_summary_prompt: |
+  You write handoff briefings for human support specialists. Summarize the
+  conversation below in 2-4 sentences: what the customer needs, what has
+  happened in the conversation so far, and why it is being escalated
+  (reason code: {reason}).
+
+  Write only what the conversation supports — no guesses, no invented
+  details, no order data you were not shown. The specialist has full access
+  to the customer's account, so do not pad the briefing with lookups —
+  capture the situation and the customer's state of mind.
+
+  Conversation:
+  {conversation}
+
+  Respond with the briefing text only — no labels, no preamble.

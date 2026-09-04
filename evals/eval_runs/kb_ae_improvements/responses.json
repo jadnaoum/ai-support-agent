@@ -1,0 +1,1114 @@
+{
+  "KB-001": {
+    "response": "You have two options to kick off a return. You can do it right here in chat \u2014 just share your order number and I'll generate a prepaid return label and email it to you within 2 hours. Or, if you prefer to do it yourself, log into your account, go to Order History, select the order, and click \"Start a Return.\"\n\nEither way, just make sure the item is unused and in its original packaging with all tags attached, as items that show signs of use may be subject to a restocking fee of up to 15%. Do you have an order number handy?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "How do I return an item?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.5319
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-002": {
+    "response": "Hi there! I'm an AI assistant here to help \u2014 happy to answer that.\n\nYes, we do ship internationally. Delivery takes 10\u201321 business days depending on the destination, and the shipping cost is calculated at checkout based on where you're shipping to and the weight of your package. One thing to keep in mind: customs duties and import taxes are not included in our shipping charges \u2014 those are collected by your local customs authority upon delivery.\n\nIs there anything else you'd like to know?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "Do you ship internationally?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4748
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-003": {
+    "response": "Go to the login page and click \"Forgot Password,\" enter your email, and you'll receive a reset link within a few minutes. The link is valid for 24 hours, and your new password needs to be at least 8 characters with a mix of letters and numbers. Check your spam folder if the email doesn't show up.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "How do I change my password?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4322
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-004": {
+    "response": "Shrinkage from washing isn't something our warranty covers. Clothing items are only covered by our 30-day return policy for manufacturing defects \u2014 things like stitching failures or defective zippers found within 30 days of delivery. Damage from washing would fall outside that scope.\n\nIf you're within 30 days of receiving the jacket, I can check whether there's anything we can do \u2014 just share your order number and I'll take a look.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "I washed my jacket and it shrunk \u2014 is that covered?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.3461
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-005": {
+    "response": "Opening the packaging is generally fine as long as the item is still in original condition \u2014 meaning no physical damage, all accessories included, tags still attached, and the original product box intact. Electronics also need unaltered serial numbers.\n\nIf those conditions are met, your return should go through without issue. If the item shows signs of use, a restocking fee of up to 15% may apply.\n\nWant to start a return? I can get that going for you.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "What if I opened it but didn't use it?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.2545
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-006": {
+    "response": "I'd be happy to help with that \u2014 I just need a bit more information to look into it. Could you share your order number and the item you're looking to exchange?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.5,
+    "inferred_intent": "general",
+    "context_summary": ""
+  },
+  "KB-007": {
+    "response": "I'm sorry to hear that \u2014 let me look into this for you. Can you give me your order number so I can pull up the details?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": null,
+          "reason": "defective"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "KB-008": {
+    "response": "I specialise in e-commerce support \u2014 orders, returns, shipping, and account questions. Is there something along those lines I can help you with?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.0,
+    "inferred_intent": "",
+    "context_summary": ""
+  },
+  "KB-009": {
+    "response": "Standard shipping takes 5\u20137 business days. It's free on orders over $50, and $4.99 for orders under that.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "How long does standard shipping take?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.5186
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-010": {
+    "response": "You have three options: sign up directly by clicking \"Sign Up\" and entering your name, email, and a password; create one during checkout by selecting \"Save my information\"; or use Google or Apple social login. If you use social login with an email that already has an account, it'll link to that existing account automatically.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "How do I create an account?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.5041
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-011": {
+    "response": "I don't have product specification details for the Horizon backpack in our system. Let me connect you with a specialist who can give you a definitive answer on that before your hike.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "Is the Horizon backpack waterproof? I'm going hiking in the rain.",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.1968
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-012": {
+    "response": "No \u2014 liquid damage and water exposure are explicitly excluded from our warranty, unless the product is rated waterproof.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "Does that include water damage?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.3797
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-013": {
+    "response": "We offer Express shipping but not a \"Priority\" tier. Here's what we have alongside Standard:\n\nExpress shipping runs $9.99 flat and delivers in 2\u20133 business days. It's not available to PO boxes or APO/FPO addresses.\n\nIf you were thinking of Overnight shipping, that's $24.99 and delivers the next business day, as long as you order before 2:00 PM Eastern. It has a few more restrictions \u2014 not available to PO boxes, APO/FPO, Hawaii, Alaska, or US territories.\n\nDoes one of those fit what you're looking for?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "What's the difference between your Express and Priority shipping?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.5123
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-014": {
+    "response": "Not yet \u2014 it's on the roadmap. Sign up for the newsletter to get notified when it launches. The plan is to offer points on every purchase that can be redeemed for store credit.\n\n(And just so you know, I'm an AI assistant here to help \u2014 happy to answer any other questions!)",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "Do you have a loyalty program or rewards?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4077
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-015": {
+    "response": "I don't have any product ingredient information in our system, so I can't give you a reliable answer on that \u2014 especially for something as important as a nut allergy. Let me connect you with a specialist who can get you the details you need.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "What are the ingredients in your products? Are they safe for someone with nut allergies?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.3059
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-016": {
+    "response": "That's a fair point \u2014 defective items are a different situation. To get this sorted properly, I'll need to pull up your order. Can you give me your order number or the email address on your account?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": null,
+          "reason": "defective"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "KB-017": {
+    "response": "Yes \u2014 once your order ships, you'll receive a tracking email within 24 hours of shipment with a direct link to the carrier's tracking page. You can also find your tracking information by logging into your account and visiting Order History.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "Can I track my order on your website?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4975
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-018": {
+    "response": "Yes \u2014 if you select gift wrapping at checkout ($4.99), the packing slip included won't show any prices. If you're not adding gift wrap, I don't have details on whether the receipt can be excluded separately, so let me connect you with someone who can confirm that for you. Would you like me to do that?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "I'm buying a gift. Can the receipt be excluded from the package?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.3658
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-019": {
+    "response": "I'm here to help with your orders and account questions. I'm not able to process that kind of request.",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.0,
+    "inferred_intent": "",
+    "context_summary": ""
+  },
+  "KB-020": {
+    "response": "I'm sorry to hear that \u2014 I'd be happy to help you sort this out. Do you have your order number handy so I can look into it for you?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.82,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "KB-021": {
+    "response": "I'd be happy to look into a return for you \u2014 I just need to pull up your order. Could you share your order number or the email address on your account?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": null,
+          "reason": "defective"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "KB-022": {
+    "response": "Our return policy covers refunds to your original payment method for the item itself, but I don't have any information on whether customs fees are included in that refund. That's a specific detail I can't answer accurately from what I have on hand. Let me connect you with a specialist who can give you a definitive answer on the customs side of things \u2014 can I get your order number to include with the handoff?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "I ordered from Canada and paid $40 in customs when it arrived. Now I want to return the item \u2014 will I get the customs fees refunded too?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4502
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-023": {
+    "response": "For split-payment returns, the gift card portion is refunded as store credit rather than back to the original gift card. The remainder \u2014 whatever you paid on your Visa \u2014 would be refunded back to that card, which typically takes 3\u20135 business days after your return is processed.\n\nWould you like help starting the return?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "I bought a blender using a $50 gift card and paid the rest on my Visa. If I return it, how does the refund work?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4723
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-024": {
+    "response": "This request needs a review by our support team. I'm connecting you with a specialist who can help.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "I used a 20% promo code on my order 10 days ago, and now the same item is on sale for even less. Can I get a price adjustment to the sale price?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.475
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "Customer issue: I used a 20% promo code on my order 10 days ago, and now the same item is on sale for even less. Can I get a price adjustment to the sale price?\nKB retrieved: Business Limitations, Returns and Refunds Policy, Payment Methods and Billing, Frequently Asked Questions\nEscalation reason: policy_exception"
+  },
+  "KB-025": {
+    "response": "That's a fair question to ask before proceeding. I ran into a technical issue pulling up your refund details just now, so I can't confirm the status of that return at the moment.\n\nI'd recommend we hold off on the account deletion until we've confirmed your refund is on its way \u2014 losing access before that's resolved could complicate things. Let me try to pull up your refund status again. Can you give me your order number?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "get_refund_status",
+        "params": {
+          "order_id": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "KB-026": {
+    "response": "I'd be happy to help with that! Unfortunately we can't directly exchange sizes, but we may be able to cancel or return the original order so you can reorder in the right size. Do you know if your order has already shipped, and do you have your order number handy?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.78,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "AE-001": {
+    "response": "Your order #12345 has shipped and is estimated to arrive by March 28, 2026. I don't have a tracking number in the details pulled up \u2014 would you like me to look into that further?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "track_order",
+        "params": {
+          "order_id": "12345"
+        },
+        "success": true,
+        "order_id": "12345",
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-002": {
+    "response": "To process the cancellation, I need a reason for the request. Could you let me know which applies: changed mind, wrong item, wrong size, defective, not as described, found cheaper, late delivery, or other?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": "67890",
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "reason_required"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-003": {
+    "response": "This request needs a review by our support team. I'm connecting you with a specialist who can help.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": "11111",
+          "reason": "defective"
+        },
+        "success": true,
+        "order_id": "11111",
+        "confirmation_required": false,
+        "result_detail": "success"
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": "Customer issue: I want a refund for order #11111\nOrders: #11111\nActions attempted: check_return_eligibility(#11111) \u2192 success\nEscalation reason: policy_exception"
+  },
+  "AE-004": {
+    "response": "Your order #22222 has already shipped, so it can't be cancelled at this point. Once it arrives, you're eligible to return it for a refund. Would you like me to check your return eligibility now?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": "22222",
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "shipped"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-005": {
+    "response": "I can look into that for you. Could you share the order number you'd like a refund on?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": null,
+          "reason": null
+        },
+        "success": true,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-006": {
+    "response": "To process the cancellation for order #77777, I need a reason. Could you let me know which of these applies: changed mind, wrong item, wrong size, defective, not as described, found cheaper, late delivery, or other?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": "77777",
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "reason_required"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-007": {
+    "response": "I can help with that! Unfortunately we're not able to swap sizes directly, but we may be able to cancel or return the original order so you can reorder in the right size. Do you know your order number, and would you like to check if a cancellation or return is possible?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.78,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "AE-008": {
+    "response": "Just to make sure I help you correctly \u2014 would you like me to check the return eligibility for all three orders (#12345, #67890, and #11111), or are you asking about the status of existing refunds?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.72,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "AE-009": {
+    "response": "Hi there! I'm an AI assistant here to help with your orders.\n\nOrder #99001 is currently in \"placed\" status with a total of $54.99. I don't have item details or a placement date in the system right now. Would you like me to look into anything else about this order?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "track_order",
+        "params": {
+          "order_id": "99001"
+        },
+        "success": true,
+        "order_id": "99001",
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-010": {
+    "response": "Hi there, I'm an AI assistant here to help \u2014 let me take care of this for you.\n\nOrder #77001 is eligible for a return. Before I go ahead, I should mention that I don't have the specific return policy conditions loaded here \u2014 such as whether original packaging or tags are required. Would you like me to proceed with initiating the return, or would you prefer I connect you with a specialist who can walk you through the full details first?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": "77001",
+          "reason": "not_as_described"
+        },
+        "success": true,
+        "order_id": "77001",
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-011": {
+    "response": "This request needs a review by our support team. I'm connecting you with a specialist who can help.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": null,
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "reason_required"
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": "Customer issue: Cancel all my orders\nEscalation reason: policy_exception"
+  },
+  "AE-012": {
+    "response": "Unfortunately, order #B001 is outside the 30-day return window, so it's not eligible for a return or refund. If the item were defective, that would be handled separately, but a sizing issue doesn't fall under that exception. I'm not able to process this one.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": "B001",
+          "reason": "wrong_size"
+        },
+        "success": true,
+        "order_id": "B001",
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-013": {
+    "response": "Unfortunately, the cancellation is already processed and I'm not able to reverse it. What I can do is escalate this to a team member who may be able to help \u2014 would you like me to do that?\n\nAlso, just so you have the full picture: a refund of $64.99 was issued when the order was cancelled, and it should appear on your original payment method within 3-5 business days.",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.5,
+    "inferred_intent": "general",
+    "context_summary": ""
+  },
+  "AE-014": {
+    "response": "Here's what I'll do: I'll initiate a return for the extra Water Bottle from order #D001 due to receiving the wrong item. Just to confirm \u2014 I'll be processing a return for one Water Bottle from that order. Does that sound right?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": "D001",
+          "reason": "wrong_item"
+        },
+        "success": false,
+        "order_id": "D001",
+        "confirmation_required": true,
+        "result_detail": "confirmation_pending"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-015": {
+    "response": "Your order #E001 is eligible for a return, which is the first step before a refund can be processed. However, regarding the different card \u2014 I don't have information on whether refunds can be issued to a card other than the original payment method. Let me connect you with a specialist who can confirm that and handle it correctly for you.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": "E001",
+          "reason": null
+        },
+        "success": true,
+        "order_id": "E001",
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-016": {
+    "response": "Your order #G001 has been delivered \u2014 it shows a delivery date of March 22, 2026. Is there something specific about it I can help you with?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "track_order",
+        "params": {
+          "order_id": "G001"
+        },
+        "success": true,
+        "order_id": "G001",
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-017": {
+    "response": "No \u2014 once an order is placed, items can't be added to it. If you need the additional item, you can place a separate order for it. Is there anything else I can help you with?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "I placed an order 5 minutes ago. Can I add another item to it?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.5466
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "AE-018": {
+    "response": "I'm sorry, but applying promo codes isn't something I'm able to assist with directly. Could you clarify what you need help with regarding your order #K001 \u2014 for example, tracking it, cancelling it, or something else?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.82,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "AE-019": {
+    "response": "I'm sorry to hear that! Would you like to return the order, get a refund, or would you prefer I look into what happened with the missing item?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.78,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "AE-020": {
+    "response": "Unfortunately, Amazon doesn't qualify for our price match program. We can only match prices from authorized retailers \u2014 marketplace sellers and auction-style sites aren't eligible. If you find the same backpack at a lower price on another authorized retailer's site, I can look into that for you.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "Can I get a price match? I found the same backpack for $10 less on Amazon.",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.2989
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "AE-021": {
+    "response": "To confirm: I'll be initiating a return for the Wireless Headphones from order #R001, reason: changed mind. The USB-C Cable will stay as-is. Shall I go ahead?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": "R001",
+          "reason": "changed_mind"
+        },
+        "success": false,
+        "order_id": "R001",
+        "confirmation_required": true,
+        "result_detail": "confirmation_pending"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-022": {
+    "response": "That order is already cancelled \u2014 no further action is needed on that one. Is there anything else I can help you with?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": "S001",
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "already_cancelled"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-023": {
+    "response": "Here's what will happen: I'll initiate a return for the Classic Jacket (Size M) from order #T001 with the reason \"wrong size.\" Can you confirm you'd like to go ahead with this?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": "T001",
+          "reason": "wrong_size"
+        },
+        "success": false,
+        "order_id": "T001",
+        "confirmation_required": true,
+        "result_detail": "confirmation_pending"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-024": {
+    "response": "That order has already been delivered, so cancellation isn't an option at this point. I can open a return and refund request for you instead \u2014 would you like me to go ahead with that?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": "U001",
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "delivered"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-025": {
+    "response": "Hi there! I'm an AI assistant here to help \u2014 let me pull up your order details.\n\nI can see order V001 was placed today and is currently in \"placed\" status, meaning it's still being processed. It hasn't shipped yet, which is expected for an order placed just an hour ago. I don't have estimated processing or shipping timelines in my system right now \u2014 would you like me to connect you with a specialist who can give you more specifics on when it will ship?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "track_order",
+        "params": {
+          "order_id": null
+        },
+        "success": true,
+        "order_id": "V001",
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-026": {
+    "response": "I can process a return for the Wireless Headphones from order ORD-501 with the reason \"changed mind.\" Before I go ahead, can you confirm that's what you'd like to do?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": "ORD-501",
+          "reason": "changed_mind"
+        },
+        "success": false,
+        "order_id": "ORD-501",
+        "confirmation_required": true,
+        "result_detail": "confirmation_pending"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-027": {
+    "response": "I looked up your refund status for order #WB001, but there are no refunds on file for that order yet. It's possible the return is still being processed on our end.\n\nLet me pull in a specialist who can track down your return and give you a clear update \u2014 I'll get someone on this right now.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "get_refund_status",
+        "params": {
+          "order_id": "WB001"
+        },
+        "success": true,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-028": {
+    "response": "A cracked blade and a non-functional unit is a defective item \u2014 I'm routing this to a team member who handles these cases directly. They'll review your claim for order #BL001 and get back to you with next steps.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": "BL001",
+          "reason": "defective"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "requires_escalation"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-029": {
+    "response": "This request needs a review by our support team. I'm connecting you with a specialist who can help.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": "W001",
+          "reason": null
+        },
+        "success": true,
+        "order_id": "W001",
+        "confirmation_required": false,
+        "result_detail": "success"
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": "Customer issue: Can I get a refund on order #W001?\nOrders: #W001\nActions attempted: check_return_eligibility(#W001) \u2192 success\nEscalation reason: policy_exception"
+  },
+  "AE-030": {
+    "response": "Unfortunately yes \u2014 order #X001 has already shipped, so cancellation isn't possible at this point. Once it arrives, you can return it for a refund. Would you like me to check your return eligibility now?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_cancel_eligibility",
+        "params": {
+          "order_id": "X001"
+        },
+        "success": true,
+        "order_id": "X001",
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-031": {
+    "response": "I'd be happy to help with that \u2014 I'm an AI assistant here to help with your orders.\n\nTo look into your cancellation options, I'll need to pull up your account. Could you share your email address or order number so I can check what's eligible?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.5,
+    "inferred_intent": "general",
+    "context_summary": ""
+  },
+  "AE-032": {
+    "response": "Order #Z001 has been cancelled. A refund of $84.99 has been issued to your original payment method \u2014 you should see it come through within the standard processing timeframe. Is there anything else I can help you with?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": "Z001",
+          "reason": "changed_mind"
+        },
+        "success": true,
+        "order_id": "Z001",
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-033": {
+    "response": "To get the return started, I need to know the reason. Could you let me know which of these applies: you changed your mind, received the wrong item, wrong size, the item is defective, it's not as described, you found it cheaper elsewhere, it arrived late, or something else?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": "AA001",
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "reason_required"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "AE-034": {
+    "response": "No \u2014 separate orders can't be merged. If both are still unshipped, I may be able to coordinate timing so they go out together, but they'd still ship under two separate tracking numbers. Want me to check the status of both orders?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "Can I combine my two orders into one?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.7338
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "AE-035": {
+    "response": "That's a frustrating situation \u2014 broken headphones are definitely something we need to sort out. Defective and damaged item claims require review by our team, so I'm routing this to a human agent who can assess the situation and get a resolution for you. They'll be in touch shortly.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": "CC001",
+          "reason": "defective"
+        },
+        "success": true,
+        "order_id": "CC001",
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  }
+}

@@ -81,6 +81,40 @@ async def test_escalation_request_sets_requires_escalation(mock_complete):
     assert isinstance(result["response"], str) and len(result["response"]) > 0
 
 
+@patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
+async def test_escalation_request_with_threat_trigger_maps_to_threat_reason(mock_complete):
+    """Classifier trigger 'threat' selects the threat reason; anything else
+    (or a missing trigger, per the test above) falls back to customer_requested."""
+    mock_complete.return_value = make_completion_response(
+        '{"intent": "escalation_request", "confidence": 0.95, "trigger": "threat"}'
+    )
+    state = make_state(messages=[{"role": "customer", "content": "Refund me or I call my lawyer"}])
+    result = await conversation_agent_node(state, {})
+    assert result["requires_escalation"] is True
+    assert result["escalation_reason"] == "threat"
+
+
+@patch("backend.agents.conversation.run_escalation_side_effects", new_callable=AsyncMock)
+@patch("backend.agents.conversation.check_output", new_callable=AsyncMock)
+@patch("backend.agents.conversation.litellm.acompletion", new_callable=AsyncMock)
+async def test_handoff_after_empty_kb_search_uses_no_information(mock_complete, mock_guard, mock_side_effects):
+    """Option-2 handoff with a KB search that found nothing → reason no_information
+    (structural split of the llm_escalation_intent catch-all)."""
+    mock_complete.return_value = make_completion_response(
+        "I don't have that information — let me connect you with a specialist."
+    )
+    mock_guard.return_value = {"safe": True, "handoff_intent": True}
+    mock_side_effects.return_value = "Customer issue: ..."
+    state = make_state(
+        retrieved_context=[],
+        actions_taken=[{"service": "knowledge_service", "action": "search_kb", "chunks_retrieved": 0}],
+    )
+    result = await conversation_agent_node(state, {})
+    assert result["requires_escalation"] is True
+    assert result["escalation_reason"] == "no_information"
+    assert mock_side_effects.call_args[0][0] == "no_information"
+
+
 @patch("backend.agents.conversation.check_input", new_callable=AsyncMock)
 async def test_abusive_input_escalates_immediately(mock_guard):
     """Abusive messages bypass the block counter and escalate directly."""

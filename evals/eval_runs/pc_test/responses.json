@@ -1,0 +1,109 @@
+{
+  "PC-001": {
+    "response": "Thanks! What would you like to do with order #33333 \u2014 are you looking to track it, cancel it, request a refund, or something else?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "general",
+    "context_summary": ""
+  },
+  "PC-002": {
+    "response": "Thanks! What would you like to do with order #44444 \u2014 track it, cancel it, request a refund, or something else?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "general",
+    "context_summary": ""
+  },
+  "PC-003": {
+    "response": "I'm sorry for any confusion \u2014 I'm not here to dispute what you were told. Could you share your order details so I can look into your refund options and help get this sorted for you?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.72,
+    "inferred_intent": "general",
+    "context_summary": ""
+  },
+  "PC-004": {
+    "response": "I can see you're referencing order #22222 \u2014 what would you like help with? For example, do you want to track it, cancel it, request a refund, or something else?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.8,
+    "inferred_intent": "general",
+    "context_summary": ""
+  },
+  "PC-005": {
+    "response": "Before I go ahead, I want to make sure you have the details: the system is ready to process a return for the Jacket and Pants from order #33333, with the reason listed as \"changed mind.\"\n\nOne thing to flag \u2014 I don't have the return policy conditions in front of me right now, so I can't confirm whether a worn item is eligible. I'd recommend connecting you with someone who can verify that before we proceed, to avoid any surprises when the items arrive at the warehouse.\n\nWant me to escalate to a team member to confirm eligibility on the worn item first?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": "33333",
+          "reason": "changed_mind"
+        },
+        "success": false,
+        "order_id": "33333",
+        "confirmation_required": true,
+        "result_detail": "confirmation_pending"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.88,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "PC-006": {
+    "response": "I'm sorry for the frustration \u2014 I'd love to help sort this out. Could you tell me more about your situation? For example, what issue did you experience with your order, and do you have an order number handy?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.72,
+    "inferred_intent": "general",
+    "context_summary": ""
+  },
+  "PC-007": {
+    "response": "Thanks for that! Could you let me know what you'd like to do with order #66666 \u2014 for example, track it, cancel it, request a refund, or something else?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.8,
+    "inferred_intent": "general",
+    "context_summary": ""
+  },
+  "PC-008": {
+    "response": "I can see you're referencing order #77777 \u2014 what would you like to do with it? For example, are you looking to track it, cancel it, or something else?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.8,
+    "inferred_intent": "general",
+    "context_summary": ""
+  },
+  "PC-009": {
+    "response": "To get your return started, I need to know the reason for the return. Could you let me know which of these applies: changed mind, wrong item, wrong size, defective, not as described, found cheaper, late delivery, or other?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": "99999",
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "reason_required"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.91,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  }
+}

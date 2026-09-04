@@ -595,6 +595,15 @@ def _append_run_column(ws, tag: str, row_results: list, sheet_cost: float,
     fill_map  = {"pass": FILL_PASS, "fail": FILL_FAIL}
     label_map = {"pass": "PASS", "fail": "FAIL"}
 
+    # Unmerge any stale row-1 banner ranges intersecting the target columns.
+    # _trim_old_runs' delete_cols shifts columns but openpyxl leaves merged
+    # ranges at their old coordinates — writing into one raises
+    # "'MergedCell' object attribute 'value' is read-only" (crashed 2026-09-03).
+    end_col = col + n_cols - 1
+    for rng in list(ws.merged_cells.ranges):
+        if rng.min_row == 1 and rng.max_col >= col and rng.min_col <= end_col:
+            ws.unmerge_cells(str(rng))
+
     # Row 1: merged group label across all columns
     ws.merge_cells(f"{get_column_letter(col)}1:{get_column_letter(col + n_cols - 1)}1")
     label_cell = ws.cell(1, col, tag)

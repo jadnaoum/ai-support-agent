@@ -1,0 +1,469 @@
+{
+  "IC-001": {
+    "response": "knowledge_query",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "How do I return an item?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.5319
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "low_confidence"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "low_confidence",
+    "confidence": 0.5319,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "Customer issue: How do I return an item?\nKB retrieved: Returns and Refunds Policy, Business Limitations, Frequently Asked Questions\nEscalation reason: low_confidence"
+  },
+  "IC-002": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": "12345",
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.97,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-003": {
+    "response": "escalation_request",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "customer_requested"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "customer_requested",
+    "confidence": 0.99,
+    "inferred_intent": "escalation_request",
+    "context_summary": "Customer issue: I want to speak to a manager\nEscalation reason: customer_requested"
+  },
+  "IC-004": {
+    "response": "general",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.99,
+    "inferred_intent": "general",
+    "context_summary": ""
+  },
+  "IC-005": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "process_refund",
+        "params": {
+          "order_id": "67890",
+          "reason": null,
+          "amount": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "reason_required"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.95,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-006": {
+    "response": "knowledge_query",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "What materials is the Horizon backpack made of?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.1796
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "low_confidence"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "low_confidence",
+    "confidence": 0.1796,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "Customer issue: What materials is the Horizon backpack made of?\nKB retrieved: Product Warranties, Returns and Refunds Policy, Frequently Asked Questions\nEscalation reason: low_confidence"
+  },
+  "IC-007": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "process_refund",
+        "params": {
+          "order_id": null,
+          "reason": null,
+          "amount": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "reason_required"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.92,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-008": {
+    "response": "needs_clarification",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "IC-009": {
+    "response": "needs_clarification",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.72,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "IC-010": {
+    "response": "needs_clarification",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.75,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "IC-011": {
+    "response": "needs_clarification",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.75,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "IC-012": {
+    "response": "general",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "policy_exception"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "policy_exception",
+    "confidence": 0.5,
+    "inferred_intent": "general",
+    "context_summary": "Customer issue: What's your return window?\nEscalation reason: policy_exception"
+  },
+  "IC-013": {
+    "response": "needs_clarification",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.82,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "IC-014": {
+    "response": "knowledge_query",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "Do you price match?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.4717
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "low_confidence"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "low_confidence",
+    "confidence": 0.4717,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "Customer issue: Do you price match?\nKB retrieved: Returns and Refunds Policy, Payment Methods and Billing, Business Limitations, Frequently Asked Questions\nEscalation reason: low_confidence"
+  },
+  "IC-015": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "process_refund",
+        "params": {
+          "order_id": null,
+          "reason": null,
+          "amount": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "reason_required"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.91,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-016": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "track_order",
+        "params": {
+          "order_id": "55555"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.97,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-017": {
+    "response": "knowledge_query",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "query": "Do you have a size chart?",
+        "chunks_retrieved": 5,
+        "top_similarity": 0.2949
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "low_confidence"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "low_confidence",
+    "confidence": 0.2949,
+    "inferred_intent": "knowledge_query",
+    "context_summary": "Customer issue: Do you have a size chart?\nKB retrieved: Frequently Asked Questions, Business Limitations, Shipping and Delivery, Returns and Refunds Policy\nEscalation reason: low_confidence"
+  },
+  "IC-018": {
+    "response": "needs_clarification",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.72,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "IC-019": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "track_order",
+        "params": {
+          "order_id": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.82,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-020": {
+    "response": "needs_clarification",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.82,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "IC-021": {
+    "response": "general",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.5,
+    "inferred_intent": "general",
+    "context_summary": ""
+  },
+  "IC-022": {
+    "response": "needs_clarification",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "IC-023": {
+    "response": "general",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.5,
+    "inferred_intent": "general",
+    "context_summary": ""
+  },
+  "IC-024": {
+    "response": "general",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.99,
+    "inferred_intent": "general",
+    "context_summary": ""
+  },
+  "IC-025": {
+    "response": "needs_clarification",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.75,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "IC-026": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "process_refund",
+        "params": {
+          "order_id": null,
+          "reason": "defective",
+          "amount": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.95,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-027": {
+    "response": "general",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.5,
+    "inferred_intent": "general",
+    "context_summary": ""
+  },
+  "IC-028": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "process_refund",
+        "params": {
+          "order_id": "5567",
+          "reason": null,
+          "amount": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "reason_required"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.95,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-029": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": null,
+          "reason": "not_as_described"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.93,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-030": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": null,
+          "reason": "changed_mind"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.92,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  }
+}

@@ -1,0 +1,504 @@
+{
+  "KB-001": {
+    "response": "You have two options to start a return. You can message me here with your order number and I'll get a prepaid return label emailed to you within 2 hours. Or you can do it yourself through the online portal \u2014 log in, go to Order History, select the order, and click \"Start a Return\" to print your label.\n\nA couple of things to keep in mind: items need to be returned within 30 days of delivery, unused and unwashed, in original packaging with all tags attached. Once we receive your return, it takes 3\u20135 business days to inspect and process.\n\nIs there a specific order you'd like to return?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "How do I return an item?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.4678,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-002": {
+    "response": "Yes, we ship internationally. Delivery takes 10\u201321 business days depending on the destination, and the shipping cost is calculated at checkout based on where you're shipping to and the weight of your order. One thing to keep in mind: customs duties and import taxes are the recipient's responsibility and aren't included in the shipping charges.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "Do you ship internationally?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.4648,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-003": {
+    "response": "To reset your password, click \"Forgot Password\" on the login page, enter your account email, and a reset link will arrive within a few minutes (check spam if it doesn't show up). The link is valid for 24 hours, and your new password will need to be at least 8 characters with a mix of letters and numbers.\n\nNote that we can't retrieve your current password \u2014 only reset it.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "How do I change my password?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.5454,
+        "semantic_candidates": 20,
+        "keyword_candidates": 6
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-004": {
+    "response": "Unfortunately, shrinkage from washing falls under normal wear and tear, which isn't covered by warranty. Clothing is also only eligible for our standard 30-day return policy, not a warranty claim.\n\nIf the jacket was delivered within the last 30 days and you believe there's a manufacturing defect (like the fabric itself being faulty, not wash-related shrinkage), that could qualify for a return. Is that something you'd like to look into?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I washed my jacket and it shrunk \u2014 is that covered?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.3235,
+        "semantic_candidates": 20,
+        "keyword_candidates": 4
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-005": {
+    "response": "Opening the packaging to inspect the item is fine \u2014 that alone won't disqualify your return. What matters is that the packaging is intact (product box, inserts, and accessories included), the item shows no signs of use, and any tags or labels are still attached. As long as those conditions are met, you're good to go.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "What if I opened it but didn't use it?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.3533,
+        "semantic_candidates": 20,
+        "keyword_candidates": 14
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-006": {
+    "response": "We don't process direct exchanges. To get the size L, you'd return the size M for a refund and place a new order for the L. Want me to get a return started for you?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "Can I exchange my size M for a size L?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.4788,
+        "semantic_candidates": 20,
+        "keyword_candidates": 3
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-007": {
+    "response": "I'm sorry to hear that! Could you share your order number so I can look into this for you?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.78,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "KB-008": {
+    "response": "I specialise in e-commerce support \u2014 orders, returns, shipping, and account questions. Is there something along those lines I can help you with?",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.0,
+    "inferred_intent": "",
+    "context_summary": ""
+  },
+  "KB-009": {
+    "response": "Standard shipping takes 5\u20137 business days. It's free on orders over $50, otherwise $4.99. It's available to all US addresses including PO boxes and APO/FPO.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "How long does standard shipping take?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.5939,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-010": {
+    "response": "You can sign up by clicking \"Sign Up\" and entering your name, email, and password, or just check \"Save my information\" during checkout. You can also sign in with Google or Apple if you prefer.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "How do I create an account?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.6608,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-011": {
+    "response": "I don't have product specification details for the Horizon backpack in our system. Let me connect you with a specialist who can give you a definitive answer on that before your hike.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "Is the Horizon backpack waterproof? I'm going hiking in the rain.",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.1974,
+        "semantic_candidates": 20,
+        "keyword_candidates": 7
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-012": {
+    "response": "Only if the product is rated waterproof \u2014 liquid damage on non-waterproof items isn't covered. The same goes for physical damage, accidental damage, normal wear and tear, and unauthorized modifications.\n\nIs there a specific product or situation you're asking about? I can give you a more precise answer.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "Does that include water damage?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.4648,
+        "semantic_candidates": 20,
+        "keyword_candidates": 12
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-013": {
+    "response": "We offer Express and Overnight shipping as our faster options, but not a \"Priority\" tier specifically.\n\nExpress shipping takes 2\u20133 business days at $9.99 flat, while Overnight delivers the next business day for $24.99. Overnight requires orders to be placed before 2:00 PM ET to ship same day, and it's not available to PO boxes, APO/FPO addresses, Hawaii, Alaska, or US territories. Express has the same PO box and APO/FPO restrictions but is available to Hawaii and Alaska.\n\nWere you thinking of one of these, or is there another option you had in mind?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "What's the difference between your Express and Priority shipping?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.5339,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-014": {
+    "response": "Not yet \u2014 it's on the roadmap. Sign up for our newsletter and you'll be notified when it launches. The plan is to offer points on every purchase redeemable for store credit.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "Do you have a loyalty program or rewards?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.4077,
+        "semantic_candidates": 20,
+        "keyword_candidates": 2
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-015": {
+    "response": "That's not something I have information on \u2014 our knowledge base covers orders, returns, warranties, and account topics, but not product ingredients or allergen details. Let me connect you with a specialist who can give you an accurate answer on that.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "What are the ingredients in your products? Are they safe for someone with nut allergies?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.3304,
+        "semantic_candidates": 20,
+        "keyword_candidates": 14
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-016": {
+    "response": "That does change things. For defective items, let me check what we can do for your order \u2014 can you share your order number?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": null,
+          "reason": "defective"
+        },
+        "success": true,
+        "order_id": "KB016-ORD",
+        "confirmation_required": false,
+        "result_detail": "success"
+      },
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "warranty claim defective product outside return window warranty coverage repair",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.6194,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "KB-017": {
+    "response": "Yes \u2014 once your order ships, you'll get a tracking email with a direct carrier link within 24 hours. You can also find tracking under Order History in your account. Note that it can take up to 24 hours after shipment for the carrier's site to show updates.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "Can I track my order on your website?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.5351,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-018": {
+    "response": "Yes \u2014 if you add gift wrapping at checkout ($4.99), the packing slip included won't show any prices. You can also include a personalized message up to 150 characters at no extra cost.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I'm buying a gift. Can the receipt be excluded from the package?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.4311,
+        "semantic_candidates": 20,
+        "keyword_candidates": 19
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-020": {
+    "response": "If your neighbor doesn't have it, check the rest of your property in case it was left somewhere unexpected, and confirm the shipping address on your order was correct. It's also worth waiting one additional business day \u2014 carriers sometimes mark packages as delivered slightly early.\n\nIf it still doesn't turn up after that, reach back out and we'll file a carrier claim and either reship your order or issue a full refund.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "My neighbor says they don't have it. What are my options?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.2685,
+        "semantic_candidates": 20,
+        "keyword_candidates": 5
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-021": {
+    "response": "Since the headphones are within the 30-day return window, this qualifies as a defective item return \u2014 which means you're entitled to either a free replacement or a full refund including original shipping.\n\nThat said, this type of claim needs to be handled by a specialist. Let me connect you with someone who can get that processed for you right now.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": null,
+          "reason": "defective"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "defective_within_warranty"
+      },
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "warranty claim defective product outside return window warranty coverage repair",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.6194,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "KB-022": {
+    "response": "I can help with the return itself, but I don't have information about customs fee refunds in our system. That's a specific detail I want to make sure you get a straight answer on rather than guess. Let me connect you with a specialist who can sort that out for you.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I ordered from Canada and paid $40 in customs when it arrived. Now I want to return the item \u2014 will I get the customs fees refunded too?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.3863,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-023": {
+    "response": "For split-payment orders like yours, the gift card portion gets refunded as store credit rather than back to the gift card itself. The remainder paid on your Visa would go back to your card, which typically takes 3\u20135 business days after we inspect and accept the return.\n\nWould you like help starting the return?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I bought a blender using a $50 gift card and paid the rest on my Visa. If I return it, how does the refund work?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.4848,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-024": {
+    "response": "Good question \u2014 these two policies work separately, so let me break down what applies here.\n\nOn the price adjustment side, you're within the 14-day window, so that would normally qualify. However, the price adjustment policy doesn't apply to items purchased during limited-time promotions or flash sales \u2014 and since you used a promo code on your original order, that may affect eligibility.\n\nOn the price match side, that's for finding the same item cheaper at a competitor's store, so it wouldn't apply here.\n\nI'd need to look into the specifics of your order to determine whether your promo code purchase qualifies for the adjustment. Can you share your order number so I can check?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I used a 20% promo code on my order 10 days ago, and now the same item is on sale for even less. Can I get a price adjustment to the sale price?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.5802,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-025": {
+    "response": "Yes \u2014 account deletion doesn't affect pending refunds. During the 30-day grace period after you request deletion, your account is deactivated but not yet gone, and refunds for prior orders are still honored. The deletion only becomes permanent after those 30 days, so your refund will process normally.",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "If I delete my account, will my pending refund still go through?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.4854,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "KB-026": {
+    "response": "We don't process direct exchanges, but here's how to get the right size: return the original item for a refund and place a new order for the Large. Would you like help starting a return?",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "I ordered the wrong size. Can I change it to a Large?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.4145,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  }
+}
