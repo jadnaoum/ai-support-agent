@@ -14,6 +14,9 @@ Falls back to semantic-only when HYBRID_SEARCH_ENABLED=false.
 import re
 
 import litellm
+
+from backend.demo.sink import emit
+from backend.demo.events import kb_articles
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -72,9 +75,19 @@ async def knowledge_service_node(state: AgentState, config: dict) -> dict:
                 break
 
     if settings.hybrid_search_enabled:
-        return await _hybrid_search(db, state, query)
+        result = await _hybrid_search(db, state, query)
     else:
-        return await _semantic_search(db, state, query)
+        result = await _semantic_search(db, state, query)
+    entry = (result.get("actions_taken") or [{}])[-1]
+    emit(
+        "kb_retrieval",
+        query=query,
+        articles=kb_articles(result.get("retrieved_context") or []),
+        chunks=int(entry.get("chunks_retrieved") or 0),
+        top_similarity=entry.get("top_similarity"),
+        success=entry.get("success", True) is not False,
+    )
+    return result
 
 
 async def _semantic_search(db: AsyncSession, state: AgentState, query: str) -> dict:

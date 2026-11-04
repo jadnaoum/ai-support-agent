@@ -55,3 +55,10 @@ OUTPUT_REASONS: frozenset = frozenset({
     "wait_for_delivery",
     "carrier_claim_eligible",
 })
+
+# Orders above this total (store currency, EUR) enter pending_review on return —
+# a human authorises before the label is issued. Enforced in initiate_return.
+RETURN_REVIEW_THRESHOLD_EUR: float = 50.0
+
+# Write tools that run the structural confirmation gate (see _has_prior_confirmation).
+CONFIRMATION_GATED_TOOLS: tuple = ("cancel_order", "initiate_return")

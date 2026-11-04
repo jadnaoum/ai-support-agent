@@ -23,6 +23,8 @@ import uuid as uuid_mod
 
 import litellm
 
+from backend.demo.sink import emit
+
 from backend.agents.state import AgentState
 from backend.config import get_settings
 from prompts.loader import get_prompt
@@ -103,6 +105,26 @@ def _build_guard_context(response: str, state: AgentState) -> str:
 
 
 async def check_output(
+    response: str,
+    state: AgentState,
+    *,
+    bypass: bool = False,
+    mock_handoff_intent: bool = False,
+) -> dict:
+    """Run the output guard and report its verdict to the demo's turn sink
+    (a no-op outside the live stream; nothing is reported when bypassed).
+    Logic lives in _check_output."""
+    result = await _check_output(response, state, bypass=bypass, mock_handoff_intent=mock_handoff_intent)
+    if not bypass:
+        emit(
+            "output_guard",
+            verdict="pass" if result.get("safe") else "flagged",
+            reason=None if result.get("safe") else result.get("reason"),
+        )
+    return result
+
+
+async def _check_output(
     response: str,
     state: AgentState,
     *,

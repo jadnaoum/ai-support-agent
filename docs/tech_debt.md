@@ -1,5 +1,41 @@
 # Tech Debt
 
+## ~~Tools raise on non-UUID order_id~~ GUARDED 2026-09-04 (option 1 shipped; options 2-3 open)
+
+`_find_order` in order_tools.py treats anything not UUID-shaped as not found, so the agent asks for the order number instead of escalating. Jad is adding the order_id format to the intent prompt (eval fixtures with short ids will then need UUID-shaped ids). Item-name resolution (option 2) is still the real fix. Original entry kept below.
+
+## Tools raise on non-UUID order_id (found 2026-09-02 via the demo UI)
+
+**Area:** `backend/tools/order_tools.py` — every tool that takes `order_id`
+(`check_cancel_eligibility` reproduced; `cancel_order`, `track_order`,
+`check_return_eligibility`, `initiate_return`, `get_refund_status` take the same path).
+
+### Problem
+When the classifier passes a product name or phrase as `order_id` (customer said
+"the SoundMax headphones order, the only one I have"), the tool runs
+`select(Order).where(Order.id == order_id)` and asyncpg raises
+`DataError: invalid input for query argument $1 … (invalid UUID)`. `action_service`
+catches it as `unhandled_error`, and the turn escalates to a human with reason
+`unhandled_error` — for a customer who simply named their product. Nothing is logged
+server-side (the exception is swallowed into the result dict), so it is invisible
+outside the demo's timeline.
+
+Reproduce (any DB with a customer):
+```
+TOOL_REGISTRY["check_cancel_eligibility"].handler(db=db, customer_id=cid, actions_taken=[], order_id="headphones")
+```
+
+### Options (prompt-owner decision — changes what the agent does)
+1. Validate `order_id` format at tool entry and return a structured rejection
+   (`reason: "order_not_found"` or a new `invalid_order_id`) so the agent asks
+   for the order number instead of escalating. Smallest change; eval sheets with
+   order-ID-required cases need re-checking.
+2. Item-name resolution (docs/item_name_resolution.md, ARCHITECTURE "designed,
+   deferred"): resolve product names to the customer's orders before the DB lookup.
+   The real fix; larger.
+3. At minimum, `action_service` should `logger.exception` the swallowed error.
+
+
 ## ~~run_graceful_failure should read mock_account_state~~ RESOLVED 2026-09-01
 
 The runner now reads `mock_account_state` (evals/run_evals.py `run_graceful_failure`), the

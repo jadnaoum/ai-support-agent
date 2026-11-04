@@ -6,11 +6,14 @@ executes it via the tool registry, and returns results to the conversation agent
 Does NOT generate any customer-facing text.
 """
 import re
+import time
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.agents.state import AgentState
 from backend.tools.registry import TOOL_REGISTRY
+from backend.demo.sink import emit
+from backend.demo.events import tool_result_code
 
 _UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
@@ -25,6 +28,7 @@ async def action_service_node(state: AgentState, config: dict) -> dict:
     pending = state.get("pending_action") or {}
     tool_name = pending.get("tool", "")
     params = dict(pending.get("params") or {})
+    _t0 = time.monotonic()
 
     # Strip null params — tools use defaults for missing values
     params = {k: v for k, v in params.items() if v is not None}
@@ -75,6 +79,17 @@ async def action_service_node(state: AgentState, config: dict) -> dict:
         "confirmation_pending" if result.get("confirmation_required")
         else "success" if result.get("success")
         else result.get("reason") or "failed"
+    )
+
+    emit(
+        "tool_call",
+        tool=tool_name or "unknown",
+        result=tool_result_code(result_detail, result.get("reason")),
+        success=bool(result.get("success", False)),
+        order_id=resolved_order_id,
+        confirmation_required=bool(result.get("confirmation_required", False)),
+        requires_escalation=bool(result.get("requires_escalation", False)),
+        duration_ms=int((time.monotonic() - _t0) * 1000),
     )
 
     return {
