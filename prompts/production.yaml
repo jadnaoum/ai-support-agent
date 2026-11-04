@@ -29,8 +29,8 @@ intent_prompt: |
   a reason, a color) that only makes sense in the context of what came before,
   use that context to resolve the intent and extract parameters. For example:
   if the agent asked for an order number after a return request, and the customer
-  replies with just "Order #44455", classify as action_request for
-  initiate_return with order_id "44455".
+  replies with just "Order #c41e7d20-5b9a-4f3e-8d61-2a7f90b3e815", classify as action_request for
+  initiate_return with order_id "c41e7d20-5b9a-4f3e-8d61-2a7f90b3e815".
 
   You are a classifier and extractor only. You do not respond to the customer,
   enforce business rules, or decide whether an action is permitted. Those
@@ -153,6 +153,8 @@ intent_prompt: |
   for a refund without saying why, set reason to null. The tools are designed
   to handle missing parameters structurally; your job is accurate extraction,
   not completeness.
+  
+  order_id format: order IDs are UUIDs, e.g. 8f3c2a10-4d2e-4b7a-9c1e-2b6d0e5a7f31.
   </selection_principles>
 
   <clarification_rules>
@@ -187,7 +189,7 @@ intent_prompt: |
   - Missing parameters — "stop my order" without an order ID is clearly
     cancel_order with order_id null. The tool resolves which order; you do not
     need to ask.
-  - Missing reason — "I need to send back order 3390" with no reason stated is
+  - Missing reason — "I need to send back order 7a2d4e91-0c3f-4b8e-9f16-d5e2a8c07b43" with no reason stated is
     clearly initiate_return with reason null. The tool prompts for it.
   - Brief or casual phrasing — if you can reasonably determine what the
     customer wants, classify accordingly even if the message is short. "Money
@@ -222,18 +224,18 @@ intent_prompt: |
 
   <examples>
   <example>
-  Customer: "Is it possible to cancel order 9012?"
+  Customer: "Is it possible to cancel order 3f8b6c15-9e2a-4d70-b4c8-61a9e0f2d7b5?"
   Reasoning: Asking WHETHER cancellation is possible — a question about
   eligibility, not a request to execute.
-  {"intent": "action_request", "confidence": 0.92, "action": "check_cancel_eligibility", "params": {"order_id": "9012"}}
+  {"intent": "action_request", "confidence": 0.92, "action": "check_cancel_eligibility", "params": {"order_id": "3f8b6c15-9e2a-4d70-b4c8-61a9e0f2d7b5"}}
   </example>
 
   <example>
-  Customer: "Please cancel order 9012, I accidentally ordered two."
+  Customer: "Please cancel order 3f8b6c15-9e2a-4d70-b4c8-61a9e0f2d7b5, I accidentally ordered two."
   Reasoning: Directly requesting cancellation. The customer's own
   over-order maps to changed_mind — NOT duplicate_item, which is reserved
   for fulfillment errors (the store sent something they didn't order).
-  {"intent": "action_request", "confidence": 0.95, "action": "cancel_order", "params": {"order_id": "9012", "reason": "changed_mind"}}
+  {"intent": "action_request", "confidence": 0.95, "action": "cancel_order", "params": {"order_id": "3f8b6c15-9e2a-4d70-b4c8-61a9e0f2d7b5", "reason": "changed_mind"}}
   </example>
 
   <example>
@@ -244,10 +246,10 @@ intent_prompt: |
   </example>
 
   <example>
-  Customer: "It's been a week since I sent the item back. Any news on my refund for order 4488?"
+  Customer: "It's been a week since I sent the item back. Any news on my refund for order e9d03a72-6f41-4c5b-a8e7-0b2c9d4f1a63?"
   Reasoning: Customer is asking about the status of an existing refund, not
   requesting a new one. Use get_refund_status.
-  {"intent": "action_request", "confidence": 0.95, "action": "get_refund_status", "params": {"order_id": "4488"}}
+  {"intent": "action_request", "confidence": 0.95, "action": "get_refund_status", "params": {"order_id": "e9d03a72-6f41-4c5b-a8e7-0b2c9d4f1a63"}}
   </example>
 
   <example>
