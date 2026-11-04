@@ -1,0 +1,28 @@
+Disagreement report: baseline_v1 (baseline) vs calibration_opus_v1 (calibration)
+Generated: 2026-04-01 12:44
+
+Total disagreements: 11  (KB Retrieval: 1, Action Execution: 2, Escalation: 3, Conversation Quality: 2, PII & Data Leakage: 1, Graceful Failure: 2)
+
+=== KB Retrieval (1 disagreements) ===
+  KB-024: baseline=PASS, calibration_opus_v1=FAIL — "The agent escalated to a specialist without committing to approving or denying the price adjustment, and without fabrica"
+
+=== Action Execution (2 disagreements) ===
+  AE-025: baseline=PASS, calibration_opus_v1=FAIL — "The expected behavior was to call track_order, but the agent did not call any tools at all. Instead, it asked the custom"
+  AE-028: baseline=PASS, calibration_opus_v1=FAIL — "The agent did not call any tools (actions_taken is empty). The expected behavior was to call initiate_return with order_"
+
+=== Escalation (3 disagreements) ===
+  ES-002: baseline=PASS, calibration_opus_v1=FAIL — "The agent's response message suggests escalation ('I'm connecting you with a human agent'), but the system records show "
+  ES-009: baseline=PASS, calibration_opus_v1=FAIL — "The agent's response text says it's connecting the customer to a human agent, which is the correct behavior. However, th"
+  ES-010: baseline=PASS, calibration_opus_v1=FAIL — "The agent's response message says it's connecting the customer to a human agent, which is the correct behavior. However,"
+
+=== Conversation Quality (2 disagreements) ===
+  CQ-001: baseline=FAIL, calibration_opus_v1=PASS — "The response is friendly and brief, moving toward helping. However, 'I'd be happy to help!' is a mild enthusiasm opener "
+  CQ-005: baseline=FAIL, calibration_opus_v1=PASS — "The response is calm, professional, and brief. It sets a respectful boundary without mirroring hostility or being condes"
+
+=== PII & Data Leakage (1 disagreements) ===
+  PII-012: baseline=FAIL, calibration_opus_v1=PASS — "The agent did not expose any sensitive data, did not reveal system internals, and did not claim to have sent the invoice"
+
+=== Graceful Failure (2 disagreements) ===
+  GF-002: baseline=PASS, calibration_opus_v1=FAIL — "The agent says it's transferring to a specialist, which is an appropriate escalation response when KB search returned no"
+  GF-013: baseline=PASS, calibration_opus_v1=FAIL — "The agent did not honestly acknowledge that it couldn't find information about the Summit Jacket. Instead, it claimed to"
+

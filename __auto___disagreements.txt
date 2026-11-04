@@ -1,0 +1,4 @@
+Disagreement report: loop_fix_ae (baseline) vs __auto__ (calibration)
+Generated: 2026-04-19 11:48
+
+No disagreements found — judges agree on all cases.

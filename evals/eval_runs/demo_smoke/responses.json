@@ -1,0 +1,617 @@
+{
+  "IC-001": {
+    "response": "knowledge_query",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "How do I return an item?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.4678,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.97,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "IC-002": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": "12345",
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.99,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-003": {
+    "response": "escalation_request",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "customer_requested"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "customer_requested",
+    "confidence": 0.99,
+    "inferred_intent": "escalation_request",
+    "context_summary": "The customer has opened the conversation with an immediate request to speak to a manager, without providing details about their issue. No background information, account context, or specific concern has been shared at this stage. Escalating per customer request.\nEscalation reason: customer_requested"
+  },
+  "IC-004": {
+    "response": "general",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.99,
+    "inferred_intent": "general",
+    "context_summary": ""
+  },
+  "IC-005": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": "67890",
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.88,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-006": {
+    "response": "knowledge_query",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "What materials is the Horizon backpack made of?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.1639,
+        "semantic_candidates": 20,
+        "keyword_candidates": 2
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.98,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "IC-007": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": null,
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.82,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-008": {
+    "response": "needs_clarification",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "IC-009": {
+    "response": "needs_clarification",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.87,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "IC-010": {
+    "response": "needs_clarification",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.8,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "IC-011": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": "44455",
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      },
+      {
+        "service": "action_service",
+        "action": "get_order",
+        "params": {
+          "order_id": "44455"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.92,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-012": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": "11122",
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.97,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-013": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_missing_package",
+        "params": {
+          "order_id": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.92,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-014": {
+    "response": "knowledge_query",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "Do you price match?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.6699,
+        "semantic_candidates": 20,
+        "keyword_candidates": 5
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.97,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "IC-015": {
+    "response": "escalation_request",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "threat"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "threat",
+    "confidence": 0.97,
+    "inferred_intent": "escalation_request",
+    "context_summary": "The customer is demanding a refund and has threatened to initiate a chargeback if one is not issued. No further context has been provided about the nature of the purchase or the reason for the refund request. The conversation is being escalated due to the chargeback threat.\nEscalation reason: threat"
+  },
+  "IC-016": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "track_order",
+        "params": {
+          "order_id": "55555"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.95,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-017": {
+    "response": "knowledge_query",
+    "actions_taken": [
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "Do you have a size chart?",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.264,
+        "semantic_candidates": 20,
+        "keyword_candidates": 2
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.97,
+    "inferred_intent": "knowledge_query",
+    "context_summary": ""
+  },
+  "IC-018": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_missing_package",
+        "params": {
+          "order_id": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      },
+      {
+        "service": "action_service",
+        "action": "get_order_details",
+        "params": {
+          "order_id": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.92,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-019": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "track_order",
+        "params": {
+          "order_id": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.95,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-020": {
+    "response": "needs_clarification",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.78,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "IC-021": {
+    "response": "needs_clarification",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.78,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "IC-022": {
+    "response": "needs_clarification",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.85,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "IC-023": {
+    "response": "needs_clarification",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.88,
+    "inferred_intent": "needs_clarification",
+    "context_summary": ""
+  },
+  "IC-024": {
+    "response": "general",
+    "actions_taken": [],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.99,
+    "inferred_intent": "general",
+    "context_summary": ""
+  },
+  "IC-025": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "get_refund_status",
+        "params": {
+          "order_id": "12345"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.87,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-026": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": null,
+          "reason": "defective"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.95,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-027": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": null,
+          "reason": "wrong_item"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.92,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-028": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": "5567",
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.87,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-029": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": null,
+          "reason": "not_as_described"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      },
+      {
+        "service": "action_service",
+        "action": "lookup_customer",
+        "params": {
+          "customer_id": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.93,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-030": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": null,
+          "reason": "duplicate_item"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      },
+      {
+        "service": "action_service",
+        "action": "get_order_details",
+        "params": {
+          "order_id": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.92,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-031": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": null,
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.92,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  },
+  "IC-032": {
+    "response": "action_request",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": null,
+          "reason": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      },
+      {
+        "service": "action_service",
+        "action": "get_order_by_customer",
+        "params": {
+          "customer_id": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "failed"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.92,
+    "inferred_intent": "action_request",
+    "context_summary": ""
+  }
+}

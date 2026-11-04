@@ -1,0 +1,4 @@
+Disagreement report: regal_rag_playbook (baseline) vs regal_rag_playbook (calibration)
+Generated: 2026-04-08 10:37
+
+No disagreements found — judges agree on all cases.
