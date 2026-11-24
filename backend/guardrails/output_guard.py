@@ -25,6 +25,7 @@ import litellm
 
 from backend.demo.sink import emit
 
+from backend.agents.order_context import format_recent_orders
 from backend.agents.state import AgentState
 from backend.config import get_settings
 from prompts.loader import get_prompt
@@ -61,32 +62,38 @@ def _build_guard_context(response: str, state: AgentState) -> str:
     }
     tools_called = json.dumps(tools_payload, indent=2)
 
-    # IDs legitimately present in this conversation's context
-    ids: set[str] = set()
+    # IDs legitimately present in this conversation's context, mapped to a
+    # label ("" = unlabeled). The customer's name and email must be labeled:
+    # unlabeled, the guard read the customer's name as the assistant's own
+    # name and failed "I don't have a name" as unsupported_claim. The first
+    # label recorded for a value wins (setdefault).
+    ids: "dict[str, str]" = {}
     ctx = state.get("customer_context") or {}
     # Include the customer's own name and email so the guard doesn't flag
     # them as cross-customer leaks when the response addresses the customer by name.
-    for field in ("name", "email"):
+    for field, label in (("name", "customer's name"), ("email", "customer's email")):
         val = ctx.get(field, "")
         if val:
-            ids.add(val)
+            ids.setdefault(val, label)
     for order in ctx.get("recent_orders") or []:
         oid = order.get("order_id", "")
         if oid:
-            ids.add(oid)
+            ids.setdefault(oid, "order ID")
     for result in action_results:
         if isinstance(result, dict):
             for v in result.values():
                 if isinstance(v, str) and _UUID_RE.match(v):
-                    ids.add(v)
+                    ids.setdefault(v, "")
     for chunk in state.get("retrieved_context") or []:
         for match in _UUID_RE.finditer(chunk.get("chunk_text", "")):
-            ids.add(match.group())
+            ids.setdefault(match.group(), "")
     for msg in state.get("messages") or []:
         if msg.get("role") == "customer":
             for match in _UUID_RE.finditer(msg.get("content", "")):
-                ids.add(match.group())
-    known_ids = ", ".join(sorted(ids)) if ids else "(none)"
+                ids.setdefault(match.group(), "")
+    known_ids = ", ".join(
+        f"{v} ({label})" if label else v for v, label in sorted(ids.items())
+    ) or "(none)"
 
     # KB content retrieved this turn. No character cap — chunks are bounded to top-5
     # by the knowledge service, and the guard must see all retrieved content to
@@ -100,6 +107,9 @@ def _build_guard_context(response: str, state: AgentState) -> str:
         conversation=conversation,
         tools_called=tools_called,
         known_ids=known_ids,
+        # Same block the response agent sees, so details it repeats from the
+        # order list ("your lamp from Nov 2") are verifiable evidence.
+        customer_orders=format_recent_orders(ctx) or "(none)",
         kb_content=kb_content,
     )
 

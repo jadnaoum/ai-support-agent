@@ -40,6 +40,8 @@ Graph: `START → conversation_agent ↔ knowledge_service / action_service → 
 
 Prompts live in `prompts/production.yaml`. Eval rubrics in `prompts/eval_rubrics.yaml`.
 
+**Every prompt change needs Jad's confirmation first** — anything in `prompts/`, however small. Show the exact before/after text, wait for an explicit yes, then make the edit yourself. Approving a direction is not approving the wording.
+
 ## After completing a task
 
 Decide if anything needs documenting:

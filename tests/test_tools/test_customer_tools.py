@@ -171,3 +171,35 @@ async def test_escalated_conversations_raise_risk(db: AsyncSession):
     score = await get_risk_score(db, c.id)
     baseline_score = 0.1  # no refunds, but has orders
     assert score > baseline_score
+
+
+async def test_recent_orders_include_product_names(db: AsyncSession):
+    from backend.db.models import OrderItem, Product
+    c = Customer(id=str(uuid.uuid4()), name="Lamp Buyer", email=f"lamp-{uuid.uuid4()}@test.com")
+    db.add(c)
+    await db.flush()
+    p = Product(id=str(uuid.uuid4()), name="Desk lamp", category="home_goods", price=49.99)
+    o = Order(id=str(uuid.uuid4()), customer_id=c.id, status="shipped", total_amount=99.98)
+    db.add_all([p, o])
+    await db.flush()
+    db.add(OrderItem(id=str(uuid.uuid4()), order_id=o.id, product_id=p.id,
+                     quantity=2, price_at_purchase=49.99))
+    await db.commit()
+
+    result = await get_customer_context(db, c.id)
+    assert result["recent_orders"][0]["items"] == [{"product": "Desk lamp", "quantity": 2}]
+
+
+async def test_recent_orders_limit_follows_setting(db: AsyncSession, monkeypatch):
+    from backend.config import get_settings
+    monkeypatch.setattr(get_settings(), "recent_orders_in_context", 2)
+    c = Customer(id=str(uuid.uuid4()), name="Limit", email=f"limit-{uuid.uuid4()}@test.com")
+    db.add(c)
+    await db.flush()
+    for _ in range(4):
+        db.add(Order(id=str(uuid.uuid4()), customer_id=c.id, status="delivered", total_amount=20.0))
+    await db.commit()
+
+    result = await get_customer_context(db, c.id)
+    assert len(result["recent_orders"]) == 2
+    assert all(o["items"] == [] for o in result["recent_orders"])

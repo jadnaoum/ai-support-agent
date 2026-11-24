@@ -7,7 +7,7 @@ parameter validation, and audit trail.
 """
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -150,9 +150,19 @@ def _check_return_eligibility_data(order: dict, products: list, reason=None, now
     if status == "refunded":
         return {"eligible": False, "reason": "already_refunded", "available_action": None}
 
-    if status != "delivered":
-        return {"eligible": False, "reason": "wrong_status", "available_action": None}
+    # Window facts travel with the result so "until when can I return it?" is
+    # answered from tool data — the agent must never compute a deadline from
+    # the order date (UI test conv 5: it counted 30 days from the PLACED date
+    # of an order that hadn't been delivered yet).
+    min_window = min(p["return_window_days"] for p in products) if products else None
 
+    if status != "delivered":
+        result = {"eligible": False, "reason": "wrong_status", "available_action": None}
+        if status in ("placed", "processing", "shipped") and min_window:
+            result.update({"return_window_days": min_window, "return_window_starts": "on_delivery"})
+        return result
+
+    window = {}
     if products:
         if any(p.get("final_sale") for p in products):
             return {"eligible": False, "reason": "final_sale", "available_action": None}
@@ -166,12 +176,14 @@ def _check_return_eligibility_data(order: dict, products: list, reason=None, now
 
         delivered_date = _delivered_date()
         if delivered_date:
-            days_since = (now - delivered_date).days
-            min_window = min(p["return_window_days"] for p in products)
-            if days_since > min_window:
-                return {"eligible": False, "reason": "outside_return_window", "available_action": None}
+            window = {
+                "return_window_days": min_window,
+                "return_deadline": (delivered_date + timedelta(days=min_window)).date().isoformat(),
+            }
+            if (now - delivered_date).days > min_window:
+                return {"eligible": False, "reason": "outside_return_window", "available_action": None, **window}
 
-    return {"eligible": True, "reason": "eligible", "available_action": None}
+    return {"eligible": True, "reason": "eligible", "available_action": None, **window}
 
 
 # ── ORM adapters — the real tools' entry points to the shared helpers ─────────
@@ -270,13 +282,46 @@ def _has_prior_confirmation(actions_taken, tool_name: str, resolved_order_id: st
 
 # ── Agent-callable tools ──────────────────────────────────────────────────────
 
+def _no_order_id_selection_data(candidates: list, order_count: int) -> "tuple[int | None, dict | None]":
+    """Which order a single-order tool uses when called without an order_id.
+
+    Shared by the real tools and the mock layer (same rule in both). candidates
+    are order summaries, newest first. Returns (index_to_use, None) when exactly
+    one order exists, or (None, result_to_return) otherwise. With two or more
+    orders the tool never guesses: it returns order_id_required with the
+    candidates so the customer chooses (the loop stops on candidate_orders).
+    """
+    if order_count == 0:
+        return None, {"success": False, "error": "No orders found for this account."}
+    if order_count == 1:
+        return 0, None
+    return None, {"success": False, "reason": "order_id_required", "candidate_orders": candidates}
+
+
+async def _resolve_order_without_id(db: AsyncSession, customer_id: str):
+    """Real-layer adapter for _no_order_id_selection_data. Returns (order, None) or (None, result)."""
+    from backend.config import get_settings  # noqa: PLC0415
+    from backend.tools.customer_tools import order_summaries  # noqa: PLC0415
+
+    result = await db.execute(
+        select(Order).where(Order.customer_id == customer_id).order_by(Order.created_at.desc())
+    )
+    orders = result.scalars().all()
+    candidates = (
+        await order_summaries(db, orders[:get_settings().recent_orders_in_context])
+        if len(orders) > 1 else []
+    )
+    index, outcome = _no_order_id_selection_data(candidates, len(orders))
+    return (orders[index], None) if index is not None else (None, outcome)
+
+
 async def track_order(
     db: AsyncSession,
     customer_id: str,
     order_id: str = None,
     actions_taken: list = None,
 ) -> dict:
-    """Return order status and item details. Uses most recent order if order_id is omitted."""
+    """Return order status and item details. Without order_id: the only order, or order_id_required with candidates."""
     if order_id:
         order = await _find_order(db, order_id)
         if not order:
@@ -284,15 +329,9 @@ async def track_order(
         if str(order.customer_id) != customer_id:
             return {"success": False, "error": "That order does not belong to your account."}
     else:
-        result = await db.execute(
-            select(Order)
-            .where(Order.customer_id == customer_id)
-            .order_by(Order.created_at.desc())
-            .limit(1)
-        )
-        order = result.scalar_one_or_none()
-        if not order:
-            return {"success": False, "error": "No orders found for this account."}
+        order, outcome = await _resolve_order_without_id(db, customer_id)
+        if outcome:
+            return outcome
 
     items_result = await db.execute(
         select(OrderItem, Product)
@@ -388,6 +427,14 @@ async def check_return_eligibility(
         products = items_result.scalars().all()
         check = _check_return_eligibility_sync(order, products, reason=reason)
         return {"success": True, "order_id": str(order.id), **check}
+
+    # A defect / duplicate claim is about one specific item — scanning every
+    # order and surfacing whichever matched first answered about the wrong one.
+    if _REASON_MAP.get(reason) in ESCALATION_REASONS:
+        order, outcome = await _resolve_order_without_id(db, customer_id)
+        if outcome:
+            return outcome
+        return await check_return_eligibility(db, customer_id, str(order.id), reason, actions_taken)
 
     result = await db.execute(
         select(Order)
@@ -725,15 +772,9 @@ async def check_missing_package(
         if str(order.customer_id) != customer_id:
             return {"success": False, "error": "That order does not belong to your account."}
     else:
-        result = await db.execute(
-            select(Order)
-            .where(Order.customer_id == customer_id)
-            .order_by(Order.created_at.desc())
-            .limit(1)
-        )
-        order = result.scalar_one_or_none()
-        if not order:
-            return {"success": False, "error": "No orders found for this account."}
+        order, outcome = await _resolve_order_without_id(db, customer_id)
+        if outcome:
+            return outcome
 
     if order.status != "delivered":
         return {

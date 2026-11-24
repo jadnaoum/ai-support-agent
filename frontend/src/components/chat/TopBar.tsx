@@ -37,12 +37,6 @@ export function TopBar({
         <span className="text-neutral-500">
           {n} {n === 1 ? 'order' : 'orders'}
         </span>
-        {customer.scenario_title && (
-          <span className="hidden items-center gap-2.5 md:flex">
-            <span className="text-neutral-300">·</span>
-            <span className="text-xs text-neutral-400">{customer.scenario_title}</span>
-          </span>
-        )}
         {escalated && (
           <span className="rounded-full bg-brand-purple-soft px-2 py-0.5 text-xs font-medium text-brand-purple-dark">
             Handed to a human

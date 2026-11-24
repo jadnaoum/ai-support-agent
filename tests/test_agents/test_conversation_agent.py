@@ -396,9 +396,10 @@ async def test_handoff_intent_no_double_fire_when_tool_also_signals(mock_complet
     result = await conversation_agent_node(state, {})
 
     assert result["requires_escalation"] is True
-    # handoff_intent path fires first, so reason is llm_escalation_intent
-    assert result["escalation_reason"] == "llm_escalation_intent"
-    # Exactly one call — idempotency flag prevented the tool-signalled path from firing
+    # The tool's structural flag outranks guard handoff detection (changed
+    # 2026-11-24 — handoff-first filed every tool escalation as llm_escalation_intent)
+    assert result["escalation_reason"] == "defective"
+    # Exactly one call — a single escalation block, never both paths
     mock_side_effects.assert_called_once()
 
 
