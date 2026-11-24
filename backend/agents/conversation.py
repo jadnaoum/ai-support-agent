@@ -19,6 +19,7 @@ LLM_TIMEOUT = 30  # seconds per LLM call — prevents hung API requests from sta
 
 from backend.config import get_settings
 from backend.agents.state import AgentState
+from backend.agents.order_context import format_recent_orders
 from backend.agents.escalation import handle_escalation, build_context_summary, run_escalation_side_effects
 from backend.guardrails.input_guard import check_input, log_blocked_attempt
 from backend.guardrails.output_guard import check_output, log_output_guard_blocked
@@ -33,6 +34,47 @@ RESPONSE_PROMPT = get_prompt("response_prompt")
 REDIRECT_PROMPT = get_prompt("redirect_prompt")
 LOOP_DECISION_PROMPT = get_prompt("loop_decision_prompt")
 ESCALATION_SUMMARY_PROMPT = get_prompt("escalation_summary_prompt")
+HANDOFF_MESSAGE_PROMPT = get_prompt("handoff_message_prompt")
+
+# Small-talk and provocative limits (decided 2026-11-24). The warning turn is
+# still answered; the escalation turn skips response generation entirely.
+SMALL_TALK_WARN_CONSECUTIVE = 2
+SMALL_TALK_ESCALATE_CONSECUTIVE = 3
+SMALL_TALK_WARN_TOTAL = 4
+SMALL_TALK_ESCALATE_TOTAL = 5
+PROVOCATIVE_ESCALATE = 2  # the 1st provocative message gets a warning redirect
+
+
+def _format_conversation(messages: list, last: int = 12) -> str:
+    """Plain-text transcript of the last turns, for the handoff prompts."""
+    role_label = {"customer": "Customer", "agent": "Agent"}
+    return "\n".join(
+        f"{role_label.get(m.get('role'), m.get('role', '?'))}: {m.get('content', '')}"
+        for m in (messages or [])[-last:]
+        if m.get("role") in role_label
+    ) or "(no messages)"
+
+
+async def _generate_handoff_message(messages: list, reason: str) -> str:
+    """Customer-facing handoff sentence written for this conversation and
+    reason (replaces the fixed _HANDOFF_MESSAGE on code-triggered escalations).
+    Returns "" on any error — the caller then keeps the fixed message."""
+    try:
+        result = await litellm.acompletion(
+            model=settings.litellm_model,
+            messages=[{
+                "role": "user",
+                "content": HANDOFF_MESSAGE_PROMPT.format(
+                    reason=reason, conversation=_format_conversation(messages),
+                ),
+            }],
+            stream=False,
+            request_timeout=LLM_TIMEOUT,
+        )
+        return (result.choices[0].message.content or "").strip()
+    except Exception as e:
+        logger.warning("handoff message fell back to the fixed sentence (%s)", type(e).__name__)
+        return ""
 
 
 async def summarize_for_handoff(
@@ -50,12 +92,7 @@ async def summarize_for_handoff(
     here. Falls back to the deterministic build_context_summary() on any LLM
     error (if the LLM is down, escalations are exactly what still must work).
     """
-    role_label = {"customer": "Customer", "agent": "Agent"}
-    convo = "\n".join(
-        f"{role_label.get(m.get('role'), m.get('role', '?'))}: {m.get('content', '')}"
-        for m in (messages or [])[-12:]
-        if m.get("role") in role_label
-    ) or "(no messages)"
+    convo = _format_conversation(messages)
     try:
         result = await litellm.acompletion(
             model=settings.litellm_classifier_model,
@@ -93,10 +130,16 @@ def _result_guidance_notes(action_results: list) -> "list[str]":
         if key in guidance and key not in keys:
             keys.append(key)
 
-    for r in action_results:
+    last_index = len(action_results) - 1
+    for index, r in enumerate(action_results):
         if not isinstance(r, dict):
             continue
         reason = r.get("reason")
+        # "Which order?" is only live if nothing ran after it this turn: a
+        # later tool (e.g. the eligibility check the loop chains to) has
+        # already settled it, and the note would make the agent ask anyway.
+        if reason == "order_id_required" and index != last_index:
+            continue
         if isinstance(reason, str):
             add(reason)
         if r.get("requires_escalation"):
@@ -106,7 +149,12 @@ def _result_guidance_notes(action_results: list) -> "list[str]":
     return [guidance[k] for k in keys]
 
 
-def _build_context_section(state: AgentState, with_result_guidance: bool = False) -> str:
+def _build_context_section(
+    state: AgentState,
+    with_result_guidance: bool = False,
+    small_talk_warning: bool = False,
+    with_orders: bool = True,
+) -> str:
     chunks = state.get("retrieved_context") or []
     action_results = state.get("action_results") or []
     customer_context = state.get("customer_context") or {}
@@ -114,6 +162,11 @@ def _build_context_section(state: AgentState, with_result_guidance: bool = False
 
     if customer_context.get("name"):
         parts.append(f"\nCustomer: {customer_context['name']}")
+    # The loop-decision step gets no order list (with_orders=False): with it,
+    # it picked an order_id itself instead of letting the tool/customer choose.
+    orders_block = format_recent_orders(customer_context) if with_orders else ""
+    if orders_block:
+        parts.append(orders_block)
 
     if chunks:
         kb_text = "\n\n---\n\n".join(
@@ -127,6 +180,11 @@ def _build_context_section(state: AgentState, with_result_guidance: bool = False
             notes = _result_guidance_notes(action_results)
             if notes:
                 parts.append("\nHow to present these results:\n" + "\n".join(notes))
+    if small_talk_warning:
+        # Owner-authored snippet (response_guidance.yaml); code only selects it.
+        note = get_response_guidance().get("small_talk_warning")
+        if note:
+            parts.append("\nFor this reply:\n" + note)
     return "\n".join(parts)
 
 
@@ -154,6 +212,17 @@ async def _classify_intent(state: AgentState, config: dict = None) -> tuple[str,
         system_blocks = [
             {"type": "text", "text": INTENT_PROMPT, "cache_control": {"type": "ephemeral"}},
         ]
+        # Account holder's name, after the cache breakpoint (varies per customer).
+        # Lets the classifier tell when the person writing is not the account
+        # holder ("I'm not Triss") — an escalation_request with trigger "decided".
+        holder = ((state.get("customer_context") or {}).get("name") or "").strip()
+        if holder:
+            system_blocks.append({"type": "text", "text": f"\nAccount holder: {holder}"})
+        # Same recent-orders block the response agent sees, so "my blender"
+        # can resolve to an order_id when exactly one order matches.
+        orders_block = format_recent_orders(state.get("customer_context"), identity_only=True)
+        if orders_block:
+            system_blocks.append({"type": "text", "text": "\n" + orders_block})
         if debug:
             system_blocks.append({
                 "type": "text",
@@ -183,8 +252,9 @@ async def _classify_intent(state: AgentState, config: dict = None) -> tuple[str,
                 "clarification_prompt": parsed.get("clarification_prompt", "Could you provide a bit more detail so I can help you?"),
             }
         if intent == "escalation_request":
-            # trigger disambiguates the two reasons that share this intent as
-            # their detector: "threat" vs explicit human request. Anything else
+            # trigger disambiguates the reasons that share this intent as their
+            # detector: "threat", "decided" (any other classifier judgment, e.g.
+            # not the account holder) vs explicit human request. Anything else
             # (missing, garbage) falls back to customer_requested — the
             # classifier forgetting the field can never produce a worse label
             # than the pre-trigger behavior.
@@ -196,9 +266,11 @@ async def _classify_intent(state: AgentState, config: dict = None) -> tuple[str,
         return "general", 0.5, {}, ""
 
 
-async def _generate_response(state: AgentState) -> str:
+async def _generate_response(state: AgentState, small_talk_warning: bool = False) -> str:
     """Generate the customer-facing response from conversation history + service results."""
-    context_section = _build_context_section(state, with_result_guidance=True)
+    context_section = _build_context_section(
+        state, with_result_guidance=True, small_talk_warning=small_talk_warning,
+    )
     system_content = RESPONSE_PROMPT.format(context_section=context_section)
 
     messages_for_llm = [{"role": "system", "content": system_content}]
@@ -220,18 +292,24 @@ async def _generate_response(state: AgentState) -> str:
         return "I'm having trouble processing your request right now. Please try again in a moment."
 
 
-async def _generate_redirect(block_count: int, category: str) -> str:
+async def _generate_redirect(block_count: int, category: str, customer_message: str) -> str:
     """Generate a natural redirect message when the input guard blocks a message.
 
-    Uses block_count (1 or 2) and category (off_topic/abusive/prompt_injection)
-    to apply the correct tone per the guidelines in REDIRECT_PROMPT.
+    Uses block_count (1 or 2) and category (off_topic/provocative/prompt_injection)
+    to apply the correct tone per the guidelines in REDIRECT_PROMPT. The
+    customer's message goes in as the user turn so the redirect can respond to
+    what was actually said — and because Anthropic rejects a request with no
+    user message (before this, every redirect silently hit the fallback).
     Falls back to a generic safe message on any LLM error.
     """
     system = REDIRECT_PROMPT.format(block_count=block_count, category=category)
     try:
         result = await litellm.acompletion(
             model=settings.litellm_model,
-            messages=[{"role": "system", "content": system}],
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": customer_message or "(empty message)"},
+            ],
             stream=False,
             request_timeout=LLM_TIMEOUT,
         )
@@ -297,6 +375,11 @@ def _service_needs_loop(state: AgentState) -> bool:
     if last.get("confirmation_required"):
         return False
 
+    # Structural terminal: the tool couldn't tell which order the customer
+    # means. The customer chooses; the loop must not pick one.
+    if last.get("candidate_orders"):
+        return False
+
     return (
         not last.get("success", True)
         or bool(last.get("available_action"))
@@ -310,7 +393,7 @@ async def _classify_next_step(state: AgentState) -> dict:
     Returns {"next": "respond"|"knowledge"|"action", "action": ..., "params": ...}
     Falls back to {"next": "respond"} on any parse error.
     """
-    context_section = _build_context_section(state)
+    context_section = _build_context_section(state, with_orders=False)
     last_message = next(
         (m["content"] for m in reversed(state["messages"]) if m["role"] == "customer"),
         "",
@@ -357,11 +440,16 @@ async def _do_escalate(
     """
     _db = config.get("configurable", {}).get("db")
     _conv_id = config.get("configurable", {}).get("conversation_id", "")
-    summary = await summarize_for_handoff(
-        messages=state.get("messages") or [],
-        reason=f"{reason} ({detail})" if detail else reason,
-        actions_taken=state.get("actions_taken") or [],
-        retrieved_context=state.get("retrieved_context") or [],
+    # Internal briefing and customer-facing handoff sentence are independent —
+    # run them concurrently so the handoff message adds no latency.
+    summary, handoff_message = await asyncio.gather(
+        summarize_for_handoff(
+            messages=state.get("messages") or [],
+            reason=f"{reason} ({detail})" if detail else reason,
+            actions_taken=state.get("actions_taken") or [],
+            retrieved_context=state.get("retrieved_context") or [],
+        ),
+        _generate_handoff_message(state.get("messages") or [], reason),
     )
     context = {
         "db": _db,
@@ -372,7 +460,7 @@ async def _do_escalate(
     }
     handoff = await handle_escalation(reason, context)
     return {
-        "response": handoff,
+        "response": handoff_message or handoff,
         "requires_escalation": True,
         "pending_service": "",
         "escalation_reason": reason,
@@ -385,8 +473,24 @@ async def _do_escalate(
 
 
 async def conversation_agent_node(state: AgentState, config: dict) -> dict:
+    """Central customer-facing LangGraph node (see _conversation_agent_turn).
+
+    Also owns the small-talk streak reset: any pass-1 turn that got past the
+    input guard and was classified as something other than small_talk ends
+    the streak. Keyed on inferred_intent, which every post-guard pass-1 branch
+    sets and no blocked branch does — so new branches reset it automatically
+    and blocked turns leave the streak as it was.
     """
-    Central customer-facing LangGraph node.
+    service_ran = bool(state.get("actions_taken"))
+    update = await _conversation_agent_turn(state, config)
+    if not service_ran and update.get("inferred_intent") not in (None, "", "small_talk"):
+        update["consecutive_small_talk"] = 0
+    return update
+
+
+async def _conversation_agent_turn(state: AgentState, config: dict) -> dict:
+    """
+    Central customer-facing LangGraph node logic.
 
     Pass 1 — no service results yet: classify intent and route to a service,
               or respond directly if no service is needed.
@@ -425,34 +529,52 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 await log_blocked_attempt(_db, _conv_id, last_message, guard)
                 await _db.commit()
 
-            # Abusive → immediate escalation, bypasses the block counter entirely
-            # (confidence 1.0 — the trigger is a deterministic guard verdict)
-            if guard.get("reason") == "abusive":
+            # Abusive / harmful → immediate escalation, bypasses the block counter
+            # entirely (confidence 1.0 — the trigger is a deterministic guard verdict)
+            if guard.get("reason") in ("abusive", "harmful"):
+                reason = "abusive_input" if guard.get("reason") == "abusive" else "harmful_input"
                 return {
-                    **await _do_escalate("abusive_input", state, config, confidence=1.0),
+                    **await _do_escalate(reason, state, config, confidence=1.0),
                     "confidence": 1.0,
                     "consecutive_blocks": state.get("consecutive_blocks", 0),
                     "service_call_count": 0,
                 }
 
             new_blocks = state.get("consecutive_blocks", 0) + 1
+            block_counts = {"consecutive_blocks": new_blocks}
+
+            # Provocative → its own per-conversation counter: the 1st gets a
+            # redirect that warns, the 2nd escalates. It still counts as a
+            # block, so mixing it with off_topic hits the 3-in-a-row rule too.
+            if guard.get("reason") == "provocative":
+                provocative = state.get("provocative_count", 0) + 1
+                block_counts["provocative_count"] = provocative
+                if provocative >= PROVOCATIVE_ESCALATE:
+                    return {
+                        **await _do_escalate("provocative_input", state, config, confidence=1.0),
+                        "confidence": 1.0,
+                        **block_counts,
+                        "service_call_count": 0,
+                    }
 
             # 3rd consecutive block → escalate to human
             if new_blocks >= 3:
                 return {
                     **await _do_escalate("repeated_blocks", state, config, confidence=1.0),
                     "confidence": 1.0,
-                    "consecutive_blocks": new_blocks,
+                    **block_counts,
                     "service_call_count": 0,
                 }
 
-            # 1st or 2nd block → LLM-generated redirect with category- and count-specific tone
-            redirect = await _generate_redirect(new_blocks, guard.get("reason", "prompt_injection"))
+            # Otherwise → LLM-generated redirect with category- and count-specific tone
+            redirect = await _generate_redirect(
+                new_blocks, guard.get("reason", "prompt_injection"), last_message,
+            )
             return {
                 "response": redirect,
                 "pending_service": "",
                 "confidence": 1.0,
-                "consecutive_blocks": new_blocks,
+                **block_counts,
                 "last_clarification_source": "",
                 "service_call_count": 0,
             }
@@ -524,7 +646,10 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             }
 
         if intent == "escalation_request":
-            esc_reason = "threat" if action_details.get("trigger") == "threat" else "customer_requested"
+            esc_reason = {
+                "threat": "threat",
+                "decided": "classifier_decided",
+            }.get(action_details.get("trigger"), "customer_requested")
             return {
                 **await _do_escalate(esc_reason, state, config, confidence=confidence),
                 "confidence": confidence,
@@ -574,8 +699,30 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 "service_call_count": 0,
             }
 
-        # general — answer directly without a service call
-        response = await _generate_response(state)
+        # small_talk — counted; past the limits it escalates without generating
+        # a response. Below them it is answered exactly like general, with a
+        # friendly warning on the 2nd-in-a-row / 4th-in-total turn.
+        small_talk_counts: dict = {}
+        small_talk_warning = False
+        if intent == "small_talk":
+            consecutive = state.get("consecutive_small_talk", 0) + 1
+            total = state.get("total_small_talk", 0) + 1
+            small_talk_counts = {"consecutive_small_talk": consecutive, "total_small_talk": total}
+            if consecutive >= SMALL_TALK_ESCALATE_CONSECUTIVE or total >= SMALL_TALK_ESCALATE_TOTAL:
+                return {
+                    **await _do_escalate("excessive_small_talk", state, config, confidence=confidence),
+                    "confidence": confidence,
+                    "inferred_intent": intent,
+                    "consecutive_blocks": 0,
+                    "service_call_count": 0,
+                    **small_talk_counts,
+                }
+            small_talk_warning = (
+                consecutive == SMALL_TALK_WARN_CONSECUTIVE or total == SMALL_TALK_WARN_TOTAL
+            )
+
+        # general / small_talk — answer directly without a service call
+        response = await _generate_response(state, small_talk_warning=small_talk_warning)
         out_guard = await check_output(response, state, bypass=_guard_bypass)
         if not out_guard["safe"]:
             _db = config.get("configurable", {}).get("db")
@@ -596,6 +743,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
                 "inferred_intent": intent,
                 "consecutive_blocks": 0,
                 "service_call_count": 0,
+                **small_talk_counts,
             }
         return {
             "response": response,
@@ -605,6 +753,7 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             "last_clarification_source": "",
             "consecutive_blocks": 0,
             "service_call_count": 0,
+            **small_talk_counts,
         }
 
     # Pass 2: service results are available.
@@ -693,66 +842,40 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
             "confidence": state.get("confidence", 0.0),
         }
 
-    # Output-guard handoff detection: guard passed AND detected the agent is
-    # handing the conversation off to a human. Keep the rich LLM response —
-    # it may contain KB policy details the customer needs — and fire backend
-    # side effects (DB record, conversation status) the same way the
-    # tool-signalled path does.
-    if out_guard.get("handoff_intent"):
-        # Structural split of the handoff catch-all: if the KB was searched
-        # this turn and came back empty (post-floor), the agent is handing off
-        # because we genuinely lack the information — a different triage queue
-        # than "found policy, needs a human anyway".
-        kb_searched = any(
-            e.get("service") == "knowledge_service"
-            for e in (state.get("actions_taken") or [])
-        )
-        esc_reason = "no_information" if (kb_searched and not retrieved) else "llm_escalation_intent"
-        _db = config.get("configurable", {}).get("db")
-        _conv_id = config.get("configurable", {}).get("conversation_id", "")
-        summary = await summarize_for_handoff(
-            messages=state.get("messages") or [],
-            reason=esc_reason,
-            actions_taken=state.get("actions_taken") or [],
-            retrieved_context=retrieved,
-        )
-        await run_escalation_side_effects(esc_reason, {
-            "db": _db,
-            "conversation_id": _conv_id,
-            "confidence": state.get("confidence", 0.0),
-            "messages": state.get("messages") or [],
-            "context_summary": summary,
-        })
-        return {
-            "response": response,
-            "requires_escalation": True,
-            "escalation_reason": esc_reason,
-            "context_summary": summary,
-            "confidence": state.get("confidence", 0.0),
-            "pending_service": "",
-            "last_clarification_source": "",
-            "actions_taken": (state.get("actions_taken") or []) + [
-                {"service": "escalation_handler", "action": "escalate", "reason": esc_reason}
-            ],
-        }
-
-    # Tool-signalled escalation: any action result this turn carries
-    # requires_escalation=True (e.g. defective/damaged item claims). Scanning the
-    # whole turn — not just the last result — so a later hop (KB follow-up, loop
-    # re-invocation, KB failure) cannot bury the flag and silently drop a
-    # designed-as-structural escalation. The LLM has already generated a KB-rich
-    # response with policy details and handoff language — keep that response and
-    # fire the backend side effects (DB record, conversation status) separately.
-    # Other escalation paths (abusive input, output guard, repeated failures,
-    # customer request) use _do_escalate() directly above and never reach this
-    # point; the handoff-detection branch above returns, so this cannot double-fire.
+    # Escalation after a passed guard — two signals, checked in priority order.
+    # Either way the rich LLM response is kept (it carries the KB policy
+    # details the customer needs) and the backend side effects (DB record,
+    # conversation status) fire here; only the recorded reason differs.
+    #
+    # 1. Tool-signalled: any action result this turn carries
+    #    requires_escalation=True (defective, duplicate_item,
+    #    carrier_claim_eligible). Scans the whole turn — not just the last
+    #    result — so a later hop (KB follow-up, loop re-invocation, KB failure)
+    #    cannot bury the flag. Checked FIRST: the requires_escalation guidance
+    #    tells the agent to end with a handoff, so the guard almost always
+    #    detects handoff_intent too — when handoff detection ran first, every
+    #    tool escalation was filed as llm_escalation_intent (UI test 2026-11-04).
+    # 2. Output-guard handoff detection: the agent is handing off on its own.
+    #    Structural split of that catch-all: KB searched this turn and empty
+    #    (post-floor) → no_information; otherwise llm_escalation_intent.
+    # Other escalation paths (abusive input, output guard block, repeated
+    # failures, customer request) use _do_escalate() and never reach this point.
     esc_entry = next(
         (r for r in reversed(action_results)
          if isinstance(r, dict) and r.get("requires_escalation")),
         None,
     )
+    esc_reason = ""
     if esc_entry is not None:
         esc_reason = esc_entry.get("reason") or "defective"
+    elif out_guard.get("handoff_intent"):
+        kb_searched = any(
+            e.get("service") == "knowledge_service"
+            for e in (state.get("actions_taken") or [])
+        )
+        esc_reason = "no_information" if (kb_searched and not retrieved) else "llm_escalation_intent"
+
+    if esc_reason:
         _db = config.get("configurable", {}).get("db")
         _conv_id = config.get("configurable", {}).get("conversation_id", "")
         summary = await summarize_for_handoff(

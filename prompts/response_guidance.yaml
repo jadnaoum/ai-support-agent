@@ -14,6 +14,8 @@
 #   - a snippet keyed by a reason code fires when any result has that reason
 #   - "requires_escalation" fires when any result carries that flag
 #   - "tool_error" fires on error / unhandled_error results
+#   - "small_talk_warning" fires on the 2nd-in-a-row / 4th-in-total
+#     small_talk turn (counter state, not a tool result)
 #
 # Adding a new tool outcome = one entry here (plus its OUTPUT_REASONS
 # registration and eval coverage). Do NOT add per-scenario prose back
@@ -33,8 +35,13 @@ reason_required: >
   mapped to the correct reason code automatically.
 
 order_id_required: >
-  The tool can't identify which order the customer is asking about and
-  needs the order number to proceed.
+  It isn't clear which order the customer means. Ask them, naming the
+  possible orders by product and date rather than asking for an order
+  number.
+
+tracking_info: >
+  placed_at is when the customer placed the order, not when it shipped.
+  Give a ship or delivery date only if the result includes one.
 
 requires_escalation: >
   This request needs human review — you cannot complete this action, only
@@ -85,3 +92,10 @@ tool_error: >
   A tool call failed unexpectedly. Acknowledge that something went wrong
   without exposing technical details. Offer to try again or escalate to
   someone who can help.
+
+small_talk_warning: >
+  The customer has been making small talk rather than asking about an order
+  or their account. Answer briefly as usual, then add a friendly heads-up in
+  your own words: you're here for orders and account questions, and if the
+  chat keeps drifting you'll pass them to a colleague. Keep it light — a
+  nudge, not a reprimand.

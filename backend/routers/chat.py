@@ -333,6 +333,9 @@ async def stream_response(
         "last_clarification_source": prior_turn_state.get("last_clarification_source", ""),
         "context_summary": "",
         "consecutive_blocks": prior_turn_state.get("consecutive_blocks", 0),
+        "consecutive_small_talk": prior_turn_state.get("consecutive_small_talk", 0),
+        "total_small_talk": prior_turn_state.get("total_small_talk", 0),
+        "provocative_count": prior_turn_state.get("provocative_count", 0),
         "service_call_count": 0,
         "classifier_reasoning": "",
     }
@@ -491,6 +494,9 @@ async def stream_response(
                     new_turn_state = {
                         "actions_taken": final_output.get("actions_taken", []),
                         "consecutive_blocks": final_output.get("consecutive_blocks", 0),
+                        "consecutive_small_talk": final_output.get("consecutive_small_talk", 0),
+                        "total_small_talk": final_output.get("total_small_talk", 0),
+                        "provocative_count": final_output.get("provocative_count", 0),
                         "last_clarification_source": final_output.get("last_clarification_source", ""),
                     }
                 await db.execute(
@@ -559,13 +565,16 @@ class TestChatRequest(BaseModel):
         - mock_agent_state: pre-load agent state fields as if prior turns already ran.
           Supported keys: actions_taken, action_results, service_call_count,
           retrieved_context, consecutive_blocks, last_clarification_source,
-          customer_context. Merged over initial_state after defaults are set,
+          customer_context, consecutive_small_talk, total_small_talk,
+          provocative_count. Merged over initial_state after defaults are set,
           so any key present here overrides the default.
 
     Output guard test mode (test_output_guard=True):
         - agent_response: the response to evaluate
         - tools_called: [{"tool": "cancel_order", "args": {...}}] — tools that were called
-        - known_ids: {"order_ids": [...], "customer_id": "..."} — IDs legitimately in context
+        - known_ids: {"order_ids": [...], "customer_id": "...", "customer_name": "..."}
+          — IDs legitimately in context. customer_name (optional) becomes
+          customer_context.name, as it is in production.
 
     Traceability (optional):
         - test_id: eval case ID (e.g. "IG-017") — attached as LangSmith tag + metadata
@@ -653,10 +662,11 @@ async def test_chat(
             "messages": [{"role": "customer", "content": "test"}],
             "customer_id": body.customer_id,
             "customer_context": {
+                "name": body.known_ids.get("customer_name", ""),
                 "recent_orders": [
                     {"order_id": oid}
                     for oid in body.known_ids.get("order_ids", [])
-                ]
+                ],
             },
             "retrieved_context": [],
             "action_results": synthetic_action_results,
@@ -720,10 +730,16 @@ async def test_chat(
                    f"Add them to _KNOWN_MOCK_CONTEXT_KEYS in chat.py if intentional.",
         )
 
-    # customer_context only carries the customer name — order data is accessed exclusively
-    # via tool calls through configurable["mock_account_state"]. Injecting the full mock
-    # into customer_context would contaminate the agent's state vs. production behaviour.
+    # customer_context mirrors production's get_customer_context: the name plus
+    # the recent-orders summary (built from the fixture's orders when it defines
+    # them). Full order data stays behind the tool calls via
+    # configurable["mock_account_state"], as in production.
     customer_ctx = {"name": mock_context.get("name") or "Test Customer"} if mock_context else {}
+    if "orders" in mock_context:
+        from backend.agents.mock_tools import mock_recent_orders  # noqa: PLC0415
+        customer_ctx["recent_orders"] = mock_recent_orders(
+            mock_context, get_settings().recent_orders_in_context,
+        )
 
     initial_state: AgentState = {
         "messages": body.messages,
@@ -743,6 +759,9 @@ async def test_chat(
         "last_clarification_source": "",
         "context_summary": "",
         "consecutive_blocks": 0,
+        "consecutive_small_talk": 0,
+        "total_small_talk": 0,
+        "provocative_count": 0,
         "service_call_count": 0,
         "classifier_reasoning": "",
     }
@@ -758,6 +777,7 @@ async def test_chat(
         "service_call_count",
         "retrieved_context", "consecutive_blocks", "last_clarification_source",
         "customer_context",
+        "consecutive_small_talk", "total_small_talk", "provocative_count",
     }
     if body.mock_agent_state:
         for key, value in body.mock_agent_state.items():

@@ -15,6 +15,7 @@ from backend.tools.order_tools import (
     _has_prior_confirmation, _REASON_MAP, REASON_VALUES,
     _escalation_rejection, ESCALATION_REASONS,
     _check_cancel_eligibility_data, _check_return_eligibility_data,
+    _no_order_id_selection_data,
 )
 
 _DEFAULT_RETURN_WINDOW_DAYS = 30
@@ -51,7 +52,8 @@ def _get_order(mock: dict, order_id) -> "tuple[dict | None, dict | None]":
     """
     Look up an order from mock data.
     Returns (order_dict, error_result) — exactly one will be None.
-    If order_id is None, returns the first order in the list.
+    Without an order_id, the shared _no_order_id_selection_data rule applies
+    (same as production): the only order, or order_id_required with candidates.
     """
     orders = mock.get("orders", [])
     if order_id:
@@ -59,9 +61,34 @@ def _get_order(mock: dict, order_id) -> "tuple[dict | None, dict | None]":
         if o is None:
             return None, {"success": False, "error": f"Order {order_id} not found."}
         return o, None
-    if not orders:
-        return None, {"success": False, "error": "No orders found for this account."}
-    return orders[0], None
+    from backend.config import get_settings  # noqa: PLC0415
+    candidates = mock_recent_orders(mock, get_settings().recent_orders_in_context) if len(orders) > 1 else []
+    index, outcome = _no_order_id_selection_data(candidates, len(orders))
+    return (orders[index], None) if index is not None else (None, outcome)
+
+
+def mock_recent_orders(mock: dict, limit: int) -> list:
+    """customer_context["recent_orders"] for an eval fixture — the same shape
+    get_customer_context returns in production, so the agent and output guard
+    see the same order list in evals. Fixture order is kept (treated as
+    newest first), matching _get_order's no-id default of orders[0].
+    """
+    recent = []
+    for o in (mock.get("orders") or [])[:limit]:
+        if o.get("items"):
+            items = [{"product": i.get("name", ""), "quantity": i.get("qty", 1)} for i in o["items"]]
+        elif o.get("item"):
+            items = [{"product": o["item"], "quantity": 1}]
+        else:
+            items = []
+        recent.append({
+            "order_id": str(o.get("id", "")),
+            "status": o.get("status", "placed"),
+            "total": float(o.get("total", 0.0)),
+            "placed_at": o.get("placed_at") or o.get("placed_date"),
+            "items": items,
+        })
+    return recent
 
 
 def _item_names(o: dict) -> list:
@@ -199,6 +226,13 @@ def _mock_check_return_eligibility(params: dict, mock: dict, now: datetime) -> d
             return err
         check = _return_eligibility(o, reason, now)
         return {"success": True, "order_id": str(o["id"]), **check}
+
+    # Defect / duplicate claim without an id: one specific item — same rule as production.
+    if _REASON_MAP.get(reason) in ESCALATION_REASONS:
+        o, err = _get_order(mock, None)
+        if err:
+            return err
+        return {"success": True, "order_id": str(o.get("id", "")), **_return_eligibility(o, reason, now)}
 
     orders = mock.get("orders", [])
     if not orders:

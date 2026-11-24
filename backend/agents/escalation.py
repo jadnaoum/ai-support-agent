@@ -47,8 +47,18 @@ ESCALATION_TRIGGER_REASONS: frozenset = frozenset({
     "customer_requested",     # explicit ask for a human (classifier trigger "requested" or absent)
     "threat",                 # legal/chargeback/regulatory threat tied to a demand
                               #   (classifier trigger "threat" on escalation_request)
+    "classifier_decided",     # classifier judged a human is needed for any other
+                              #   reason (trigger "decided"), e.g. the person
+                              #   writing is not the account holder — the
+                              #   handoff summary records the specifics
     "abusive_input",          # input guard flagged abusive language
+    "harmful_input",          # input guard flagged talk of harming someone or
+                              #   breaking the law (immediate, like abusive)
     "repeated_blocks",        # 3 consecutive input-guard blocks
+    "provocative_input",      # 2nd input-guard "provocative" block this conversation
+                              #   (the 1st gets a redirect with a warning)
+    "excessive_small_talk",   # small_talk intent: 3rd in a row or 5th in total
+                              #   (2nd in a row / 4th in total get a warning)
     # Output-guard handoff detection (Option 2) — split structurally by whether
     # the KB search this turn actually found anything (retrieved_context state):
     "no_information",         # agent handed off after the KB came back empty

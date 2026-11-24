@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     confidence_threshold: float = 0.7
     max_context_messages: int = 50
     message_retention_days: int = 60
+    recent_orders_in_context: int = 5  # newest orders shown to the agent + output guard each turn
     service_call_limit: int = 3        # max service calls per turn before forcing response generation
 
     # Public demo rails — Tier-1 rate limits allow only a few agent turns per
