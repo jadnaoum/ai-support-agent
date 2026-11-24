@@ -27,10 +27,7 @@ export function ScenarioCard({
         'disabled:cursor-default disabled:opacity-70',
       )}
     >
-      <div className="flex flex-col gap-1">
-        <span className="text-xs text-neutral-500">{scenario.title}</span>
-        <span className="text-xl font-semibold text-neutral-900">{name}</span>
-      </div>
+      <span className="text-xl font-semibold text-neutral-900">{name}</span>
       <div className="flex flex-col gap-2">
         {scenario.orders.map((o, i) => (
           <div key={i} className="flex items-center justify-between gap-2">
