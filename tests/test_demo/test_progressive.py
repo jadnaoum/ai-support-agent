@@ -99,7 +99,7 @@ async def test_output_guard_emits_pass_flagged_and_nothing_when_bypassed():
     fake_fail = NS(choices=[NS(message=NS(content='{"verdict": "fail", "failure_type": "hallucinated_id"}'))])
     with patch.object(output_guard.litellm, "acompletion", new=AsyncMock(return_value=fake_fail)):
         result, events = await _collect(output_guard.check_output("Order 1234 is cancelled.", state))
-    assert result == {"safe": False, "reason": "hallucinated_id"}
+    assert result == {"safe": False, "reason": "hallucinated_id", "explanation": ""}
     assert events == [{"type": "output_guard", "verdict": "flagged", "reason": "hallucinated_id"}]
 
     with patch.object(output_guard.litellm, "acompletion", new=AsyncMock(side_effect=RuntimeError("down"))):

@@ -4,6 +4,8 @@ Warranty claims apply when a defect appears after the return window has closed b
 
 ## Warranty Periods by Product
 
+Coverage starts on the date the item was delivered, not the date you ordered it.
+
 ### Electronics
 | Product | Warranty |
 |---|---|
@@ -46,8 +48,8 @@ Manufacturing defects — failures during normal use caused by defective materia
 
 ## How to File a Warranty Claim
 
-1. **Contact support** with: your order number, product name and model, description of the issue, and photos or video showing the problem (required for visual defects).
-2. **Tech team review** — our team reviews the claim within 48 business hours and follows up.
+1. **Contact support** with: your order number, product name and model, a description of the issue, and a photo or short video showing the problem (for an item that won't work, a video of it failing to power on or run is enough).
+2. **Tech team review** — our team reviews your description and photos/video within 48 business hours and follows up. If they can't confirm the fault that way, they'll send a prepaid label so you can send the item in for inspection.
 3. **Resolution** — we will send a replacement (most common), issue a full refund if no replacement is available, or request the defective item back first (for high-value items).
 
 Return shipping for warranty claims is covered by us with a prepaid label.

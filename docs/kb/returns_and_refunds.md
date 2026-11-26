@@ -56,15 +56,6 @@ This section applies when a defect or damage is discovered while the item is sti
 
 Contact support immediately — you don't need to wait for the return window to close. We will either send a free replacement (typically ships within 1–2 business days) or issue a full refund including original shipping charges. Photos of damage are recommended to speed up the claim but are not required to start the process.
 
-## Partial Refunds
-
-Partial refunds may apply when:
-- The item shows signs of use
-- Original packaging is missing or damaged
-- The return is approved as an exception after the window closes
-
-The refund amount reflects the item's current resale value.
-
 ## Non-Returnable Items
 
 These items cannot be returned under any circumstances: gift cards, store credit, downloadable software, digital products, personalized or custom-engraved items, perishable goods, and hazardous materials.

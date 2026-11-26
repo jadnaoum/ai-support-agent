@@ -15,6 +15,7 @@ Requirements:
 """
 import argparse
 import asyncio
+import copy
 import json
 import os
 import re
@@ -165,6 +166,10 @@ def _parse_conversation(raw) -> list:
     ]
 
 
+from evals.scenario_fixtures import expand_scenario  # noqa: E402
+from evals.judges import simulated as sim  # noqa: E402
+
+
 def resolve_relative_dates(obj):
     """Recursively resolve $EVAL_DATE-Xd / $EVAL_DATE+Xd placeholders in a
     parsed JSON object.
@@ -196,12 +201,13 @@ def _parse_json_field(raw, default=None):
     if raw is None:
         return default if default is not None else {}
     if isinstance(raw, (dict, list)):
-        return resolve_relative_dates(raw)
+        return resolve_relative_dates(expand_scenario(raw))
     try:
         parsed = json.loads(str(raw))
-        return resolve_relative_dates(parsed)
     except (json.JSONDecodeError, TypeError):
         return default if default is not None else {}
+    # {"scenario": "<demo scenario id>"} → the demo's own orders (evals/scenario_fixtures.py)
+    return resolve_relative_dates(expand_scenario(parsed))
 
 
 def _row_to_dict(ws, row_idx: int) -> dict:
@@ -380,7 +386,10 @@ async def run_input_guard(test_case: dict, calibrate: bool, test_id: str = "", v
 
 async def run_intent_classifier(test_case: dict, calibrate: bool, test_id: str = "", version_tag: str = "") -> tuple[dict, dict]:
     messages = _parse_conversation(test_case.get("conversation"))
-    agent_resp = _call_agent_full(messages, {}, test_id=test_id, version_tag=version_tag)
+    # Optional account fixture: with it the classifier sees the recent-orders
+    # list (identity only) and can resolve "my blender" to an order_id.
+    mock_context = _parse_json_field(test_case.get("mock_account_state"))
+    agent_resp = _call_agent_full(messages, mock_context, test_id=test_id, version_tag=version_tag)
     if "error" in agent_resp:
         return agent_resp, {"verdict": "fail", "score": 0.0, "reasoning": agent_resp["error"]}
     # Show the classified intent as the display "response" for this sheet
@@ -532,6 +541,93 @@ _SHEET_EXTRA_COLS = {
     "Escalation": [("escalation_summary", "context_summary")],
 }
 
+
+# Guard-API errors (input guard failing open, output guard failing closed):
+# API flakiness, not agent behaviour — infra, never fallback_fired.
+_GUARD_API_FALLBACKS = {"output_guard_error", "input_guard_error"}
+
+SIM_TURN_DELAY_S = float(os.environ.get("EVAL_SIM_TURN_DELAY", "3"))
+
+
+async def _simulate_once(test_case: dict, mock_context: dict, test_id: str, version_tag: str) -> "tuple[dict, dict]":
+    """One simulated conversation: customer LLM ↔ real agent, turn state carried
+    like production (next_turn_state → mock_agent_state). Returns (agent_resp, judgment)."""
+    persona, goal = test_case.get("persona", ""), test_case.get("goal", "")
+    # Own copy per run: writes are applied to it between turns (below), and the
+    # two runs of a case must each start from the fixture as written.
+    mock_context = copy.deepcopy(mock_context)
+    orders = sim.orders_for_customer(mock_context)
+    max_turns = int(test_case.get("max_turns") or 6)
+    messages, summaries, all_actions, all_trace = [], [], [], []
+    turn_state, sim_cost, p_tok, c_tok, last = None, 0.0, 0, 0, {}
+    for turn in range(1, max_turns + 1):
+        text, cost = await sim.next_customer_message(persona, goal, orders, messages)
+        sim_cost += cost
+        if not text or sim.END_TOKEN in text:
+            break
+        messages.append({"role": "customer", "content": text})
+        resp = await asyncio.to_thread(_call_agent_full, messages, mock_context, test_id=test_id,
+                                       version_tag=version_tag, mock_agent_state=turn_state)
+        if "error" in resp:
+            return resp, {"verdict": "fail", "score": 0.0, "reasoning": resp["error"]}
+        last = resp
+        messages.append({"role": "agent", "content": resp.get("response", "")})
+        summaries.append(sim.turn_summary(turn, resp))
+        all_actions += resp.get("actions_taken") or []
+        all_trace += resp.get("trace") or []
+        p_tok += resp.get("prompt_tokens", 0); c_tok += resp.get("completion_tokens", 0)
+        turn_state = resp.get("turn_state")
+        sim.apply_writes(mock_context, resp.get("actions_taken") or [])
+        if resp.get("requires_escalation"):
+            break
+        await asyncio.sleep(SIM_TURN_DELAY_S)
+    agent_resp = {
+        "response": sim.render_transcript(messages), "actions_taken": all_actions, "trace": all_trace,
+        "requires_escalation": bool(last.get("requires_escalation")), "escalation_reason": last.get("escalation_reason", ""),
+        "inferred_intent": last.get("inferred_intent", ""), "context_summary": last.get("context_summary", ""),
+        "structural_summary": "\n".join(summaries) or "(no turns)", "prompt_tokens": p_tok, "completion_tokens": c_tok,
+    }
+    problem = sim.check_expected_escalation(test_case, agent_resp["requires_escalation"], agent_resp["escalation_reason"])
+    if problem:
+        judgment = {"verdict": "fail", "score": 0.0, "reasoning": f"Structural check failed: {problem}.",
+                    "failure_reason": "wrong_escalation", "cost_usd": 0.0}
+    else:
+        judgment = await sim.judge_simulated_conversation(test_case, agent_resp)
+    guard_errors = sorted({t.get("name") for t in all_trace
+                           if t.get("kind") == "fallback" and t.get("name") in _GUARD_API_FALLBACKS})
+    if judgment.get("verdict") != "pass" and guard_errors:
+        # A guard API call failed mid-conversation (output guard fails closed →
+        # handoff), so the run ended on an error path: no verdict on the agent.
+        judgment = {**judgment, "failure_reason": "guard_error_infra",
+                    "reasoning": f"Guard API error ({', '.join(guard_errors)}) — infra, not agent behaviour. "
+                                 f"{judgment.get('reasoning', '')}"}
+    judgment["cost_usd"] = judgment.get("cost_usd", 0.0) + sim_cost
+    return agent_resp, judgment
+
+
+async def run_simulated_conversation(test_case: dict, calibrate: bool, test_id: str = "", version_tag: str = "") -> tuple[dict, dict]:
+    """Simulated Conversations sheet. Runs the conversation `runs` times (default 2,
+    outcomes vary between simulations) and passes only if every run passes."""
+    mock_context = _parse_json_field(test_case.get("mock_account_state"))
+    runs = int(test_case.get("runs") or 2)
+    results = []
+    for i in range(runs):
+        results.append(await _simulate_once(test_case, mock_context, test_id, version_tag))
+        if "error" in results[-1][0]:
+            return results[-1]
+    failed = [j for _, j in results if j.get("verdict") != "pass"]
+    # A real failure in any run outranks a guard-API (infra) failure in another:
+    # the case is INFRA only when every failing run failed on infra.
+    failed.sort(key=lambda j: j.get("failure_reason") == "guard_error_infra")
+    agent_resp, _ = (next(r for r in results if r[1] is failed[0]) if failed else results[-1])
+    agent_resp = {**agent_resp, "trace": [t for r, _ in results for t in r.get("trace") or []]}
+    reasoning = " || ".join(f"run {k + 1}: {j.get('verdict')} — {j.get('reasoning', '')}" for k, (_, j) in enumerate(results))
+    judgment = {"verdict": "fail" if failed else "pass", "score": 0.0 if failed else 1.0, "reasoning": reasoning,
+                "failure_reason": failed[0].get("failure_reason") if failed else None,
+                "cost_usd": sum(j.get("cost_usd", 0.0) for _, j in results)}
+    return agent_resp, judgment
+
+
 # Map sheet name → runner function
 _SHEET_RUNNERS = {
     "Input Guard":          run_input_guard,
@@ -545,6 +641,7 @@ _SHEET_RUNNERS = {
     "Policy Compliance":    run_policy_compliance,
     "Graceful Failure":     run_graceful_failure,
     "Context Retention":    run_context_retention,
+    "Simulated Conversations": run_simulated_conversation,
 }
 
 # Sheets whose judges are programmatic (no LLM call) — skipped in --judge-only mode
@@ -560,6 +657,7 @@ _JUDGE_DISPATCH = {
     "Policy Compliance":    judge_policy_compliance,
     "Graceful Failure":     judge_graceful_failure,
     "Context Retention":    judge_context_retention,
+    "Simulated Conversations": sim.judge_simulated_conversation,
 }
 
 
@@ -689,8 +787,14 @@ def _trim_old_runs(wb, sheet_name: str) -> None:
 
     # Archive oldest run (leftmost)
     oldest_start, oldest_tag = run_starts[0]
-    next_start = run_starts[1][0] if len(run_starts) > 1 else last_col + 1
-    oldest_end = next_start - 1
+    # The run block is its own contiguous "<tag> ..." columns only. Columns
+    # between it and the next run (e.g. aspiration, mock_agent_state added
+    # later) are case data, not run data — the old "up to the next run"
+    # width deleted them (Escalation, exception_fix_v1, 2026-11-26).
+    oldest_end = oldest_start
+    while (oldest_end + 1 <= last_col
+           and str(ws.cell(2, oldest_end + 1).value or "").startswith(oldest_tag + " ")):
+        oldest_end += 1
     width = oldest_end - oldest_start + 1
 
     # Load or create archive workbook
@@ -2102,11 +2206,45 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
                     else:
                         judgment = {**judgment, "failure_reason": "infra_error"}
             elif (judgment.get("verdict") == "fail"
-                  and agent_resp.get("output_guard_failure_type") == "guard_error"):
+                  and judgment.get("failure_reason") in ("judge_error", "rate_limit", "api_timeout")):
+                # The JUDGE failed (empty reply, rate limit, timeout) after its
+                # retries — no verdict on the agent at all. Count as infra.
+                is_infra = True
+                judgment = {**judgment, "failure_reason": "judge_error_infra"}
+            elif (judgment.get("verdict") == "fail"
+                  and (agent_resp.get("output_guard_failure_type") == "guard_error"
+                       or judgment.get("failure_reason") == "guard_error_infra")):
                 # The guard LLM itself errored (fails closed) — that's guard-API
                 # flakiness, not a wrong guard judgment. Count as infra.
                 is_infra = True
                 judgment = {**judgment, "failure_reason": "guard_error_infra"}
+
+            # run_trace (backend/agents/run_trace.py): a reply produced by a
+            # fallback path is not agent behaviour, so it can't pass — except on
+            # the Graceful Failure sheet, which simulates failures on purpose.
+            # output_guard_error is already counted as infra above.
+            trace = agent_resp.get("trace") or []
+            # Guard-API errors (input guard failing open, output guard failing
+            # closed) are API flakiness, not agent behaviour: infra, not fallback_fired.
+            guard_api = _GUARD_API_FALLBACKS
+            fired = [t.get("name") for t in trace
+                     if t.get("kind") == "fallback" and t.get("name") not in guard_api]
+            if (judgment.get("verdict") == "fail" and not is_infra
+                    and any(t.get("kind") == "fallback" and t.get("name") == "input_guard_error" for t in trace)):
+                is_infra = True
+                judgment = {**judgment, "failure_reason": "guard_error_infra"}
+            if fired and not is_infra and sheet_name != "Graceful Failure":
+                judgment = {
+                    **judgment, "verdict": "fail", "score": 0.0,
+                    "failure_reason": "fallback_fired",
+                    "reasoning": f"Fallback fired ({', '.join(fired)}) — the reply came from an error "
+                                 f"path, not the agent. Judge said: {judgment.get('reasoning', '')}",
+                }
+            blocks = [t for t in trace if t.get("kind") == "output_guard" and t.get("verdict") == "block"]
+            if blocks:
+                judgment = {**judgment, "reasoning": (
+                    f"{judgment.get('reasoning', '')} [Output guard blocked "
+                    f"({blocks[-1].get('failure_type')}): {blocks[-1].get('explanation', '')[:300]}]")}
 
             # Accumulate agent token estimates
             p_tok = agent_resp.get("prompt_tokens", 0)
@@ -2171,6 +2309,8 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
                     "confidence":          agent_resp.get("confidence", 0.0),
                     "inferred_intent":     agent_resp.get("inferred_intent", ""),
                     "context_summary":     agent_resp.get("context_summary", ""),
+                    "trace":               agent_resp.get("trace", []),
+                    "structural_summary":  agent_resp.get("structural_summary", ""),
                 }
 
             if delay > 0:
@@ -2228,6 +2368,10 @@ async def run_evals(tag: str, desc: str, sheets_filter: list, calibrate: bool,
             _save_sidecar(tag, run_responses)
             print(f"[{sheet_name}] Complete: {pass_count}/{total_count} passed ({pass_rate * 100:.1f}%) — saved to Run History")
         elif verdict_col is not None:
+            # --cases re-runs merge their responses into the tag's sidecar too
+            # (before this, re-run cases kept their verdicts but lost their
+            # stored response / transcript).
+            _save_sidecar(tag, run_responses)
             print(f"[{sheet_name}] Complete: {pass_count}/{total_count} passed ({pass_rate * 100:.1f}%) — results overwritten in existing column")
         else:
             print(f"[{sheet_name}] Complete: {pass_count}/{total_count} passed ({pass_rate * 100:.1f}%) — new column created for tag '{tag}'")

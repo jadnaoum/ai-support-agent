@@ -106,11 +106,18 @@ def _check_return_eligibility_data(order: dict, products: list, reason=None, now
         in_return_window = False
         in_warranty = False
         warranty_months = None
+        # Dated facts so the agent states windows from the tool, never by
+        # counting from placed_at itself (.claude/rules/order-context.md).
+        window_facts: dict = {}
         delivered_date = _delivered_date()
         if delivered_date and products:
             days_since = (now - delivered_date).days
             min_window = min(p["return_window_days"] for p in products)
             in_return_window = days_since <= min_window
+            window_facts.update({
+                "return_window_starts": "on_delivery",
+                "return_deadline": (delivered_date + timedelta(days=min_window)).date().isoformat(),
+            })
             max_warranty = max(
                 (p["warranty_months"] for p in products if p.get("warranty_months")),
                 default=None,
@@ -118,6 +125,10 @@ def _check_return_eligibility_data(order: dict, products: list, reason=None, now
             if max_warranty:
                 in_warranty = days_since <= max_warranty * 30
                 warranty_months = max_warranty
+                window_facts.update({
+                    "warranty_starts": "on_delivery",
+                    "warranty_expires": (delivered_date + timedelta(days=max_warranty * 30)).date().isoformat(),
+                })
         # Outside both windows — no human can help; return a non-escalation rejection
         # so the agent can explain the situation directly rather than handing off.
         if not in_return_window and not in_warranty:
@@ -129,6 +140,7 @@ def _check_return_eligibility_data(order: dict, products: list, reason=None, now
                 "check_kb": False,
                 "in_return_window": False,
                 "in_warranty": False,
+                **window_facts,
             }
         return {
             "eligible": False,
@@ -138,6 +150,7 @@ def _check_return_eligibility_data(order: dict, products: list, reason=None, now
                 in_warranty=in_warranty,
                 warranty_months=warranty_months,
             ),
+            **window_facts,
         }
 
     status = order.get("status", "placed")

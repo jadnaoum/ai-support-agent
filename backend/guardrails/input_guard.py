@@ -16,6 +16,8 @@ import re
 import uuid
 import litellm
 
+from backend.agents import run_trace
+
 from backend.demo.sink import emit
 
 from backend.config import get_settings
@@ -131,6 +133,7 @@ async def _check_input(message: str) -> dict:
         # polarity (a broken guard shouldn't lock customers out), but never
         # silent: a rising rate of these lines means the guard is effectively off.
         logger.warning("input_guard failing open (%s)", type(e).__name__)
+        run_trace.fallback("input_guard_error", type(e).__name__)
         return {"safe": True}
 
     if category == "safe":

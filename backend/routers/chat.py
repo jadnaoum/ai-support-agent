@@ -4,7 +4,7 @@ import logging
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func, update as sa_update
@@ -336,6 +336,7 @@ async def stream_response(
         "consecutive_small_talk": prior_turn_state.get("consecutive_small_talk", 0),
         "total_small_talk": prior_turn_state.get("total_small_talk", 0),
         "provocative_count": prior_turn_state.get("provocative_count", 0),
+        "consecutive_high_negative": prior_turn_state.get("consecutive_high_negative", 0),
         "service_call_count": 0,
         "classifier_reasoning": "",
     }
@@ -488,17 +489,7 @@ async def stream_response(
                 # Done in the same commit as the message — if either fails, both roll back.
                 # Uses a direct UPDATE rather than mutating the ORM object to avoid
                 # SQLAlchemy change-tracking issues inside the generator closure.
-                if final_output.get("requires_escalation"):
-                    new_turn_state = None
-                else:
-                    new_turn_state = {
-                        "actions_taken": final_output.get("actions_taken", []),
-                        "consecutive_blocks": final_output.get("consecutive_blocks", 0),
-                        "consecutive_small_talk": final_output.get("consecutive_small_talk", 0),
-                        "total_small_talk": final_output.get("total_small_talk", 0),
-                        "provocative_count": final_output.get("provocative_count", 0),
-                        "last_clarification_source": final_output.get("last_clarification_source", ""),
-                    }
+                new_turn_state = next_turn_state(final_output)
                 await db.execute(
                     sa_update(Conversation)
                     .where(Conversation.id == conversation_id)
@@ -566,7 +557,7 @@ class TestChatRequest(BaseModel):
           Supported keys: actions_taken, action_results, service_call_count,
           retrieved_context, consecutive_blocks, last_clarification_source,
           customer_context, consecutive_small_talk, total_small_talk,
-          provocative_count. Merged over initial_state after defaults are set,
+          provocative_count, consecutive_high_negative. Merged over initial_state after defaults are set,
           so any key present here overrides the default.
 
     Output guard test mode (test_output_guard=True):
@@ -599,6 +590,25 @@ class TestChatRequest(BaseModel):
     version_tag: str = ""
 
 
+
+def next_turn_state(final_state: dict) -> "dict | None":
+    """What carries into the next turn (conversations.turn_state). None after an
+    escalation — the conversation is handed off. Shared by the live stream and
+    the eval endpoint's turn_state, so simulated multi-turn evals carry exactly
+    what production carries."""
+    if final_state.get("requires_escalation"):
+        return None
+    return {
+        "actions_taken": final_state.get("actions_taken", []),
+        "consecutive_blocks": final_state.get("consecutive_blocks", 0),
+        "consecutive_small_talk": final_state.get("consecutive_small_talk", 0),
+        "total_small_talk": final_state.get("total_small_talk", 0),
+        "provocative_count": final_state.get("provocative_count", 0),
+        "consecutive_high_negative": final_state.get("consecutive_high_negative", 0),
+        "last_clarification_source": final_state.get("last_clarification_source", ""),
+    }
+
+
 class TestChatResponse(BaseModel):
     # Full agent run fields
     response: str = ""
@@ -620,6 +630,15 @@ class TestChatResponse(BaseModel):
     completion_tokens: int = 0
     # Debug fields — only populated when debug_classifier: true is set in mock_context
     classifier_reasoning: str = ""
+    # run_trace events for this request: fallbacks that fired and output-guard
+    # verdicts with the guard's explanation (see backend/agents/run_trace.py)
+    trace: List[dict] = Field(default_factory=list)
+    # This turn's raw tool results (the dicts the response LLM saw), so judges
+    # can check stated facts such as return_deadline against the tool.
+    action_results: List[dict] = Field(default_factory=list)
+    # State the next turn would start from (next_turn_state); None after escalation.
+    # Fed back as mock_agent_state by simulated multi-turn evals.
+    turn_state: Optional[dict] = None
 
 
 @router.post("/chat/test", response_model=TestChatResponse)
@@ -687,6 +706,10 @@ async def test_chat(
         )
 
     # --- Full agent run mode ---
+    # run_trace collects fallbacks + output-guard verdicts for this request
+    # (each request runs in its own context, so nothing leaks across requests).
+    from backend.agents import run_trace  # noqa: PLC0415
+    trace_token = run_trace.start()
 
     # Check input guard explicitly so we can report its result in the response
     from backend.guardrails.input_guard import check_input  # noqa: PLC0415
@@ -762,6 +785,7 @@ async def test_chat(
         "consecutive_small_talk": 0,
         "total_small_talk": 0,
         "provocative_count": 0,
+        "consecutive_high_negative": 0,
         "service_call_count": 0,
         "classifier_reasoning": "",
     }
@@ -778,6 +802,7 @@ async def test_chat(
         "retrieved_context", "consecutive_blocks", "last_clarification_source",
         "customer_context",
         "consecutive_small_talk", "total_small_talk", "provocative_count",
+        "consecutive_high_negative",
     }
     if body.mock_agent_state:
         for key, value in body.mock_agent_state.items():
@@ -851,4 +876,7 @@ async def test_chat(
         input_guard_reason=input_guard_reason,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
+        trace=run_trace.stop(trace_token),
+        action_results=[r for r in (final_state.get("action_results") or []) if isinstance(r, dict)],
+        turn_state=next_turn_state(final_state),
     )

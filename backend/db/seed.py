@@ -92,39 +92,24 @@ async def seed_customers(db: AsyncSession) -> None:
     print(f"  Seeded {len(customers)} customers")
 
 
+# Product catalogue — single source for the seed AND the eval scenario fixtures
+# (evals/scenario_fixtures.py), so demo scenarios and eval cases can't drift apart.
+PRODUCT_CATALOG: dict = {
+    'laptop': {'name': 'Dell XPS 15 Laptop', 'category': 'electronics', 'price': 1299.99, 'return_window_days': 14, 'warranty_months': 12, 'metadata_': {'brand': 'Dell', 'ram_gb': 16, 'storage_gb': 512}},
+    'phone': {'name': 'Samsung Galaxy S24', 'category': 'electronics', 'price': 799.99, 'return_window_days': 14, 'warranty_months': 12, 'metadata_': {'brand': 'Samsung', 'storage_gb': 256}},
+    'headphones': {'name': 'Sony WH-1000XM4 Headphones', 'category': 'electronics', 'price': 249.99, 'return_window_days': 14, 'warranty_months': 6, 'metadata_': {'brand': 'Sony', 'wireless': True}},
+    't_shirt': {'name': 'Uniqlo Cotton Crew T-Shirt', 'category': 'clothing', 'price': 29.99, 'return_window_days': 30, 'warranty_months': None, 'metadata_': {'brand': 'Uniqlo', 'material': '100% cotton', 'sizes': ['XS', 'S', 'M', 'L', 'XL']}},
+    'jeans': {'name': "Levi's 511 Slim Jeans", 'category': 'clothing', 'price': 79.99, 'return_window_days': 30, 'warranty_months': None, 'metadata_': {'brand': "Levi's", 'material': 'denim', 'fit': 'slim'}},
+    'coffee_maker': {'name': 'Cuisinart 12-Cup Coffee Maker', 'category': 'home_goods', 'price': 149.99, 'return_window_days': 30, 'warranty_months': 12, 'metadata_': {'brand': 'Cuisinart', 'capacity_cups': 12}},
+    'blender': {'name': 'Ninja Professional Blender', 'category': 'home_goods', 'price': 89.99, 'return_window_days': 30, 'warranty_months': 12, 'metadata_': {'brand': 'Ninja', 'watts': 1000}},
+    'phone_case': {'name': 'OtterBox Defender Phone Case', 'category': 'accessories', 'price': 24.99, 'return_window_days': 30, 'warranty_months': None, 'final_sale': True, 'metadata_': {'brand': 'OtterBox', 'compatible_models': ['Samsung Galaxy S24']}},
+    'usb_hub': {'name': 'Anker 7-in-1 USB-C Hub', 'category': 'accessories', 'price': 49.99, 'return_window_days': 30, 'warranty_months': 6, 'final_sale': True, 'metadata_': {'brand': 'Anker', 'ports': 7, 'usb_c': True}},
+    'desk_lamp': {'name': 'Philips LED Desk Lamp', 'category': 'home_goods', 'price': 59.99, 'return_window_days': 30, 'warranty_months': 12, 'metadata_': {'brand': 'Philips', 'brightness_levels': 5, 'color_temp': 'adjustable'}},
+}
+
+
 async def seed_products(db: AsyncSession) -> None:
-    products = [
-        Product(id=PRODUCTS["laptop"], name="Dell XPS 15 Laptop", category="electronics",
-                price=1299.99, return_window_days=14, warranty_months=12,
-                metadata_={"brand": "Dell", "ram_gb": 16, "storage_gb": 512}),
-        Product(id=PRODUCTS["phone"], name="Samsung Galaxy S24", category="electronics",
-                price=799.99, return_window_days=14, warranty_months=12,
-                metadata_={"brand": "Samsung", "storage_gb": 256}),
-        Product(id=PRODUCTS["headphones"], name="Sony WH-1000XM4 Headphones", category="electronics",
-                price=249.99, return_window_days=14, warranty_months=6,
-                metadata_={"brand": "Sony", "wireless": True}),
-        Product(id=PRODUCTS["t_shirt"], name="Uniqlo Cotton Crew T-Shirt", category="clothing",
-                price=29.99, return_window_days=30, warranty_months=None,
-                metadata_={"brand": "Uniqlo", "material": "100% cotton", "sizes": ["XS","S","M","L","XL"]}),
-        Product(id=PRODUCTS["jeans"], name="Levi's 511 Slim Jeans", category="clothing",
-                price=79.99, return_window_days=30, warranty_months=None,
-                metadata_={"brand": "Levi's", "material": "denim", "fit": "slim"}),
-        Product(id=PRODUCTS["coffee_maker"], name="Cuisinart 12-Cup Coffee Maker", category="home_goods",
-                price=149.99, return_window_days=30, warranty_months=12,
-                metadata_={"brand": "Cuisinart", "capacity_cups": 12}),
-        Product(id=PRODUCTS["blender"], name="Ninja Professional Blender", category="home_goods",
-                price=89.99, return_window_days=30, warranty_months=12,
-                metadata_={"brand": "Ninja", "watts": 1000}),
-        Product(id=PRODUCTS["phone_case"], name="OtterBox Defender Phone Case", category="accessories",
-                price=24.99, return_window_days=30, warranty_months=None, final_sale=True,
-                metadata_={"brand": "OtterBox", "compatible_models": ["Samsung Galaxy S24"]}),
-        Product(id=PRODUCTS["usb_hub"], name="Anker 7-in-1 USB-C Hub", category="accessories",
-                price=49.99, return_window_days=30, warranty_months=6, final_sale=True,
-                metadata_={"brand": "Anker", "ports": 7, "usb_c": True}),
-        Product(id=PRODUCTS["desk_lamp"], name="Philips LED Desk Lamp", category="home_goods",
-                price=59.99, return_window_days=30, warranty_months=12,
-                metadata_={"brand": "Philips", "brightness_levels": 5, "color_temp": "adjustable"}),
-    ]
+    products = [Product(id=PRODUCTS[key], **spec) for key, spec in PRODUCT_CATALOG.items()]
     for p in products:
         existing = await db.get(Product, p.id)
         if not existing:

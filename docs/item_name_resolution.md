@@ -1,6 +1,10 @@
 # Item-Name Resolution for Action Tools
 
-**Status:** Design complete — implementation deferred  
+**Status:** SUPERSEDED 2026-11-24 — do not implement this design.  
+Solved differently on main (tag `decision/recent-orders-in-context`): the LLM steps see the
+customer's recent orders and the classifier resolves product names to an `order_id`; tools
+with no `order_id` use the only order or return `order_id_required` + `candidate_orders`.
+See `.claude/rules/order-context.md` and BUILD_SPEC. Kept for the problem analysis only.  
 **Filed:** 2026-04-19  
 **Area:** `backend/tools/order_tools.py`, `backend/agents/conversation.py`,
 `backend/routers/chat.py`, `prompts/production.yaml`

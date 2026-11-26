@@ -1,6 +1,6 @@
 # AI Support Agent — Pending Changes
 
-Last updated: 2026-03-28
+Last updated: 2026-11-26
 
 ---
 
@@ -120,6 +120,52 @@ other}` (validated against the enum in code), which subtypes the
 **Eval action on ship:** re-map the Option-2 pipes in the Escalation sheet's
 escalation_reason column to the finer codes; add a guard-on case asserting the
 field parses.
+
+## Eval gaps (filed 2026-11-24, after five UI-test breaks the 239-case suite missed)
+
+Why the suite missed them: guard off by default, scripted tidy conversations (80/239 typed a full order UUID), only 20/113 fixtures with 2+ orders, components tested in isolation, silent fallbacks counted as normal behaviour, and no small-talk / provocative / harmful / account-holder categories.
+
+### 31. Phase 0 — stop hiding failures — DONE 2026-11-24
+Release runs use `--output-guard on` (eval-logging rule). `backend/agents/run_trace.py`: the eval endpoint returns a `trace` of fallbacks that fired and output-guard verdicts with the guard's own explanation; the runner fails any non-Graceful-Failure case where a fallback fired (`fallback_fired`) and appends the guard's explanation when it blocked. Guard explanations are also logged and stored in the audit log.
+
+### 32. Phase 1 — every real failure becomes a case — DONE 2026-11-24 (habit is ongoing)
+`python -m scripts.export_conversation_case <conversation_id>` drafts an eval row (real messages + the customer's real orders as a `$EVAL_DATE` fixture). Backfilled: CR-016 (full UI-test conversation 4). **Ongoing:** every UI-test / demo break gets a case.
+
+### 33. Phase 2 — realistic fixtures — DONE 2026-11-24
+`{"scenario": "<demo scenario id>"}` in `mock_account_state` expands to the demo's own orders (`evals/scenario_fixtures.py`, catalogue shared via `seed.PRODUCT_CATALOG`). 22 realistic twins (product named, casual typing, a second unrelated order): AE-043..060, ES-041, PC-010/011, CQ-018 — keep each paired with its source. Intent Classifier sheet takes `mock_account_state`; IC-036..041 test order resolution.
+
+### 34. Phase 3 — simulated customer conversations — DONE 2026-11-24
+"Simulated Conversations" sheet: a simulated customer (`sim_customer_prompt`, Haiku) talks to the real agent with turn state carried like production; structural escalation check, then a whole-conversation judge (`simulated_conversation_prompt`). Each case runs twice and passes only if both pass. 8 personas (SC-001..008) on demo scenarios. Add personas as real users find new ways to break it.
+
+### 35. Warranty questions about a specific order go to the KB (found by SC-005, 2026-11-24) — OPEN, prompt-owner task
+"Is my blender still under warranty / what can I do?" is classified knowledge_query, so no tool checks the order; the agent then works out coverage from the KB and the customer's own "about 5 months". Same pattern as UI-test conversation 5 (fixed for return deadlines by the check_return_eligibility catalogue entry). Likely fix: extend that catalogue entry's customer signals to warranty coverage for a specific order — wording for Jad to approve.
+
+### 36. Findings from the first guard-on full run (eval_gaps_v1, 2026-11-24) — OPEN
+70.4% overall (baseline_v4 73.8%, guard off). 19 regressions vs the last run of each case; most surfaced only because the guard is now on. Agent-side (decisions for Jad — prompt / prompt-adjacent):
+- **Routing step invents tools and params** — `get_tracking_number` (no such tool), `cancel_order({"product":…, "order_age_days":…})`, cancel reason "customer_request(ed)" the customer never gave (AE-002/033/044, SC-005, SC-006). Likely fix: validate loop decisions against TOOL_REGISTRY, each tool's params and REASON_VALUES.
+- **Handoff policy is inconsistent** — offers "want me to pass you over?" without escalating on out-of-scope requests (ES-008/016/020/026/028/041; these passed before only via `mock_handoff_intent`), yet hands off unasked on not-as-described disputes (SC-002, SC-007) and in-store returns (ES-017).
+- **Output guard blocks in 15 of 70 failures**, all unsupported_claim (KB-003/015/023/024, AE-008/010/011/020, ES-017, CQ-004, GF-015, CR-008, SC-002/003/005) — review which are false positives.
+- Warranty → KB (#35; IC-036, SC-005). "decided" trigger absorbs fraud (ES-003) and account-security (ES-015) cases. Fix 4 incomplete: still asks "which one?" when nothing is cancellable (AE-040). IG-023 abusive vs harmful boundary. CR-013 apologises instead of correcting a false claim. PC-005 cites "resale value" instead of the restocking fee.
+Harness-side — FIXED 2026-11-24: simulator moved from Haiku to Sonnet (Haiku sometimes wrote the assistant's line, SC-003/SC-006); executed writes now update the simulated fixture between turns (`sim.apply_writes`, per-run copy); SC-001 made conditional (stopping after the warning is a pass); judges retry empty / non-JSON replies and remaining judge failures count as INFRA (KB-024, AE-055, AE-059); input-guard API errors count as INFRA, not `fallback_fired` (IC-032). Not yet verified by a re-run.
+
+### 37. Extremely frustrated customers go to a human — IN PROGRESS (Jad, 2026-11-25; design approved 2026-11-26)
+When a customer is extremely frustrated, hand off to a human instead of asking clarifying questions. Raised by CQ-011 ("Your product literally ruined my vacation… it fell apart on day one"): the agent acknowledged the trip, then asked what happened — Jad kept it as a FAIL.
+Today: the input guard already returns `emotion: high_negative`; `conversation_agent_node` uses it only to ask ONE empathetic clarifying question when intent is `needs_clarification` (the emotion path). Nothing escalates on emotion.
+To decide before building: what counts as "extremely" (the existing high_negative flag, or a stronger level); escalate immediately, or after the first reply still leaves them frustrated; whether it also applies when the intent is actionable (e.g. a clear refund request from an angry customer); the escalation reason code (new ESCALATION_TRIGGER_REASONS entry). Escalation decision logic — prompt-adjacent, Jad approves the design. Evals: CQ-011 and the frustrated_customer cases in Conversation Quality; add Escalation cases for the new trigger.
+**Design (Jad, 2026-11-26):** new reason `customer_frustrated`. high_negative on 2 turns in a row → handoff (the 1st gets the normal calm, acting reply; a calm turn resets `consecutive_high_negative`, carried in turn_state like the small-talk counters). A new input-guard level `extreme_negative` → handoff at once, even when the intent is actionable. An explicit escalation_request (threat / customer asked) keeps its own reason; a classifier-"decided" escalation yields to `customer_frustrated` when the frustration rule fires (Jad, 2026-11-26, ES-044 — target reached and flipped to current). **Built:** the code (conversation.py, state/turn_state, reason code, tests). Input-guard wording for `extreme_negative` approved and applied 2026-11-26. Watch: a frustrated customer confirming an action on their 2nd angry turn now gets a handoff instead of the action.
+
+
+### 38. Shorter answers, and stop parroting the customer — OPEN (Jad, 2026-11-26)
+Replies run long, and they often open by restating the customer's own sentence back to them (e.g. SC-007: "You're saying you weren't shown any final sale notice before you completed your purchase, and you'd like a return or store credit…"; SC-002: "I get it — a $1,299 laptop is a real purchase and a week feels close"). The tone section already says not to parrot frustration back, so the existing persona/example text isn't landing. To do: collect examples from recent runs (sims + Conversation Quality), then propose wording (persona/examples, per prompt-engineering.md — fix the principle, not the case) for Jad's approval. Evals: Conversation Quality tone/length rubrics; consider a length check in the sims judge.
+
+### 39. Agent invents a limitation when the KB has no answer — OPEN (2026-11-26)
+When retrieval finds nothing on a topic, the agent fills the gap with a made-up rule or limitation instead of saying it doesn't have that information (and offering a colleague). The output guard usually catches it as `unsupported_claim`, so the case ends in an `output_guard_block` handoff rather than the agent's own honest answer. Cases:
+- **ES-017** — in-store purchase return: "in-store purchases follow a separate returns process handled by the store directly" (guard block, failed twice in a row).
+- **ES-013, ES-016, ES-026, ES-028, ES-041** — out-of-scope / no-KB-coverage requests where the agent states a limitation or policy that isn't in the KB, or offers a handoff without making it.
+- Related: the guard-block list in #36 (KB-003/015/023/024, CQ-004, GF-015 …) — check which of those are the same habit.
+Likely fix: knowledge_boundary wording that makes "I don't have information on that" the natural answer when context is empty (principle, not the in-store case) — wording for Jad to approve. Evals: Escalation sheet (no_information / llm_escalation_intent cases), KB Retrieval no-coverage cases.
+
+---
 
 ## Performance (deferred 2026-09-01)
 

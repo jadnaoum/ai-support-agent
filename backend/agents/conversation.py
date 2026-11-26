@@ -20,6 +20,7 @@ LLM_TIMEOUT = 30  # seconds per LLM call — prevents hung API requests from sta
 from backend.config import get_settings
 from backend.agents.state import AgentState
 from backend.agents.order_context import format_recent_orders
+from backend.agents import run_trace
 from backend.agents.escalation import handle_escalation, build_context_summary, run_escalation_side_effects
 from backend.guardrails.input_guard import check_input, log_blocked_attempt
 from backend.guardrails.output_guard import check_output, log_output_guard_blocked
@@ -40,6 +41,10 @@ HANDOFF_MESSAGE_PROMPT = get_prompt("handoff_message_prompt")
 # still answered; the escalation turn skips response generation entirely.
 SMALL_TALK_WARN_CONSECUTIVE = 2
 SMALL_TALK_ESCALATE_CONSECUTIVE = 3
+# Frustration (input guard "emotion"): EMOTION_EXTREME hands off at once;
+# high_negative hands off on this many frustrated turns in a row.
+EMOTION_EXTREME = "extreme_negative"
+FRUSTRATION_ESCALATE_CONSECUTIVE = 2
 SMALL_TALK_WARN_TOTAL = 4
 SMALL_TALK_ESCALATE_TOTAL = 5
 PROVOCATIVE_ESCALATE = 2  # the 1st provocative message gets a warning redirect
@@ -74,6 +79,7 @@ async def _generate_handoff_message(messages: list, reason: str) -> str:
         return (result.choices[0].message.content or "").strip()
     except Exception as e:
         logger.warning("handoff message fell back to the fixed sentence (%s)", type(e).__name__)
+        run_trace.fallback("handoff_message", type(e).__name__)
         return ""
 
 
@@ -108,6 +114,7 @@ async def summarize_for_handoff(
             return f"{text}\nEscalation reason: {reason}"
     except Exception as e:
         logger.warning("summarize_for_handoff fell back to deterministic summary (%s)", type(e).__name__)
+        run_trace.fallback("handoff_summary", type(e).__name__)
     return build_context_summary(
         messages=messages or [],
         actions_taken=actions_taken or [],
@@ -263,6 +270,7 @@ async def _classify_intent(state: AgentState, config: dict = None) -> tuple[str,
         return intent, confidence, action_details, reasoning
     except Exception as e:
         logger.warning("_classify_intent parse failure (%s): raw=%r", type(e).__name__, raw)
+        run_trace.fallback("classifier_parse", type(e).__name__)
         return "general", 0.5, {}, ""
 
 
@@ -288,7 +296,8 @@ async def _generate_response(state: AgentState, small_talk_warning: bool = False
             request_timeout=LLM_TIMEOUT,
         )
         return result.choices[0].message.content
-    except Exception:
+    except Exception as e:
+        run_trace.fallback("response_generation", type(e).__name__)
         return "I'm having trouble processing your request right now. Please try again in a moment."
 
 
@@ -314,7 +323,8 @@ async def _generate_redirect(block_count: int, category: str, customer_message: 
             request_timeout=LLM_TIMEOUT,
         )
         return result.choices[0].message.content.strip()
-    except Exception:
+    except Exception as e:
+        run_trace.fallback("redirect", type(e).__name__)
         return "I'm here to help with your orders and account questions. Is there something I can assist you with?"
 
 
@@ -343,7 +353,8 @@ async def _generate_emotion_clarification(state: AgentState, clarification_hint:
             request_timeout=LLM_TIMEOUT,
         )
         return result.choices[0].message.content
-    except Exception:
+    except Exception as e:
+        run_trace.fallback("emotion_clarification", type(e).__name__)
         return "I'm sorry to hear you're frustrated. Could you tell me more about what happened so I can help?"
 
 
@@ -416,6 +427,7 @@ async def _classify_next_step(state: AgentState) -> dict:
         # results it already has) but must never be silent — a quiet collapse
         # here degrades multi-step turns with no trace.
         logger.warning("_classify_next_step fallback to respond (%s): raw=%r", type(e).__name__, raw[:500])
+        run_trace.fallback("loop_decision", type(e).__name__)
         return {"next": "respond"}
 
 
@@ -482,13 +494,19 @@ async def conversation_agent_node(state: AgentState, config: dict) -> dict:
     and blocked turns leave the streak as it was.
     """
     service_ran = bool(state.get("actions_taken"))
-    update = await _conversation_agent_turn(state, config)
+    turn_info: dict = {}
+    update = await _conversation_agent_turn(state, config, turn_info)
     if not service_ran and update.get("inferred_intent") not in (None, "", "small_talk"):
         update["consecutive_small_talk"] = 0
+    # Frustration streak: same keying as above — every post-guard pass-1 turn
+    # sets it (turn_info is filled right after the guard passes); blocked turns
+    # leave it as it was.
+    if not service_ran and update.get("inferred_intent") and "consecutive_high_negative" in turn_info:
+        update.setdefault("consecutive_high_negative", turn_info["consecutive_high_negative"])
     return update
 
 
-async def _conversation_agent_turn(state: AgentState, config: dict) -> dict:
+async def _conversation_agent_turn(state: AgentState, config: dict, turn_info: "dict | None" = None) -> dict:
     """
     Central customer-facing LangGraph node logic.
 
@@ -583,6 +601,32 @@ async def _conversation_agent_turn(state: AgentState, config: dict) -> dict:
         emotion = guard.get("emotion", "")
         intent, confidence, action_details, classifier_reasoning = classified
 
+        # --- Frustration escalation (PENDING #37) ---
+        # Extreme distress hands off at once; high_negative hands off when it
+        # persists — the first frustrated turn gets a normal (calm, acting)
+        # reply, a second in a row goes to a human. A calm turn resets the
+        # streak. An explicit request (threat / customer_requested) keeps its
+        # own, more specific reason; the classifier's own judgment ("decided")
+        # yields to customer_frustrated when frustration is the cause.
+        frustrated = emotion in ("high_negative", EMOTION_EXTREME)
+        streak = state.get("consecutive_high_negative", 0) + 1 if frustrated else 0
+        if turn_info is not None:
+            turn_info["consecutive_high_negative"] = streak
+        explicit_request = (
+            intent == "escalation_request" and action_details.get("trigger") != "decided"
+        )
+        if not explicit_request and (
+            emotion == EMOTION_EXTREME or streak >= FRUSTRATION_ESCALATE_CONSECUTIVE
+        ):
+            return {
+                **await _do_escalate("customer_frustrated", state, config, confidence=confidence),
+                "confidence": confidence,
+                "inferred_intent": intent,
+                "consecutive_blocks": 0,
+                "service_call_count": 0,
+                "consecutive_high_negative": streak,
+            }
+
         # --- Emotion path ---
         # High negative emotion + unclear intent + no clarifying question asked yet this
         # conversation → ask one empathetic clarifying question.
@@ -612,7 +656,7 @@ async def _conversation_agent_turn(state: AgentState, config: dict) -> dict:
             _db = config.get("configurable", {}).get("db")
             _conv_id = config.get("configurable", {}).get("conversation_id", "")
             if _db and _conv_id:
-                await log_output_guard_blocked(_db, _conv_id, question, out_guard["reason"])
+                await log_output_guard_blocked(_db, _conv_id, question, out_guard["reason"], out_guard.get("explanation", ""))
                 await _db.commit()
             return {
                 **await _do_escalate("unable_to_clarify", state, config, confidence=confidence),
@@ -689,7 +733,7 @@ async def _conversation_agent_turn(state: AgentState, config: dict) -> dict:
             _db = config.get("configurable", {}).get("db")
             _conv_id = config.get("configurable", {}).get("conversation_id", "")
             if _db and _conv_id:
-                await log_output_guard_blocked(_db, _conv_id, clarification_question, out_guard["reason"])
+                await log_output_guard_blocked(_db, _conv_id, clarification_question, out_guard["reason"], out_guard.get("explanation", ""))
                 await _db.commit()
             return {
                 **await _do_escalate("unable_to_clarify", state, config, confidence=confidence),
@@ -728,7 +772,7 @@ async def _conversation_agent_turn(state: AgentState, config: dict) -> dict:
             _db = config.get("configurable", {}).get("db")
             _conv_id = config.get("configurable", {}).get("conversation_id", "")
             if _db and _conv_id:
-                await log_output_guard_blocked(_db, _conv_id, response, out_guard["reason"])
+                await log_output_guard_blocked(_db, _conv_id, response, out_guard["reason"], out_guard.get("explanation", ""))
                 await _db.commit()
             # Canonical reason for triage/dashboards; the specific failure type
             # (unsupported_claim, hallucinated_id, ...) is preserved in the
@@ -829,7 +873,7 @@ async def _conversation_agent_turn(state: AgentState, config: dict) -> dict:
         _db = config.get("configurable", {}).get("db")
         _conv_id = config.get("configurable", {}).get("conversation_id", "")
         if _db and _conv_id:
-            await log_output_guard_blocked(_db, _conv_id, response, out_guard["reason"])
+            await log_output_guard_blocked(_db, _conv_id, response, out_guard["reason"], out_guard.get("explanation", ""))
             await _db.commit()
         # Canonical reason for triage/dashboards; specific failure type kept as
         # detail (see the matching pass-1 site).

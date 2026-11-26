@@ -20,3 +20,11 @@ python -u -m evals.run_evals --tag <tag> --output-guard off ...
 - `--output-guard on`: runs the real guard LLM end-to-end — required to measure guard blocking, false positives, and Option-2 handoff detection.
 
 The Output Guard sheet's dedicated test mode always runs the real guard regardless of this flag.
+
+## Release runs — guard ON
+
+Iteration runs may use `--output-guard off`, but before merging to main or shipping any prompt / guard / tool change, run the full suite with `--output-guard on` (still ask Jad first, per above). Guard false blocks caused 3 of the 5 UI-test breaks in Nov 2026 and are invisible with the guard bypassed.
+
+## Fallbacks fail cases
+
+The test endpoint returns a `trace` (backend/agents/run_trace.py). Any case outside Graceful Failure where a fallback fired (redirect, classifier parse, response error, handoff message/summary, loop decision) is marked FAIL with `fallback_fired` — a reply from an error path is not agent behaviour. Guard-API errors (input guard failing open, output guard failing closed) and judge failures after retries (empty reply, rate limit, timeout) are INFRA, not agent failures. When the output guard blocked, its own explanation is appended to the case reasoning.

@@ -58,6 +58,8 @@ ESCALATION_TRIGGER_REASONS: frozenset = frozenset({
     "provocative_input",      # 2nd input-guard "provocative" block this conversation
                               #   (the 1st gets a redirect with a warning)
     "excessive_small_talk",   # small_talk intent: 3rd in a row or 5th in total
+    "customer_frustrated",    # input guard emotion: extreme_negative (at once) or
+                              #   high_negative on 2 turns in a row (PENDING #37)
                               #   (2nd in a row / 4th in total get a warning)
     # Output-guard handoff detection (Option 2) — split structurally by whether
     # the KB search this turn actually found anything (retrieved_context state):

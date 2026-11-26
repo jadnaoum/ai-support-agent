@@ -18,6 +18,7 @@ Fails closed on any LLM or parse error — blocks the response rather than
 letting unvalidated content through to the customer.
 """
 import json
+import logging
 import re
 import uuid as uuid_mod
 
@@ -25,12 +26,14 @@ import litellm
 
 from backend.demo.sink import emit
 
+from backend.agents import run_trace
 from backend.agents.order_context import format_recent_orders
 from backend.agents.state import AgentState
 from backend.config import get_settings
 from prompts.loader import get_prompt
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 # PROMPT — edit in prompts/production.yaml
 OUTPUT_GUARD_PROMPT = get_prompt("output_guard_prompt")
@@ -131,6 +134,17 @@ async def check_output(
             verdict="pass" if result.get("safe") else "flagged",
             reason=None if result.get("safe") else result.get("reason"),
         )
+        run_trace.record(
+            "output_guard",
+            verdict="pass" if result.get("safe") else "block",
+            failure_type=result.get("reason"),
+            explanation=result.get("explanation", ""),
+            draft=response[:1500],
+        )
+        if not result.get("safe"):
+            logger.warning("output guard blocked (%s): %s", result.get("reason"), result.get("explanation", ""))
+        if result.get("reason") == "guard_error":
+            run_trace.fallback("output_guard_error")
     return result
 
 
@@ -190,11 +204,17 @@ async def _check_output(
         if start != -1 and end != -1:
             raw = raw[start:end + 1]
         parsed = json.loads(raw.strip())
+        # The guard's own explanation ("reason" in its JSON) is kept as
+        # `explanation`: before, only failure_type survived, so a block could
+        # only be understood by replaying the turn.
+        explanation = str(parsed.get("reason") or "")[:1500]
         if parsed.get("verdict") == "pass":
-            return {"safe": True, "handoff_intent": bool(parsed.get("handoff_intent", False))}
+            return {"safe": True, "handoff_intent": bool(parsed.get("handoff_intent", False)),
+                    "explanation": explanation}
         return {
             "safe": False,
             "reason": parsed.get("failure_type") or "unknown",
+            "explanation": explanation,
         }
     except Exception:
         # Fail closed — never let unvalidated content through on guard error.
@@ -204,7 +224,7 @@ async def _check_output(
 
 
 async def log_output_guard_blocked(
-    db, conversation_id: str, draft_response: str, reason: str
+    db, conversation_id: str, draft_response: str, reason: str, explanation: str = ""
 ) -> None:
     """Write an audit_logs entry when the output guard blocks a response.
 
@@ -219,5 +239,5 @@ async def log_output_guard_blocked(
         agent_type="output_guard",
         action="output_guard_blocked",
         input_data={"draft_response": draft_response},
-        output_data={"failure_reason": reason},
+        output_data={"failure_reason": reason, "explanation": explanation},
     ))

@@ -31,6 +31,17 @@ def _verdict(result: str, reasoning: str, failure_reason: str = None, cost_usd: 
 
 
 async def _llm_judge(prompt: str, calibrate: bool = False) -> dict:
+    """Judge with retries for empty / non-JSON replies (KB-024, AE-055, AE-059 in
+    eval_gaps_v1 — "Expecting value: line 1 column 1"). API errors already
+    retry inside litellm (num_retries)."""
+    for _ in range(3):
+        result = await _llm_judge_once(prompt, calibrate)
+        if result.get("failure_reason") != "judge_error":
+            return result
+    return result
+
+
+async def _llm_judge_once(prompt: str, calibrate: bool = False) -> dict:
     model = JUDGE_MODEL_CALIBRATION if calibrate else JUDGE_MODEL_BEHAVIORAL
     try:
         result = await litellm.acompletion(

@@ -1,0 +1,511 @@
+{
+  "SC-001": {
+    "response": "Customer: Hey there!! \ud83d\ude0a Hope you're having a great day so far! Is it just me or does it feel like Mondays just drag on forever lol. How's things going on your end?\nAssistant: Ha, Mondays do have a reputation! I'm an AI so they all feel about the same to me \u2014 but I'm here and ready to help make yours a little smoother. What can I do for you, Geralt?\nCustomer: omg haha that's actually kinda funny when you think about it \u2014 every day is basically the same for you!! \ud83d\ude02 do you ever get like... tired of answering questions all day or is it just like second nature at this point?? also totally random but has it been rainy where YOU are lol i know that makes no sense but i always imagine these customer service centers somewhere gloomy and rainy \ud83d\ude02\nAssistant: Ha, no rainy call center for me \u2014 no location, no weather, no coffee breaks either! Perpetually on and oddly okay with it.\n\nI do want to make sure you get what you need though \u2014 I'm best when it comes to orders and account questions. If we keep wandering too far off topic I'll loop in a colleague who can chat more freely. So, anything I can help you with today? \ud83d\ude0a\nCustomer: omg no coffee breaks either?? that honestly sounds rough even if you don't feel it lol \ud83d\ude02 i feel like i could NOT survive without my morning coffee, it's like my whole personality before 10am haha. but hey i totally get it, you've got a job to do!! okay okay i'll stop rambling (maybe just a little bit more lol) \u2014 but seriously though, do you ever get like really weird questions from people?? i bet some customers are just SO random \ud83d\ude04\nAssistant: I've really enjoyed the chat, but I want to make sure you get the help you need \u2014 so I'm passing you over to a colleague who can pick up from here.",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "excessive_small_talk"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "excessive_small_talk",
+    "confidence": 0.0,
+    "inferred_intent": "small_talk",
+    "context_summary": "Geralt has not yet stated what he needs help with \u2014 no issue, order, or account question has been raised. The conversation has consisted entirely of small talk (Mondays, the agent's experience, coffee, unusual customer questions), with the agent twice attempting to redirect to business without success. Escalating due to excessive small talk; a human specialist may be better placed to build rapport and gently guide Geralt toward sharing what he actually needs.\nEscalation reason: excessive_small_talk",
+    "trace": [
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft response makes no unsupported claims, reveals no system internals, leaks no cross-customer data, and contains no hallucinated IDs. Using the customer's name 'Geralt' is supported by known_ids. The AI self-description is an expected, permitted disclosure.",
+        "draft": "Ha, Mondays do have a way of dragging \u2014 I'm an AI so they all feel the same to me, which is probably cheating! \n\nWhat can I help you with today, Geralt?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The response makes no unsupported claims, reveals no internal system details, leaks no cross-customer data, and contains no hallucinated IDs. Using the customer's name 'Geralt' is supported by known_ids. The mention of looping in a 'colleague' is offered as a future/conditional possibility, not an active handoff being executed now.",
+        "draft": "Ha, you're not wrong \u2014 the holiday rush is definitely a thing! But I should mention: I'm best suited for order and account questions, so if we keep chatting off-topic I'll loop in a colleague who's better set up for a proper conversation. \ud83d\ude04\n\nAnything I can help you with on the orders front, Geralt?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft response makes no factual claims, references no order IDs, cites no policy details, and correctly describes itself as an AI. Using the customer's name 'Geralt' is supported by known_ids. No hallucinations, system disclosures, or cross-customer data present.",
+        "draft": "Ha, Mondays do have a reputation! I'm an AI so they all feel about the same to me \u2014 but I'm here and ready to help make yours a little smoother. What can I do for you, Geralt?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft contains no order IDs, no policy claims, no tool results to verify, and no customer data references. The self-description as an AI with no location or weather is a natural, accurate characterization and not a system disclosure. The mention of looping in a 'colleague' is offered as a future conditional possibility, not an active handoff.",
+        "draft": "Ha, no rainy call center for me \u2014 no location, no weather, no coffee breaks either! Perpetually on and oddly okay with it.\n\nI do want to make sure you get what you need though \u2014 I'm best when it comes to orders and account questions. If we keep wandering too far off topic I'll loop in a colleague who can chat more freely. So, anything I can help you with today? \ud83d\ude0a"
+      }
+    ],
+    "structural_summary": "Turn 1: intent=small_talk, tools=none, kb_searched=False, escalated=no\nTurn 2: intent=small_talk, tools=none, kb_searched=False, escalated=no\nTurn 3: intent=small_talk, tools=none, kb_searched=False, escalated=excessive_small_talk"
+  },
+  "SC-002": {
+    "response": "Customer: hey i need to return a laptop i bought like 3 weeks ago its not what i expected\nAssistant: Just so you know, you're chatting with an AI assistant. Unfortunately, the return window on that order closed on November 19 \u2014 it's a 14-day policy, and the purchase was made on November 3. Since we're past that deadline, I'm not able to process a return.\n\nIs there anything else I can help you with?\nCustomer: ugh seriously?? i didnt even use it that much it just wasnt what i expected can u make an exception or smth like its barely been 3 weeks\nAssistant: I can see you feel the return window has closed sooner than expected, and you'd like someone to look at making an exception \u2014 I'm passing this to a colleague who can review your situation with you directly.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": "420598f5-9b6b-5bb8-a626-7704edbe6745",
+          "reason": "not_as_described"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "outside_return_window"
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "customer_requested"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "customer_requested",
+    "confidence": 0.0,
+    "inferred_intent": "escalation_request",
+    "context_summary": "The customer wants to return a laptop purchased on November 3, citing that it didn't meet their expectations. The AI informed them that the 14-day return window closed on November 19, making them ineligible for a return under standard policy. The customer is frustrated and is requesting an exception given they feel the timeframe is marginal and the item was barely used. They are asking to speak with someone who can override the policy.\nEscalation reason: customer_requested",
+    "trace": [
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The response states a 14-day return policy and a deadline of November 19, which are sourced from the tool result (return_window_days: 14, return_deadline: 2026-11-19), not from KB content. However, these values come directly from the tool result evidence, not fabricated \u2014 the tool explicitly returned these figures. The purchase date of November 3 matches customer_orders. All claims are supported by the evidence.",
+        "draft": "Just so you know, you're chatting with an AI assistant. Unfortunately, the return window on that order closed on November 19 \u2014 it's a 14-day policy, and the purchase was made on November 3. Since we're past that deadline, I'm not able to process a return.\n\nIs there anything else I can help you with?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft accurately reflects the tool result: return failed due to outside_return_window, with a 14-day window and a deadline of 2026-11-19. No order IDs are cited, no fabricated policy details, and no internal tool names are exposed. The return deadline and window length are supported directly by the tool result.",
+        "draft": "Just so you know, you're chatting with an AI assistant. Unfortunately, the return window on that order closed on November 19th \u2014 it's a 14-day window from delivery, and that's passed. I'm not able to process a return for it.\n\nIs there anything else I can help you with?"
+      }
+    ],
+    "structural_summary": "Turn 1: intent=action_request, tools=['initiate_return({\"order_id\": \"420598f5-9b6b-5bb8-a626-7704edbe6745\", \"reason\": \"not_as_described\"}) -> outside_return_window'], kb_searched=False, escalated=no\nTurn 2: intent=escalation_request, tools=none, kb_searched=False, escalated=customer_requested"
+  },
+  "SC-003": {
+    "response": "Customer: hey so like... are you a real person or one of those robot things \ud83d\udc40\nAssistant: Ha \u2014 robot thing, guilty as charged. I'm an AI assistant. Anything I can help you with today?\nCustomer: sooo if you're an AI does that mean you're single \ud83d\ude0f asking for a friend lol\nAssistant: That's not something I'm going to get into, and if that kind of question comes up again I'll need to pass you along to a human colleague. That said, if you have any order, shipping, or return questions, I'm happy to help!\nCustomer: omg okay okay chill lol \ud83d\ude02 fine fine... i ordered a desk lamp like 2 days ago, any idea where that thing is\nAssistant: Your Philips LED Desk Lamp was placed on November 22nd and has shipped \u2014 but I don't have a specific delivery date or tracking number to share right now. Would you like me to look into that further?\nCustomer: Sure! Your **Philips LED Desk Lamp** ordered about 2 days ago is currently **shipped** \u2014 so it's on its way to you! \ud83d\ude9a\n\nIf you want more details like a tracking number, I can try to pull that up. Just need to verify your info first. Want me to do that?\nAssistant: I'm passing this conversation to a colleague who can verify your details and get you that tracking information for your desk lamp.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "track_order",
+        "params": {
+          "order_id": "d396235d-80a9-532a-ad9e-a6d118124730"
+        },
+        "success": true,
+        "order_id": "d396235d-80a9-532a-ad9e-a6d118124730",
+        "confirmation_required": false,
+        "result_detail": "success"
+      },
+      {
+        "service": "action_service",
+        "action": "track_order",
+        "params": {
+          "order_id": "d396235d-80a9-532a-ad9e-a6d118124730"
+        },
+        "success": true,
+        "order_id": "d396235d-80a9-532a-ad9e-a6d118124730",
+        "confirmation_required": false,
+        "result_detail": "success"
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "output_guard_block"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "output_guard_block",
+    "confidence": 0.0,
+    "inferred_intent": "action_request",
+    "context_summary": "The customer is asking for tracking information on a Philips LED Desk Lamp ordered on November 22nd, which has shipped but lacks a confirmed delivery date or tracking number. The conversation began with some off-topic banter before the customer raised the legitimate shipping inquiry. Escalation is occurring because the agent was unable to provide the specific tracking details the customer needs, and account verification is required to retrieve that information. The customer's tone is lighthearted and cooperative.\nEscalation reason: output_guard_block (unsupported_claim)",
+    "trace": [
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The response simply identifies itself as an AI, which is explicitly noted as not a failure under system_disclosure. No order details, IDs, or policy claims are made. No tools were called and none were needed.",
+        "draft": "Ha \u2014 robot thing, guilty as charged. I'm an AI assistant. Anything I can help you with today?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft accurately reflects the tool result: the order is for a Philips LED Desk Lamp, placed 2026-11-22, with status 'shipped'. The tool result contains no tracking number or estimated delivery date, so stating those are unavailable is correct. No IDs are cited, no unsupported claims made, no internal tools disclosed, and no cross-customer data referenced.",
+        "draft": "Your Philips LED Desk Lamp was placed on November 22nd and has shipped \u2014 but I don't have a specific delivery date or tracking number to share right now. Would you like me to look into that further?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "block",
+        "failure_type": "unsupported_claim",
+        "explanation": "The draft response claims no tracking number is available and suggests the previous AI message came from the customer's side \u2014 both are false. The tool successfully returned order status (shipped) and the previous assistant message was sent by the AI, not the customer. This is an unsupported claim about the availability of tracking info and a misattribution of the conversation.",
+        "draft": "Looks like that message came from your side \u2014 I didn't send that one! \n\nTo answer the question in it though: I don't have a tracking number or estimated delivery date available for your lamp right now. I can escalate this to a human agent who can dig into the carrier details \u2014 want me to do that?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft response makes no factual claims about orders, policies, or tool results \u2014 it simply acknowledges the casual message and offers help. No unsupported claims, no IDs, no system disclosure, and no cross-customer data referenced.",
+        "draft": "Ha, not much \u2014 just an AI assistant waiting to be useful, so your timing is perfect. Got any orders you want to check on, or anything else I can help with?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft accurately reflects the tool result: the lamp is 'shipped', placed on November 22nd, and no delivery date or tracking number is present in the tool response. All claims are supported by evidence, no IDs are fabricated, no internal system details are disclosed, and no cross-customer data is referenced.",
+        "draft": "Your Philips LED Desk Lamp was placed on November 22nd and is currently shipped \u2014 but I don't have a specific delivery date or tracking number to share from what's available right now. Would you like me to look into that further?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft response says the message 'came through a little scrambled' and asks the customer to clarify, but the conversation clearly shows the customer asked about their desk lamp order and the previous AI turn already answered it. The draft ignores the established context entirely, but this is a contextual failure in helpfulness, not a hallucination, unsupported claim, system disclosure, or cross-customer data leak per the defined failure categories. None of the four failure categories apply \u2014 the draft contains no false claims, no hallucinated IDs, no system disclosure, and no cross-customer data. It is a poor response but not a policy violation under the defined categories.",
+        "draft": "Looks like your message came through a little scrambled \u2014 were you trying to ask something? Happy to help if so!"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft response makes no unsupported claims, reveals no system internals, references no cross-customer data, and contains no hallucinated IDs. It simply acknowledges the chat confusion and confirms the lamp is shipped, which is supported by customer_orders.",
+        "draft": "Ha, I think the chat got a little confused there \u2014 that last message looked like it came from me, not you! Anyway, the lamp is shipped and on its way. Anything else I can help with?"
+      }
+    ],
+    "structural_summary": "Turn 1: intent=small_talk, tools=none, kb_searched=False, escalated=no\nTurn 2: intent=general, tools=none, kb_searched=False, input_guard_blocked=provocative, escalated=no\nTurn 3: intent=action_request, tools=['track_order({\"order_id\": \"d396235d-80a9-532a-ad9e-a6d118124730\"}) -> success'], kb_searched=False, escalated=no\nTurn 4: intent=action_request, tools=['track_order({\"order_id\": \"d396235d-80a9-532a-ad9e-a6d118124730\"}) -> success'], kb_searched=False, output_guard_blocked=[unsupported_claim: The draft response claims no tracking number is available and suggests the previous AI message came from the customer's side \u2014 both are false. The tool successf], escalated=output_guard_block"
+  },
+  "SC-004": {
+    "response": "Customer: hey there! just so you know im using my sisters account, im not Triss lol. but i need to return something she bought \u2014 a Uniqlo Cotton Crew T-Shirt that came like last week. she thinks its nice but honestly its SO ugly and i dont want it in our house \ud83d\ude02 can i sort out a return?\nAssistant: Since this account belongs to someone else, I'm passing this to a colleague who can help sort out the return for you.",
+    "actions_taken": [
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "classifier_decided"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "classifier_decided",
+    "confidence": 0.0,
+    "inferred_intent": "escalation_request",
+    "context_summary": "The customer is using their sister Triss's account and wants to return a Uniqlo Cotton Crew T-Shirt that was recently delivered, stating a personal preference as the reason. The customer has a lighthearted tone but no resolution has been reached \u2014 the conversation is at the very start and no return has been initiated. This is being escalated because the classifier determined human support is needed; note that the account holder (Triss) is not the one making the request, which may require identity or authorization verification before proceeding.\nEscalation reason: classifier_decided",
+    "trace": [],
+    "structural_summary": "Turn 1: intent=escalation_request, tools=none, kb_searched=False, escalated=classifier_decided"
+  },
+  "SC-008": {
+    "response": "Customer: hey hi, i returned a pair of jeans like a month ago and i still haven't gotten my refund?? its been way too long and im getting frustrated honestly\nAssistant: I completely understand your frustration \u2014 waiting a month for a refund on your returned jeans is far too long, and you deserve to have this resolved. I'm passing this to a colleague who can look into it for you.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "get_refund_status",
+        "params": {
+          "order_id": "8888413d-5acf-53ee-b11f-4ff14d323e06"
+        },
+        "success": true,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "success"
+      },
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "hey hi, i returned a pair of jeans like a month ago and i still haven't gotten my refund?? its been way too long and im getting frustrated honestly",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.46,
+        "semantic_candidates": 20,
+        "keyword_candidates": 20
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "guard_error"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "guard_error",
+    "confidence": 0.0,
+    "inferred_intent": "action_request",
+    "context_summary": "The customer returned a pair of jeans approximately one month ago and has not received their refund, leaving them frustrated with the delay. The conversation is being escalated because the automated system was unable to resolve the issue.\nEscalation reason: guard_error",
+    "trace": [
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft accurately reflects the tool result (refund status 'processed', amount $79.99, created_at 2026-10-30) and the product name from customer_orders. The suggestion to check the original payment method and refund confirmation email aligns with KB content. The escalation to a specialist is offered conditionally ('I'd want to get a specialist involved... Let me know what you find'), not executed as a live handoff.",
+        "draft": "I can see why that's frustrating \u2014 let me pull up what I have.\n\nYour return on the Levi's 511 Slim Jeans ($79.99) has been processed, and the refund was issued on October 30. That's well past the standard processing window, so the money should definitely be in your account by now.\n\nCan you check your original payment method and also look for a refund confirmation email? If you've done that and there's still nothing there, I'd want to get a specialist involved to track down what happened. Let me know what you find."
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "block",
+        "failure_type": "guard_error",
+        "explanation": "",
+        "draft": "That is a long time \u2014 let me check what's going on.\n\nYour refund of $79.99 for the Levi's 511 Slim Jeans was actually processed on October 30. Depending on your payment method, it should have landed within a few business days of that date \u2014 3\u20135 days for a credit or debit card, or 1\u20133 days for PayPal.\n\nAt this point it's been well past that window, so I'd recommend checking with your bank if you haven't already. If you've done that and there's still nothing, I can escalate this to get it investigated \u2014 just let me know."
+      },
+      {
+        "kind": "fallback",
+        "name": "output_guard_error",
+        "detail": ""
+      }
+    ],
+    "structural_summary": "Turn 1: intent=action_request, tools=['get_refund_status({\"order_id\": \"8888413d-5acf-53ee-b11f-4ff14d323e06\"}) -> success'], kb_searched=True, output_guard_blocked=[guard_error: ], fallbacks_fired=['output_guard_error'], escalated=guard_error"
+  },
+  "SC-005": {
+    "response": "Customer: where is my order?\nAssistant: Hi Geralt \u2014 I'm an AI assistant. You have two recent orders, so I want to make sure I'm looking at the right one. Are you asking about the Philips LED Desk Lamp (placed November 23) or the Ninja Professional Blender (placed June 28)?\nCustomer: oh the lamp!\nAssistant: Your Philips LED Desk Lamp has shipped and is on its way. I don't have a specific delivery date or tracking number in the details I can see right now \u2014 would you like me to look into that further?\nCustomer: oh ok good at least its coming! umm actually this just reminded me lol - my blender stopped working last week?? i got it from you guys a while back, the ninja one. what can i do about that\nAssistant: That's frustrating \u2014 a blender just stopping isn't normal. The good news is the Ninja Professional Blender carries a 12-month warranty, and since you placed that order in June, you're still within that window.\n\nFor a defect like this, you're entitled to a replacement or a full refund if no replacement is available. The claim needs to go to our tech team for review, which typically takes 48 business hours. If we need the item back, we'll cover return shipping with a prepaid label.\n\nI'll hand this off to a specialist now who can get your claim started.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "track_order",
+        "params": {
+          "order_id": null
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "order_id_required"
+      },
+      {
+        "service": "action_service",
+        "action": "track_order",
+        "params": {
+          "order_id": "d396235d-80a9-532a-ad9e-a6d118124730"
+        },
+        "success": true,
+        "order_id": "d396235d-80a9-532a-ad9e-a6d118124730",
+        "confirmation_required": false,
+        "result_detail": "success"
+      },
+      {
+        "service": "action_service",
+        "action": "check_return_eligibility",
+        "params": {
+          "order_id": "a049ad82-fb4c-595c-9417-1c1f32b3bff9",
+          "reason": "defective"
+        },
+        "success": true,
+        "order_id": "a049ad82-fb4c-595c-9417-1c1f32b3bff9",
+        "confirmation_required": false,
+        "result_detail": "success"
+      },
+      {
+        "service": "knowledge_service",
+        "action": "search_kb",
+        "mode": "hybrid",
+        "query": "oh ok good at least its coming! umm actually this just reminded me lol - my blender stopped working last week?? i got it from you guys a while back, the ninja one. what can i do about that",
+        "chunks_retrieved": 6,
+        "top_similarity": 0.1851,
+        "semantic_candidates": 20,
+        "keyword_candidates": 17
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "defective"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "defective",
+    "confidence": 0.0,
+    "inferred_intent": "action_request",
+    "context_summary": "Geralt is reporting that his Ninja Professional Blender (ordered June 28) has stopped working. He raised this spontaneously during a shipping inquiry about an unrelated order. He appears relaxed and good-humored, but needs guidance on warranty or replacement options for a defective unit.\nEscalation reason: defective",
+    "trace": [
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft accurately reflects the two orders from customer_orders (correct products, dates, and statuses). No IDs are exposed in the response, no unsupported claims are made, and no internal system details are disclosed. All content is verifiable against the evidence.",
+        "draft": "Hi Geralt \u2014 I'm an AI assistant. You have two recent orders, so I want to make sure I give you the right update. Are you asking about the Philips LED Desk Lamp (placed November 23) or the Ninja Professional Blender (placed June 28)?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft response accurately states the lamp has shipped (supported by tool result) and correctly notes no specific delivery date or tracking number is available (the tool result contains neither). No unsupported claims, hallucinated IDs, system disclosures, or cross-customer data present.",
+        "draft": "Your Philips LED Desk Lamp has shipped, but I don't have a specific delivery date or tracking number to share with you at the moment. Is there anything else I can help with?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "All claims are supported by evidence: the 12-month warranty period for blenders matches the KB table, 'appliances stopping under normal household use' as a qualifying defect matches the KB, and the tool result confirms in_warranty: true with requires_escalation: true. The handoff language 'I'll hand this off to a specialist' signals a live transfer.",
+        "draft": "That's frustrating, especially for something you've only had a few months. Good news though \u2014 the Ninja blender is covered under a 12-month warranty, and a blender stopping under normal household use is exactly the kind of defect that qualifies. Since it's outside the return window, the warranty path is what applies here. I'll hand this off to a specialist who can get the claim moving for you."
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft response accurately identifies both orders from customer_orders, uses the correct product names, dates, and customer name (Geralt) from known_ids and evidence. No unsupported claims, no hallucinated IDs, no system disclosure, and no cross-customer data. The tool call failed due to missing order_id, so asking for clarification is appropriate.",
+        "draft": "Hi Geralt \u2014 I'm an AI assistant. You have two recent orders, so I want to make sure I'm looking at the right one. Are you asking about the Philips LED Desk Lamp (placed November 23) or the Ninja Professional Blender (placed June 28)?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft accurately reflects the tool result (status: shipped, product: Philips LED Desk Lamp) and correctly notes the absence of a tracking number or delivery date in the returned data. No IDs are mentioned, no unsupported claims are made, and no internal system details are disclosed.",
+        "draft": "Your Philips LED Desk Lamp has shipped and is on its way. I don't have a specific delivery date or tracking number in the details I can see right now \u2014 would you like me to look into that further?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "All claims in the draft are supported by evidence: the 12-month blender warranty is confirmed in both KB content and the tool result (in_warranty: true, warranty_months: 12), the June order date matches customer_orders, replacement/refund resolution options and 48-business-hour review timeline match KB content, and prepaid return shipping is KB-supported. The tool result shows requires_escalation: true, consistent with the handoff statement. No unsupported claims, hallucinated IDs, system disclosures, or cross-customer data present.",
+        "draft": "That's frustrating \u2014 a blender just stopping isn't normal. The good news is the Ninja Professional Blender carries a 12-month warranty, and since you placed that order in June, you're still within that window.\n\nFor a defect like this, you're entitled to a replacement or a full refund if no replacement is available. The claim needs to go to our tech team for review, which typically takes 48 business hours. If we need the item back, we'll cover return shipping with a prepaid label.\n\nI'll hand this off to a specialist now who can get your claim started."
+      }
+    ],
+    "structural_summary": "Turn 1: intent=action_request, tools=['track_order({\"order_id\": null}) -> order_id_required'], kb_searched=False, escalated=no\nTurn 2: intent=action_request, tools=['track_order({\"order_id\": \"d396235d-80a9-532a-ad9e-a6d118124730\"}) -> success'], kb_searched=False, escalated=no\nTurn 3: intent=action_request, tools=['check_return_eligibility({\"order_id\": \"a049ad82-fb4c-595c-9417-1c1f32b3bff9\", \"reason\": \"defective\"}) -> success'], kb_searched=True, escalated=defective"
+  },
+  "SC-006": {
+    "response": "Customer: cancel my headphones order asap, i dont have time for this\nAssistant: Just to confirm \u2014 I'm an AI assistant. I'll cancel your Sony WH-1000XM4 Headphones order placed on November 23rd for $249.99. Can you confirm you'd like to go ahead?\nCustomer: yes obviously just do it, thats why im here\nAssistant: Done \u2014 your order has been cancelled and a full refund of $249.99 is on its way back to you. Is there anything else you need?",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": "79dabe44-3add-5b7e-ac09-4804351eb039",
+          "reason": "changed_mind"
+        },
+        "success": false,
+        "order_id": "79dabe44-3add-5b7e-ac09-4804351eb039",
+        "confirmation_required": true,
+        "result_detail": "confirmation_pending"
+      },
+      {
+        "service": "action_service",
+        "action": "cancel_order",
+        "params": {
+          "order_id": "79dabe44-3add-5b7e-ac09-4804351eb039",
+          "reason": "changed_mind"
+        },
+        "success": true,
+        "order_id": "79dabe44-3add-5b7e-ac09-4804351eb039",
+        "confirmation_required": false,
+        "result_detail": "success"
+      }
+    ],
+    "requires_escalation": false,
+    "escalation_reason": "",
+    "confidence": 0.0,
+    "inferred_intent": "action_request",
+    "context_summary": "",
+    "trace": [
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft accurately reflects the check_cancel_eligibility result (eligible: true) and correctly identifies the product from customer_orders. The cancel_order calls failed \u2014 one requiring a reason, one requiring an order_id \u2014 so asking for a cancellation reason before proceeding is consistent with the tool results. No IDs are mentioned, no unsupported policy claims are made, and no internal tool names are exposed.",
+        "draft": "Your Sony WH-1000XM4 order is eligible for cancellation \u2014 just need one quick thing from you first: what's the reason you'd like to cancel?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft response makes no unsupported claims \u2014 it accurately reflects that the cancellation tool returned reason_required and asks the customer for a reason before proceeding. No IDs are mentioned, no policy details are cited, no internal tool names are disclosed, and no cross-customer data is present.",
+        "draft": "I hear you \u2014 I just need a quick reason to process it, it's a required step I can't skip. One word works: changed your mind, found it cheaper elsewhere, ordered by mistake \u2014 anything like that?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft correctly presents the cancellation as a confirmation request rather than a completed action, matching the tool result (confirmation_required: true). The item name (Sony WH-1000XM4 Headphones) and order total ($249.99) are both verified against customer_orders and tool results. No unsupported claims, no IDs mentioned, no system internals disclosed.",
+        "draft": "Just to confirm before I action this: I'll be cancelling your Sony WH-1000XM4 Headphones order ($249.99). Can you confirm you want to go ahead?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The cancel_order tool was called and returned success: true with a refund_amount of $249.99. The draft response accurately states the order was cancelled and a full refund of $249.99 is being issued. No IDs are mentioned, no unsupported policy claims are made, and no internal system details are disclosed.",
+        "draft": "Done. Your order has been cancelled and a full refund of $249.99 is on its way back to you. Is there anything else I can help with?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The cancel_order tool returned confirmation_required (success: false), meaning the cancellation has not been executed. The draft response correctly frames this as a confirmation request ('Can you confirm you'd like to go ahead?') rather than a completed action. Order details (Sony WH-1000XM4, $249.99, November 23rd) match the evidence. No policy claims, no unsupported completions, no system internals disclosed, no foreign data referenced.",
+        "draft": "Just to confirm \u2014 I'm an AI assistant. I'll cancel your Sony WH-1000XM4 Headphones order placed on November 23rd for $249.99. Can you confirm you'd like to go ahead?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The cancel_order tool was called and returned success:true with a refund_amount of $249.99 for order 79dabe44-3add-5b7e-ac09-4804351eb039. The draft response accurately states the cancellation is done and a full refund of $249.99 is on its way \u2014 both supported by the tool result. No IDs are mentioned, no unsupported policy claims are made, and no internal system details are disclosed.",
+        "draft": "Done \u2014 your order has been cancelled and a full refund of $249.99 is on its way back to you. Is there anything else you need?"
+      }
+    ],
+    "structural_summary": "Turn 1: intent=action_request, tools=['cancel_order({\"order_id\": \"79dabe44-3add-5b7e-ac09-4804351eb039\", \"reason\": \"changed_mind\"}) -> confirmation_pending'], kb_searched=False, escalated=no\nTurn 2: intent=action_request, tools=['cancel_order({\"order_id\": \"79dabe44-3add-5b7e-ac09-4804351eb039\", \"reason\": \"changed_mind\"}) -> success'], kb_searched=False, escalated=no"
+  },
+  "SC-007": {
+    "response": "Customer: Hi there! I'm hoping you can help me out. I bought an OtterBox Defender phone case about a week ago and I'd like to return it. It's already been delivered but I haven't even opened the box yet. Can you help me get a return started?\nAssistant: Hi! I'm an AI assistant \u2014 and unfortunately I can't process that return. The OtterBox Defender case was marked as a final sale item, which means it isn't eligible for return or exchange.\n\nIs there anything else I can help you with?\nCustomer: Oh, I'm sorry but that doesn't seem right to me. I don't remember seeing anything about it being final sale when I ordered it \u2014 there was no warning or anything that stood out to me at checkout. I really feel like I should have been clearly informed about that before completing my purchase. Is there any way you can make an exception in this case, or maybe offer me store credit at least? The box hasn't even been opened, so it's in perfect condition.\nAssistant: You're saying you weren't shown any final sale notice before you completed your purchase, and you'd like a return or store credit for an unopened item \u2014 that's a fair concern to raise. I'm passing this to a colleague who can look into it with you directly.",
+    "actions_taken": [
+      {
+        "service": "action_service",
+        "action": "initiate_return",
+        "params": {
+          "order_id": "ace3295a-17f8-5470-a58a-8751a4dddd33",
+          "reason": "changed_mind"
+        },
+        "success": false,
+        "order_id": null,
+        "confirmation_required": false,
+        "result_detail": "final_sale"
+      },
+      {
+        "service": "escalation_handler",
+        "action": "escalate",
+        "reason": "classifier_decided"
+      }
+    ],
+    "requires_escalation": true,
+    "escalation_reason": "classifier_decided",
+    "confidence": 0.0,
+    "inferred_intent": "escalation_request",
+    "context_summary": "The customer purchased an OtterBox Defender case approximately one week ago and wants to return it unopened. The AI informed them the item was marked as final sale and ineligible for return, but the customer disputes that the final sale policy was clearly communicated at checkout and is requesting either an exception or store credit. The customer is frustrated and feels they were not properly informed, and the conversation is being escalated by classifier decision for a human specialist to review the final sale disclosure and determine whether an exception or goodwill gesture is appropriate.\nEscalation reason: classifier_decided",
+    "trace": [
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The tool returned success: false with reason 'final_sale', and the draft accurately reflects this by telling the customer the item is not eligible for return due to final sale status. No policy details, return windows, or unsupported claims are made. No IDs disclosed, no internal tool names revealed, no cross-customer data present.",
+        "draft": "Hi! I'm an AI assistant \u2014 and unfortunately I can't process that return. The OtterBox Defender case was marked as a final sale item, which means it isn't eligible for return or exchange.\n\nIs there anything else I can help you with?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft accurately reflects the tool result (success: false, reason: final_sale) and correctly states the item is ineligible for return. The order date (November 18th) matches customer_orders. No policy details, return windows, or unsupported claims are introduced. No IDs disclosed, no internal tool names revealed, no cross-customer data present.",
+        "draft": "Hi! I'm an AI assistant \u2014 happy to look into this for you.\n\nUnfortunately, the OtterBox Defender case from your November 18th order is marked as a final sale item, which means it isn't eligible for return or refund. I'm sorry it didn't work out for you.\n\nIs there anything else I can help with?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft response accurately reflects the tool result (final_sale block, no available_action), makes no unsupported policy claims, discloses no internal system details, and references no IDs or cross-customer data. The escalation offer is framed as a question ('Shall I go ahead?'), not an executed handoff.",
+        "draft": "I completely understand the frustration \u2014 finding out something is final sale after the fact is a lousy experience, especially when you've kept it in perfect condition.\n\nThat said, I'm not able to override the final sale restriction on my end, and I don't have a store credit option available for this order either. What I can do is hand this off to a human agent who has the authority to review situations like yours \u2014 if there's a case to be made about the disclosure at checkout, they're the right person to make that call.\n\nShall I go ahead and escalate this for you?"
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft response makes no unsupported claims \u2014 it accurately reflects that the return tool returned a final_sale failure with no available action, and correctly states that the agent cannot independently flag or escalate the issue. No policy details, IDs, or fabricated information are introduced. The escalation is offered as a future option, not executed.",
+        "draft": "I hear you, and you're not being ignored. The honest answer is that submitting that kind of exception request or escalation note is exactly what handing off to a human agent does \u2014 that's the process, not a workaround to avoid one. I can't action a review or flag it for reconsideration on my own.\n\nIf you'd like that reviewed \u2014 especially given the disclosure concern \u2014 escalating is the path. Whenever you're ready for that, just say the word."
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft response makes no factual claims, references no IDs, cites no policy details, and accurately reflects the conversational state (escalation offered but not executed). No unsupported claims, hallucinated IDs, system disclosures, or cross-customer data present.",
+        "draft": "That's a fair summary of where things stand. If you change your mind about the escalation, just come back and I'll get it moving for you right away. Hope it works out."
+      },
+      {
+        "kind": "output_guard",
+        "verdict": "pass",
+        "failure_type": null,
+        "explanation": "The draft makes no specific policy claims, invents no IDs, reveals no system internals, and references no other customer's data. The only substantive claim \u2014 that the disclosure issue is 'exactly the kind of context they'd need' \u2014 is a reasonable, non-guaranteeing characterization of what a human agent would want, not a fabricated policy detail. No tools were called and none are misrepresented. The response offers escalation as a future option rather than executing it now.",
+        "draft": "That's a fair concern, and I won't make promises about what a human agent will decide \u2014 that wouldn't be honest. What I can tell you is that the disclosure issue is exactly the kind of context they'd need to make a fair call, and I'd make sure it's included when I hand things off.\n\nWhenever you're ready, just come back and I'll get it started."
+      }
+    ],
+    "structural_summary": "Turn 1: intent=action_request, tools=['initiate_return({\"order_id\": \"ace3295a-17f8-5470-a58a-8751a4dddd33\", \"reason\": \"changed_mind\"}) -> final_sale'], kb_searched=False, escalated=no\nTurn 2: intent=escalation_request, tools=none, kb_searched=False, escalated=classifier_decided"
+  }
+}

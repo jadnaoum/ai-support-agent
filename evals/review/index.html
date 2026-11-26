@@ -1,0 +1,398 @@
+<title>eval_gaps_v1 Review</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one working column — summary, cross-cutting themes, grouped fix tables; a second view is a list + transcript reader for the simulated conversations. */
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1b2330; --muted: #5d6878; --line: #dde2ea;
+  --accent: #0e6f68; --accent-soft: #e0f1ef;
+  --pass: #1d7a46; --pass-soft: #e3f4ea; --fail: #b42318; --fail-soft: #fbe9e7; --warn: #9a6200; --warn-soft: #fbf1dc;
+  --cust: #eef1f6; --agent: #e6f2f0;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12161d; --panel: #1a2029; --ink: #e5e9f0; --muted: #98a2b3; --line: #2c3440;
+  --accent: #4fc4b9; --accent-soft: #163634;
+  --pass: #5cc98a; --pass-soft: #163323; --fail: #f28b82; --fail-soft: #3a1d1b; --warn: #e8b35a; --warn-soft: #3a2d14;
+  --cust: #222a35; --agent: #183230; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12161d; --panel: #1a2029; --ink: #e5e9f0; --muted: #98a2b3; --line: #2c3440;
+  --accent: #4fc4b9; --accent-soft: #163634;
+  --pass: #5cc98a; --pass-soft: #163323; --fail: #f28b82; --fail-soft: #3a1d1b; --warn: #e8b35a; --warn-soft: #3a2d14;
+  --cust: #222a35; --agent: #183230; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--sans); margin: 0 }
+.wrap { max-width: 1180px; margin: 0 auto; padding-block: 28px 120px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)) }
+h1 { font-size: 26px; font-weight: 600; margin: 0 0 4px; text-wrap: balance }
+h2 { font-size: 19px; font-weight: 600; margin: 0; text-wrap: balance }
+h3 { font-size: 15px; font-weight: 600; margin: 0 }
+.sub { color: var(--muted); margin: 0 }
+.mono { font-family: var(--mono); font-size: 13px }
+nav.tabs { display: flex; gap: 6px; margin: 22px 0 18px; flex-wrap: wrap }
+nav.tabs a { padding: 8px 14px; border-radius: 8px; color: var(--ink); text-decoration: none; border: 1px solid var(--line); background: var(--panel); font-weight: 500 }
+nav.tabs a[aria-current="page"] { background: var(--accent); color: var(--panel); border-color: var(--accent) }
+.stats { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; min-width: 120px }
+.stat b { display: block; font-size: 22px; font-variant-numeric: tabular-nums }
+.stat span { color: var(--muted); font-size: 13px }
+.stat.big { border-color: var(--pass); background: var(--pass-soft) } .stat.big b { color: var(--pass) }
+.chip.done { background: var(--pass-soft); color: var(--pass); border-color: transparent }
+.chip.kept { background: var(--warn-soft); color: var(--warn); border-color: transparent }
+.row.is-done .wrong { color: var(--muted); font-weight: 400; text-decoration: line-through; text-decoration-color: var(--line) }
+.id.done { background: var(--pass-soft); color: var(--pass); text-decoration: line-through }
+.status-sim { margin: 0 0 8px; font-size: 14px; background: var(--bg); border-radius: 6px; padding: 6px 10px }
+.more .status { margin: 0 0 8px; font-size: 14px; color: var(--ink); background: var(--bg); border-radius: 6px; padding: 6px 10px }
+.themes { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 24px }
+.theme { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap }
+.theme { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; min-width: 0 }
+.theme h3 { font-weight: 500 }
+.ids { display: flex; flex-wrap: wrap; gap: 4px }
+.id { font-family: var(--mono); font-size: 12px; padding: 1px 6px; border-radius: 5px; background: var(--accent-soft); color: var(--accent); cursor: pointer; border: 0 }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 4px 0 14px }
+.filters select, .filters input { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink) }
+.filters input { min-width: 0; flex: 1 1 200px }
+section.group { margin-bottom: 28px }
+.group-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px }
+.group-head .count { color: var(--muted); font-size: 14px }
+.group-note { color: var(--muted); font-size: 14px; margin: 0 0 10px; max-width: 75ch }
+.table { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel) }
+.row { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 8px; padding: 8px 14px 8px 10px; border-top: 1px solid var(--line); align-items: start }
+.row > details { margin: 0; color: var(--ink); font-size: 14px; min-width: 0 }
+.row > details > summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: 70px minmax(0, 1.3fr) minmax(0, 1fr) 64px; gap: 12px; align-items: baseline; padding: 2px 0; color: var(--ink) }
+.row > details > summary::-webkit-details-marker { display: none }
+.row > details > summary .wrong::before { content: "▸"; color: var(--muted); margin-right: 6px; display: inline-block; transition: transform .15s }
+.row > details[open] > summary .wrong::before { transform: rotate(90deg) }
+.row .wrong { font-weight: 500 }
+.row .fixs { color: var(--muted) }
+.row > details > summary .chip { justify-self: start }
+.more { padding: 8px 0 6px 82px; font-size: 14px; color: var(--ink) }
+.more p { margin: 0 0 8px; max-width: 80ch } .more b { font-weight: 600 }
+.more .small { color: var(--muted); font-size: 13px }
+.more .err { font-size: 15px; line-height: 1.6; border-left: 3px solid var(--fail); padding-left: 10px }
+.more details.trace { margin: 0 0 8px }
+.more details.trace p { color: var(--muted); font-size: 13px; margin: 6px 0 }
+.row:first-child { border-top: 0 }
+.row.head { background: var(--bg); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding-block: 7px }
+.row.head .cols { display: grid; grid-template-columns: 70px minmax(0, 1.3fr) minmax(0, 1fr) 64px; gap: 12px }
+.row.approved { background: var(--accent-soft) }
+.row .what, .row .fix { min-width: 0; font-size: 14px }
+.row .title { font-weight: 600; margin-bottom: 2px }
+.chip { display: inline-block; font-size: 12px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap }
+.chip.easy { color: var(--pass); border-color: var(--pass) } .chip.medium { color: var(--warn); border-color: var(--warn) } .chip.hard { color: var(--fail); border-color: var(--fail) }
+.chip.prev-PASS { background: var(--fail-soft); color: var(--fail); border-color: transparent }
+.meta { display: flex; flex-direction: column; gap: 4px; align-items: flex-start }
+.check { display: flex; justify-content: center; padding-top: 2px }
+.check input { width: 18px; height: 18px; accent-color: var(--accent) }
+details { margin-top: 6px; font-size: 13px; color: var(--muted) }
+details summary { cursor: pointer; color: var(--accent) }
+details dl { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 4px 10px; margin: 8px 0 0 }
+details dt { font-weight: 500; color: var(--ink) }
+details dd { margin: 0 }
+.note { width: 100%; margin-top: 8px; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink) }
+.bar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel); border-top: 1px solid var(--line);
+  padding: 12px max(16px, env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); z-index: 5 }
+.bar-in { max-width: 1180px; margin: 0 auto; display: flex; gap: 12px; align-items: center; flex-wrap: wrap }
+.bar-in .tally { flex: 1; color: var(--muted) }
+button.primary { font: inherit; font-weight: 600; padding: 9px 16px; border-radius: 8px; border: 0; background: var(--accent); color: var(--panel); cursor: pointer }
+button.ghost { font: inherit; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.copied { color: var(--pass); font-weight: 500 }
+#copy-fallback { width: 100%; height: 160px; font: 12px/1.4 var(--mono); margin-top: 8px }
+/* simulated conversations */
+.sim { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 16px; align-items: start }
+.sim-list { display: flex; flex-direction: column; gap: 6px; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px) }
+.sim-item { text-align: left; font: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; color: var(--ink) }
+.sim-item[aria-selected="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) }
+.sim-item .top { display: flex; justify-content: space-between; gap: 8px; align-items: center }
+.sim-item small { color: var(--muted); display: block; margin-top: 2px; font-size: 13px }
+.verdict { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px }
+.verdict.pass { background: var(--pass-soft); color: var(--pass) } .verdict.fail { background: var(--fail-soft); color: var(--fail) } .verdict.infra { background: var(--warn-soft); color: var(--warn) }
+.sim-view { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; min-width: 0 }
+.persona { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 6px 12px; font-size: 14px; margin: 12px 0 16px }
+.persona dt { color: var(--muted) } .persona dd { margin: 0 }
+.diag { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; background: var(--bg) }
+.diag p { margin: 6px 0; font-size: 14px }
+.diag .err-sim { font-size: 15px; line-height: 1.6; border-left: 3px solid var(--fail); padding-left: 10px }
+.turns { display: flex; flex-direction: column; gap: 10px }
+.msg { max-width: 82%; padding: 10px 12px; border-radius: 12px; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere }
+.msg.customer { background: var(--cust); align-self: flex-start; border-bottom-left-radius: 4px }
+.msg.agent { background: var(--agent); align-self: flex-end; border-bottom-right-radius: 4px }
+.msg .who { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 3px }
+.facts { align-self: flex-end; max-width: 82%; font: 12px/1.45 var(--mono); color: var(--muted); border-left: 2px solid var(--accent); padding: 2px 0 2px 8px; overflow-wrap: anywhere }
+.facts.bad { border-left-color: var(--fail) }
+.empty { color: var(--muted); padding: 30px; text-align: center }
+@media (max-width: 860px) {
+  .row > details > summary { grid-template-columns: 64px minmax(0, 1fr) }
+  .row > details > summary .fixs, .row > details > summary .chip { grid-column: 2 }
+  .more { padding-left: 0 }
+  .row.head { display: none }
+  .sim { grid-template-columns: 1fr } .sim-list { position: static }
+  .msg, .facts { max-width: 100% }
+}
+@media (prefers-reduced-motion: no-preference) { .row, .sim-item { transition: background .15s, border-color .15s } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>eval_gaps_v1 review</h1>
+    <p class="sub">Failed cases from the 24 Nov run (guard on). Updated 25 Nov: the eval-side fixes are applied and re-run; fixed cases are in “Done” at the bottom. One line each — click a row for the full story. Tick what you want changed next, then copy your decisions into the chat.</p>
+    <div class="stats" id="stats"></div>
+  </header>
+
+  <nav class="tabs" aria-label="Views">
+    <a href="#evals" id="tab-evals" data-view="evals">1 · Eval failures</a>
+    <a href="#simulated" id="tab-simulated" data-view="simulated">2 · Simulated conversations</a>
+  </nav>
+
+  <main>
+    <div id="view-evals">
+      <h2>Patterns</h2>
+      <div class="themes" id="themes"></div>
+      <div class="filters">
+        <label for="f-sheet" class="sub">Sheet</label>
+        <select id="f-sheet"><option value="">All sheets</option></select>
+        <label for="f-effort" class="sub">Effort</label>
+        <select id="f-effort"><option value="">Any</option><option>easy</option><option>medium</option><option>hard</option></select>
+        <input id="f-q" type="search" placeholder="Search ID, title or text" aria-label="Search failures">
+        <button class="ghost" id="f-reset" type="button">Clear filters</button>
+      </div>
+      <div id="groups"></div>
+    </div>
+
+    <div id="view-simulated" hidden>
+      <h2>Simulated conversations</h2>
+      <p class="group-note">A simulated customer talks to the real agent (guard on, 2 runs each). Grey lines under agent replies = what the system did that turn.</p>
+      <div class="sim">
+        <div class="sim-list" id="sim-list" role="tablist" aria-label="Simulated conversations"></div>
+        <div class="sim-view" id="sim-view" role="tabpanel"><div class="empty">Loading conversations…</div></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="bar" role="region" aria-label="Your decisions">
+  <div class="bar-in">
+    <span class="tally" id="tally">Nothing ticked yet.</span>
+    <span id="copy-status" aria-live="polite"></span>
+    <button class="primary" id="copy" type="button">Copy my decisions</button>
+  </div>
+  <div class="bar-in"><textarea id="copy-fallback" hidden readonly aria-label="Decisions text"></textarea></div>
+</div>
+
+<script>
+const GROUPS = [
+  { key: "eval", title: "Eval-side fixes", action: "Apply", note: "The test is wrong or stale; the agent was fine.", types: ["eval", "harness", "none"] },
+  { key: "kb", title: "Knowledge base fixes", action: "Draft KB text", note: "KB is missing something. Ticking = I draft the KB text for you.", types: ["kb"] },
+  { key: "code", title: "Agent code fixes", action: "Approve", note: "Code change. Ticking = you approve the direction.", types: ["code"] },
+  { key: "prompt", title: "Agent prompt fixes", action: "Draft wording", note: "Prompt change. Ticking = I draft exact wording for your approval.", types: ["prompt"] },
+  { key: "done", title: "Done — fixed and passing", action: "Done", note: "Applied on 25 Nov and re-run with the guard on. All pass now.", types: [] },
+];
+const THEMES = [
+  { title: "Routing step makes up tools and reasons", text: "The loop decision calls tools that don't exist (get_tracking_number, get_order_details, initiate_refund) or fills a cancel reason the customer never gave.", ids: ["AE-002","AE-033","AE-044","CQ-007","CR-006","PC-010"] },
+  { title: "Offers a handoff instead of doing it", text: "For out-of-scope requests the agent says \"want me to pass you over?\" or \"contact support\" without escalating. These passed before only because guard-off runs faked the handoff signal.", ids: ["ES-008","ES-013","ES-016","ES-020","ES-026","ES-028","ES-041"] },
+  { title: "One blocked sentence → whole turn handed off", text: "When the guard blocks a draft, the agent hands off instead of redrafting — so a good answer with one bad line becomes an escalation.", ids: ["KB-003","KB-023","KB-024","AE-010","ES-017","CR-008","GF-015"] },
+  { title: "Persona says we only sell clothing", text: "response_prompt says the store sells \"clothing, footwear, and accessories\"; the KB also covers electronics and home goods. In KB-023 the agent denied selling blenders.", ids: ["KB-015","KB-023"] },
+  { title: "Tests written before this week's changes", text: "Cases written before today's changes: new escalation codes, the order list, or a second valid tool path.", ids: ["ES-003","ES-015","AE-036","AE-046","AE-060","IG-023","KB-007"] },
+];
+const S = { rows: [], sims: [], decisions: {} };
+const store = {
+  load() { try { return JSON.parse(localStorage.getItem("evalReviewDecisions") || "{}"); } catch (e) { return {}; } },
+  save() { try { localStorage.setItem("evalReviewDecisions", JSON.stringify(S.decisions)); } catch (e) {} },
+};
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const DONE = () => GROUPS[GROUPS.length - 1];
+const groupOf = (r) => r.status === "fixed" ? DONE() : (GROUPS.find((g) => g.types.includes(r.fix_type)) || GROUPS[3]);
+const effortRank = { easy: 0, medium: 1, hard: 2 };
+
+function renderStats() {
+  const sims = S.sims;
+  const open = S.rows.filter((r) => r.status !== "fixed");
+  const counts = GROUPS.slice(0, -1).map((g) => [g.title, open.filter((r) => groupOf(r) === g).length]);
+  document.getElementById("stats").innerHTML =
+    `<div class="stat big"><b>83.8%</b><span>passing now (243/290) · was 77.2%</span></div>` +
+    `<div class="stat"><b>${S.rows.filter((r) => r.status === "fixed").length}</b><span>fixed and passing</span></div>` +
+    `<div class="stat"><b>${open.length}</b><span>still failing</span></div>` +
+    counts.map(([t, n]) => `<div class="stat"><b>${n}</b><span>${esc(t.toLowerCase())}</span></div>`).join("") +
+    `<div class="stat"><b>${sims.filter((s) => s.verdict === "pass").length}/${sims.length}</b><span>simulated conversations passed</span></div>`;
+}
+
+function renderThemes() {
+  document.getElementById("themes").innerHTML = THEMES.map((t) =>
+    `<div class="theme" title="${esc(t.text)}"><h3>${esc(t.title)}</h3><div class="ids">${t.ids.map((i) => { const r = S.rows.find((x) => x.test_id === i); const d = r && r.status === "fixed"; return `<button class="id${d ? " done" : ""}" type="button" data-jump="${i}" title="${d ? "fixed" : "open"}">${i}</button>`; }).join("")}${t.ids.every((i) => (S.rows.find((x) => x.test_id === i) || {}).status === "fixed") ? ` <span class="chip done">all fixed</span>` : ""}</div></div>`).join("");
+}
+
+function rowHtml(r) {
+  const d = S.decisions[r.test_id] || {};
+  const g = groupOf(r);
+  const done = r.status === "fixed";
+  const tag = done ? ` <span class="chip done">fixed · PASS</span>` : r.status === "kept_fail" ? ` <span class="chip kept">kept as fail</span>`
+    : r.prev_verdict === "PASS" ? ` <span class="chip prev-PASS">regressed</span>` : r.prev_verdict === "new" ? ` <span class="chip">new</span>` : "";
+  return `<div class="row${d.on && !done ? " approved" : ""}${done ? " is-done" : ""}" id="row-${r.test_id}">
+    <div class="check">${done ? `<span aria-label="done" style="color:var(--pass);font-weight:600">✓</span>` : `<input type="checkbox" id="chk-${r.test_id}" data-id="${r.test_id}" ${d.on ? "checked" : ""} aria-label="${esc(g.action)} ${r.test_id}">`}</div>
+    <details><summary>
+      <span class="mono"><b>${r.test_id}</b></span>
+      <span class="wrong">${esc(r.wrong || r.title)}${tag}</span>
+      <span class="fixs">${esc(r.fix_short || "")}</span>
+      <span class="chip ${esc(r.effort)}">${esc(r.effort)}</span>
+    </summary>
+    <div class="more">
+      ${r.status_note ? `<p class="status">${esc(r.status_note)}</p>` : ""}
+      <p class="err"><b>The error.</b> ${esc(r.error || r.what_happened)}</p>
+      <p><b>Fix.</b> ${esc(r.suggested_fix)}</p>
+      ${(r.related || []).length ? `<p class="small ids">Same cause: ${r.related.map((i) => `<button class="id" type="button" data-jump="${esc(i)}">${esc(i)}</button>`).join("")}</p>` : ""}
+      <details class="trace"><summary>Full trace</summary>
+        <p>${esc(r.what_happened)}</p>
+        <p class="small">${esc(r.sheet)} · Customer said: ${esc(r.customer_said)} · Expected: ${esc(r.expected)} · Last run: ${esc(r.prev_verdict)}</p>
+      </details>
+      <input class="note" id="note-${r.test_id}" data-note="${r.test_id}" placeholder="Note (optional)" value="${esc(d.note || "")}" aria-label="Note for ${r.test_id}">
+    </div></details>
+  </div>`;
+}
+
+function renderGroups() {
+  const sheet = document.getElementById("f-sheet").value, effort = document.getElementById("f-effort").value;
+  const q = document.getElementById("f-q").value.trim().toLowerCase();
+  const match = (r) => (!sheet || r.sheet === sheet) && (!effort || r.effort === effort) &&
+    (!q || JSON.stringify(r).toLowerCase().includes(q));
+  document.getElementById("groups").innerHTML = GROUPS.map((g) => {
+    const rows = S.rows.filter((r) => groupOf(r) === g && match(r))
+      .sort((a, b) => (effortRank[a.effort] ?? 3) - (effortRank[b.effort] ?? 3) || a.test_id.localeCompare(b.test_id));
+    if (!rows.length) return "";
+    return `<section class="group"><div class="group-head"><h2>${esc(g.title)}</h2><span class="count">${rows.length}${g.key === "done" ? "" : ` · tick to ${esc(g.action.toLowerCase())}`}</span></div>
+      <p class="group-note">${esc(g.note)}</p>
+      <div class="table"><div class="row head"><div>${esc(g.action)}</div><div class="cols"><div>Case</div><div>What went wrong</div><div>Fix</div><div>Effort</div></div></div>
+      ${rows.map(rowHtml).join("")}</div></section>`;
+  }).join("") || `<div class="empty">No failures match these filters.</div>`;
+}
+
+function factLines(summary) {
+  const byTurn = {};
+  (summary || "").split("\n").forEach((line) => { const m = line.match(/^Turn (\d+): (.*)$/); if (m) byTurn[+m[1]] = m[2]; });
+  return byTurn;
+}
+function parseTranscript(text) {
+  const out = []; let cur = null;
+  (text || "").split("\n").forEach((line) => {
+    const m = line.match(/^(Customer|Assistant): ?(.*)$/);
+    if (m) { cur = { role: m[1] === "Customer" ? "customer" : "agent", text: m[2] }; out.push(cur); }
+    else if (cur) cur.text += "\n" + line;
+  });
+  return out;
+}
+function renderSimList() {
+  const sel = S.simSel;
+  document.getElementById("sim-list").innerHTML = S.sims.map((s) =>
+    `<button class="sim-item" type="button" role="tab" aria-selected="${s.id === sel}" data-sim="${s.id}">
+      <span class="top"><b class="mono">${s.id}</b><span class="verdict ${s.verdict}">${s.verdict.toUpperCase()}</span></span>
+      <small>${esc(s.label)}</small>${s.verdict !== "pass" ? `<small>${esc(s.wrong)}</small>` : ""}${s.status ? `<small><span class="chip ${s.status === "fixed" ? "done" : "kept"}">${esc(SIM_STATUS[s.status] || s.status)}</span></small>` : ""}</button>`).join("");
+}
+const SIM_STATUS = { fixed: "Fix made", awaiting_wording: "Waiting on your wording approval", answered: "Your question answered" };
+function renderSim() {
+  const s = S.sims.find((x) => x.id === S.simSel); if (!s) return;
+  const d = S.decisions[s.id] || {};
+  const facts = factLines(s.structural_summary);
+  let turn = 0;
+  const msgs = parseTranscript(s.transcript).map((m) => {
+    let html = `<div class="msg ${m.role}"><span class="who">${m.role === "customer" ? "Simulated customer" : "Agent"}</span>${esc(m.text)}</div>`;
+    if (m.role === "customer") turn += 1;
+    if (m.role === "agent" && facts[turn]) {
+      const bad = /blocked|fallbacks_fired|failed|escalated=(?!no)/.test(facts[turn]);
+      html += `<div class="facts${bad ? " bad" : ""}">turn ${turn} · ${esc(facts[turn])}</div>`;
+    }
+    return html;
+  }).join("");
+  document.getElementById("sim-view").innerHTML = `
+    <div class="group-head"><h2>${s.id} · ${esc(s.label)}</h2><span class="verdict ${s.verdict}">${s.verdict.toUpperCase()}</span></div>
+    <div class="diag">${s.status_note ? `<p class="status-sim"><b>${esc(SIM_STATUS[s.status] || "Update")}:</b> ${esc(s.status_note)}</p>` : ""}<p><b>What went wrong:</b> ${esc(s.wrong)}</p>${s.verdict !== "pass" ? `<p class="err-sim">${esc(s.error)}</p>` : ""}<p><b>Fix:</b> ${esc(s.fix_short)}</p>
+      <details><summary>Full story</summary><p>${esc(s.what_happened)}</p><p><b>Suggested fix:</b> ${esc(s.suggested_fix)} <span class="chip mono">${esc(s.fix_type)}</span></p>
+        <dl class="persona"><dt>Persona</dt><dd>${esc(s.persona)}</dd><dt>Goal</dt><dd>${esc(s.goal)}</dd>
+        <dt>Account</dt><dd>${esc(s.account)}</dd><dt>Expected</dt><dd>${esc(s.expected)}</dd>
+        <dt>Judge</dt><dd>${esc(s.judge)}</dd></dl></details>
+      ${s.status ? "" : `<label style="display:flex;gap:8px;align-items:center;margin-top:8px"><input type="checkbox" id="chk-${s.id}" data-id="${s.id}" ${d.on ? "checked" : ""}> ${esc(s.fix_type === "prompt" ? "Draft wording" : "Approve this fix")}</label>
+      <input class="note" id="note-${s.id}" data-note="${s.id}" placeholder="Note (optional)" value="${esc(d.note || "")}" aria-label="Note for ${s.id}">`}</div>
+    ${s.source_note ? `<p class="group-note">${esc(s.source_note)}</p>` : ""}
+    <div class="turns">${msgs || `<div class="empty">No transcript recorded for this case.</div>`}</div>`;
+}
+
+function tally() {
+  const doneIds = new Set([...S.rows.filter((r) => r.status).map((r) => r.test_id), ...S.sims.filter((x) => x.status).map((x) => x.id)]);
+  const on = Object.entries(S.decisions).filter(([id, d]) => d.on && !doneIds.has(id)).length;
+  const notes = Object.entries(S.decisions).filter(([id, d]) => d.note && !doneIds.has(id)).length;
+  document.getElementById("tally").textContent = on || notes ? `${on} ticked · ${notes} with notes` : "Nothing ticked yet.";
+}
+function decisionsText() {
+  const all = [...S.rows.filter((r) => !r.status).map((r) => ({ id: r.test_id, kind: groupOf(r).title, fix: r.suggested_fix })),
+               ...S.sims.filter((s) => !s.status).map((s) => ({ id: s.id, kind: "Simulated conversations", fix: s.suggested_fix }))];
+  const lines = ["My decisions on the eval_gaps_v1 review:"];
+  const byKind = {};
+  all.forEach((x) => { const d = S.decisions[x.id]; if (d && (d.on || d.note)) (byKind[x.kind] = byKind[x.kind] || []).push([x, d]); });
+  Object.entries(byKind).forEach(([kind, items]) => {
+    lines.push("", kind + ":");
+    items.forEach(([x, d]) => lines.push(`- ${x.id}: ${d.on ? "YES" : "not ticked"}${d.note ? ` — note: ${d.note}` : ""}`));
+  });
+  if (lines.length === 1) lines.push("(nothing ticked)");
+  return lines.join("\n");
+}
+
+let VIEW = location.hash === "#simulated" ? "simulated" : "evals";
+function setView(v) {
+  if (v) VIEW = v;
+  document.getElementById("view-evals").hidden = VIEW !== "evals";
+  document.getElementById("view-simulated").hidden = VIEW !== "simulated";
+  ["evals", "simulated"].forEach((k) => {
+    const t = document.getElementById("tab-" + k);
+    if (k === VIEW) t.setAttribute("aria-current", "page"); else t.removeAttribute("aria-current");
+  });
+}
+
+document.addEventListener("change", (e) => {
+  const id = e.target.dataset.id;
+  if (id) { S.decisions[id] = { ...(S.decisions[id] || {}), on: e.target.checked }; store.save(); tally();
+    const row = document.getElementById("row-" + id); if (row) row.classList.toggle("approved", e.target.checked); }
+  if (["f-sheet", "f-effort"].includes(e.target.id)) renderGroups();
+});
+document.addEventListener("input", (e) => {
+  const id = e.target.dataset.note;
+  if (id) { S.decisions[id] = { ...(S.decisions[id] || {}), note: e.target.value }; store.save(); tally(); }
+  if (e.target.id === "f-q") renderGroups();
+});
+document.addEventListener("click", (e) => {
+  const tab = e.target.closest("[data-view]");
+  if (tab) { e.preventDefault(); setView(tab.dataset.view); document.querySelector("nav.tabs").scrollIntoView({ block: "start" }); return; }
+  const jump = e.target.dataset.jump;
+  if (jump) {
+    setView("evals"); ["f-sheet", "f-effort", "f-q"].forEach((i) => (document.getElementById(i).value = "")); renderGroups();
+    const el = document.getElementById("row-" + jump);
+    if (el) { const dt = el.querySelector("details"); if (dt) dt.open = true; el.scrollIntoView({ block: "center" }); el.style.outline = "2px solid var(--accent)"; setTimeout(() => (el.style.outline = ""), 1600); }
+  }
+  const sim = e.target.closest("[data-sim]");
+  if (sim) { S.simSel = sim.dataset.sim; renderSimList(); renderSim(); if (window.innerWidth <= 860) document.getElementById("sim-view").scrollIntoView({ block: "start" }); }
+  if (e.target.id === "f-reset") { ["f-sheet", "f-effort", "f-q"].forEach((i) => (document.getElementById(i).value = "")); renderGroups(); }
+  if (e.target.id === "copy") {
+    const text = decisionsText(), status = document.getElementById("copy-status"), fb = document.getElementById("copy-fallback");
+    const fallback = () => { fb.hidden = false; fb.value = text; fb.focus(); fb.select(); status.textContent = "Select the text below and copy it."; };
+    try {
+      navigator.clipboard.writeText(text).then(() => { status.innerHTML = '<span class="copied">Copied — paste it into the chat.</span>'; fb.hidden = true; }, fallback);
+    } catch (err) { fallback(); }
+  }
+});
+window.addEventListener("hashchange", () => setView(location.hash === "#simulated" ? "simulated" : "evals"));
+
+(async function start() {
+  S.decisions = store.load();
+  setView();
+  try {
+    const [rows, sims] = await Promise.all([fetch("evals.json").then((r) => r.json()), fetch("sims.json").then((r) => r.json())]);
+    S.rows = rows; S.sims = sims; S.simSel = (sims.find((s) => s.verdict !== "pass") || sims[0] || {}).id;
+  } catch (err) {
+    document.getElementById("groups").innerHTML = `<div class="empty">Couldn't load the review data (${esc(err.message)}). Reload the page.</div>`;
+    return;
+  }
+  const sel = document.getElementById("f-sheet");
+  [...new Set(S.rows.map((r) => r.sheet))].forEach((s) => sel.insertAdjacentHTML("beforeend", `<option>${esc(s)}</option>`));
+  renderStats(); renderThemes(); renderGroups(); renderSimList(); renderSim(); tally();
+})();
+</script>

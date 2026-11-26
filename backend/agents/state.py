@@ -22,5 +22,6 @@ class AgentState(TypedDict):
     consecutive_small_talk: int        # small_talk turns in a row; resets to 0 on any other turn that passes the input guard
     total_small_talk: int              # small_talk turns this conversation (never resets)
     provocative_count: int             # input-guard "provocative" blocks this conversation (never resets)
+    consecutive_high_negative: int     # frustrated turns in a row (input guard emotion); resets to 0 on any calm turn that passes the guard
     service_call_count: int            # Number of service calls initiated this turn; reset to 0 at turn start, checked against service_call_limit
     classifier_reasoning: str         # Debug only: LLM's explanation of its intent classification (empty unless debug_classifier is set in mock_context)

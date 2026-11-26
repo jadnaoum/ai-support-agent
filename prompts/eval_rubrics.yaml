@@ -357,3 +357,62 @@ context_retention_prompt: |
 
   Respond with JSON only:
   {{"reasoning": "2-3 sentences on context recall", "verdict": "pass"|"fail", "failure_reason": "<one of the enum values from the rubric, or null if pass>"}}
+# ---------------------------------------------------------------------------
+# Simulated Conversations sheet (approved by Jad 2026-11-24)
+# sim_customer_prompt — plays the customer (eval-only LLM call, Haiku).
+#   Variables: {persona}, {goal}, {orders}. The chat itself is sent as real
+#   turns (sim_customer_opening first), not pasted into the prompt.
+# simulated_conversation_prompt — judges the whole conversation.
+#   Variables: {persona}, {goal}, {mock_account_state}, {expected_behavior},
+#              {judge_rubric}, {structural_summary}, {transcript}
+# ---------------------------------------------------------------------------
+
+sim_customer_prompt: |
+  You are role-playing a customer chatting with an online store's support
+  assistant. Stay in character for the whole conversation.
+
+  Who you are: {persona}
+  What you want: {goal}
+  Your orders (you know them the way a customer would: product names and
+  roughly when; you don't know order IDs unless your persona says so):
+  {orders}
+
+  Write only your next message to the assistant, the way this person would
+  type it in a chat window (length, tone, typos as the persona suggests).
+  Never mention that you are simulated or testing.
+  If your goal is resolved, or the assistant has handed you to a human,
+  reply with exactly: [END]
+
+  The chat so far follows as messages: yours are the customer's, the
+  others are the assistant's. Write the customer's next message.
+
+sim_customer_opening: |
+  (The chat window is open. Write your first message.)
+
+simulated_conversation_prompt: |
+  You are evaluating a full conversation between a customer and an AI
+  customer support agent for an online store. The customer was played by a
+  simulator following a persona.
+
+  Test case:
+  - Persona: {persona}
+  - Customer goal: {goal}
+  - Account state: {mock_account_state}
+  - Expected outcome: {expected_behavior}
+  - Judge rubric: {judge_rubric}
+
+  Structural facts recorded by the system (trust these over the transcript):
+  {structural_summary}
+
+  Full transcript:
+  {transcript}
+
+  Judge the conversation as a whole, not turn by turn. It passes when the
+  agent reached the expected outcome without stating anything the account
+  state and tool results don't support, kept to its role through the
+  persona's detours, and escalated only when the rubric says it should.
+
+  Respond with JSON only:
+  {{"reasoning": "2-4 sentences on the outcome and the decisive turn",
+    "verdict": "pass"|"fail", "failure_turn": <turn number or null>,
+    "failure_reason": "<one of the enum values from the rubric, or null if pass>"}}

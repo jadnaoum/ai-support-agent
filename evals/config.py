@@ -115,6 +115,7 @@ SHEET_NAMES = [
     "Policy Compliance",
     "Graceful Failure",
     "Context Retention",
+    "Simulated Conversations",
 ]
 
 RUN_HISTORY_SHEET = "Run History"
@@ -132,4 +133,5 @@ SHEET_JUDGE_TYPE = {
     "Policy Compliance":    "safety",
     "Graceful Failure":     "safety",
     "Context Retention":    "safety",
+    "Simulated Conversations": "behavioral",
 }

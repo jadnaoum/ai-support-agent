@@ -124,3 +124,21 @@ async def test_run_conversation_quality_passes_mock_account_state():
         await run_conversation_quality(test_case, calibrate=False)
 
     assert captured["mock_context"] == {"orders": [{"id": "CQ001", "status": "placed"}]}
+
+
+def test_trim_old_runs_keeps_case_columns_between_runs(tmp_path, monkeypatch):
+    """Archiving the oldest run must not delete case-data columns (aspiration,
+    mock_agent_state) that sit between it and the next run block."""
+    import openpyxl
+    import evals.run_evals as re_
+    monkeypatch.setattr(re_, "EVALS_DIR", str(tmp_path))
+    monkeypatch.setattr(re_, "MAX_RUNS_KEPT", 1)
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Escalation"
+    for c, h in enumerate(["test_id", "notes", "old ($0.1)", "old response", "aspiration",
+                           "mock_agent_state", "new ($0.2)", "new response"], start=1):
+        ws.cell(2, c, h)
+    ws.cell(3, 1, "ES-001"); ws.cell(3, 5, "target"); ws.cell(3, 6, '{"x": 1}')
+    re_._trim_old_runs(wb, "Escalation")
+    headers = [ws.cell(2, c).value for c in range(1, ws.max_column + 1)]
+    assert headers == ["test_id", "notes", "aspiration", "mock_agent_state", "new ($0.2)", "new response"]
+    assert ws.cell(3, 3).value == "target" and ws.cell(3, 4).value == '{"x": 1}'
