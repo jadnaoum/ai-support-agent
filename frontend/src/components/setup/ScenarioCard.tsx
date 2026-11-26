@@ -27,7 +27,10 @@ export function ScenarioCard({
         'disabled:cursor-default disabled:opacity-70',
       )}
     >
-      <span className="text-xl font-semibold text-neutral-900">{name}</span>
+      <span className="text-xl font-semibold text-neutral-900">
+        <span className="font-normal text-neutral-500">You are </span>
+        {name}
+      </span>
       <div className="flex flex-col gap-2">
         {scenario.orders.map((o, i) => (
           <div key={i} className="flex items-center justify-between gap-2">
@@ -41,7 +44,6 @@ export function ScenarioCard({
           </div>
         ))}
       </div>
-      <p className="border-t border-neutral-100 pt-3 text-[13px] italic leading-snug text-neutral-600">“{scenario.dare}”</p>
       <span className="mt-0.5 flex items-center gap-1.5 text-[13px] font-semibold text-brand-green">
         {starting ? (
           <>

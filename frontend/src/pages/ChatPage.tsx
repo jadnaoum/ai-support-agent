@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, friendlyError } from '@/lib/api'
+import { replyStats } from '@/lib/stats'
 import { useConversation } from '@/hooks/useConversation'
 import { Button } from '@/components/ui/button'
 import { TopBar } from '@/components/chat/TopBar'
@@ -45,13 +46,14 @@ export default function ChatPage({ readOnly = false }: { readOnly?: boolean }) {
   }
 
   const customer = conv.customer
+  const stats = replyStats(conv.turns.map((t) => t.record))
   const ended = conv.phase === 'ended' || conv.phase === 'rated'
 
   return (
     <div className="flex min-h-screen flex-col bg-white lg:h-screen">
       <TopBar
         customer={customer}
-        totals={conv.totals}
+        stats={stats}
         escalated={conv.escalated}
         ended={ended}
         readOnly={readOnly}
@@ -70,7 +72,6 @@ export default function ChatPage({ readOnly = false }: { readOnly?: boolean }) {
           />
           {!readOnly && conv.phase === 'chatting' && (
             <Composer
-              suggestions={customer.suggested_prompts}
               busy={conv.busy}
               error={conv.error}
               onSend={conv.send}
@@ -87,6 +88,7 @@ export default function ChatPage({ readOnly = false }: { readOnly?: boolean }) {
               {conv.csat && <CsatDone csat={conv.csat} />}
               <SummaryCard
                 totals={conv.totals}
+                stats={stats}
                 checks={conv.checks}
                 customerName={customer.name}
                 conversationId={conversationId}

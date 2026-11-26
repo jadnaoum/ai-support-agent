@@ -1,4 +1,5 @@
-import type { DemoCustomer, Totals } from '@/lib/types'
+import type { DemoCustomer } from '@/lib/types'
+import type { ReplyStats } from '@/lib/stats'
 import { fmtCost, fmtLatency } from '@/lib/format'
 import { Button } from '@/components/ui/button'
 
@@ -13,7 +14,7 @@ function Pill({ label, value }: { label: string; value: string }) {
 
 export function TopBar({
   customer,
-  totals,
+  stats,
   escalated,
   ended,
   readOnly,
@@ -21,7 +22,7 @@ export function TopBar({
   onEnd,
 }: {
   customer: DemoCustomer
-  totals: Totals
+  stats: ReplyStats
   escalated: boolean
   ended: boolean
   readOnly: boolean
@@ -47,10 +48,8 @@ export function TopBar({
         )}
       </div>
       <div className="flex max-w-full items-center gap-2 overflow-x-auto">
-        <Pill label="Messages" value={String(totals.messages)} />
-        <Pill label="Latency" value={fmtLatency(totals.latency_ms)} />
-        <Pill label="Cost" value={fmtCost(totals.cost_usd, totals.cost_basis)} />
-        <Pill label="LLM calls" value={String(totals.llm_calls)} />
+        <Pill label="Last reply time" value={fmtLatency(stats.lastLatencyMs)} />
+        <Pill label="Last reply cost" value={fmtCost(stats.lastCostUsd, stats.lastCostBasis)} />
         {!readOnly && (
           <Button variant="outline" size="sm" className="ml-2 shrink-0" onClick={onEnd} disabled={ended || busy}>
             {ended ? 'Chat ended' : 'End chat'}

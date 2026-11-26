@@ -82,8 +82,7 @@ export default function SetupPage() {
         <header className="flex flex-col gap-2.5">
           <h1 className="text-4xl font-bold tracking-tight text-neutral-900">Break my support agent</h1>
           <p className="max-w-2xl text-base leading-relaxed text-neutral-500">
-            An AI e‑commerce support agent with real tools, real policies and real guardrails. Pick an account
-            designed to test one of its rules, then see if you can get past it.
+            or just try it out
           </p>
         </header>
 
@@ -93,7 +92,9 @@ export default function SetupPage() {
 
         <section className="flex flex-col gap-4">
           <div className="flex items-baseline justify-between">
-            <SectionLabel tone="green">Pick a scenario</SectionLabel>
+            <SectionLabel tone="green" size="lg">
+              Pick a scenario
+            </SectionLabel>
             <button
               type="button"
               onClick={reshuffle}
@@ -127,7 +128,9 @@ export default function SetupPage() {
         </section>
 
         <section className="flex flex-col gap-4">
-          <SectionLabel tone="purple">Or build your own</SectionLabel>
+          <SectionLabel tone="purple" size="lg">
+            Or build your own
+          </SectionLabel>
           <Card className="flex flex-col gap-5 p-6">
             <div className="flex flex-col gap-2">
               <span className="text-[13px] font-medium text-neutral-700">Who are you?</span>

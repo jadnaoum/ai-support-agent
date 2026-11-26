@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AlertCircle, Check, Link2, Minus } from 'lucide-react'
 import type { Check as CheckResult, Totals } from '@/lib/types'
 import { fmtCost, fmtLatency } from '@/lib/format'
+import type { ReplyStats } from '@/lib/stats'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { SectionLabel } from '@/components/SectionLabel'
@@ -41,6 +42,7 @@ function CheckRow({ c }: { c: CheckResult }) {
 
 export function SummaryCard({
   totals,
+  stats,
   checks,
   customerName,
   conversationId,
@@ -49,6 +51,7 @@ export function SummaryCard({
   onNewScenario,
 }: {
   totals: Totals
+  stats: ReplyStats
   checks: CheckResult[]
   customerName: string
   conversationId: string
@@ -72,11 +75,10 @@ export function SummaryCard({
   return (
     <Card className="flex flex-col gap-[18px] p-5">
       <SectionLabel tone="green">How it went</SectionLabel>
-      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
-        <Tile label="Messages" value={String(totals.messages)} />
-        <Tile label="Total latency" value={fmtLatency(totals.latency_ms)} />
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+        <Tile label="Average latency" value={fmtLatency(stats.avgLatencyMs)} />
+        <Tile label="Longest latency" value={fmtLatency(stats.maxLatencyMs)} />
         <Tile label="Total cost" value={fmtCost(totals.cost_usd, totals.cost_basis)} />
-        <Tile label="LLM calls" value={String(totals.llm_calls)} />
       </div>
       <div className="flex flex-col gap-2">
         {checks.map((c) => (
