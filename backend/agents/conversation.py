@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 LLM_TIMEOUT = 30  # seconds per LLM call — prevents hung API requests from stalling the graph
 
-from backend.config import get_settings
+from backend.config import get_settings, llm_kwargs
 from backend.agents.state import AgentState
 from backend.agents.order_context import format_recent_orders
 from backend.agents import run_trace
@@ -25,6 +25,7 @@ from backend.agents.escalation import handle_escalation, build_context_summary, 
 from backend.guardrails.input_guard import check_input, log_blocked_attempt
 from backend.guardrails.output_guard import check_output, log_output_guard_blocked
 from backend.llm_json import extract_json_object
+from backend.tools.registry import TOOL_REGISTRY
 from prompts.loader import get_prompt, get_response_guidance
 
 settings = get_settings()
@@ -36,6 +37,7 @@ REDIRECT_PROMPT = get_prompt("redirect_prompt")
 LOOP_DECISION_PROMPT = get_prompt("loop_decision_prompt")
 ESCALATION_SUMMARY_PROMPT = get_prompt("escalation_summary_prompt")
 HANDOFF_MESSAGE_PROMPT = get_prompt("handoff_message_prompt")
+CHAT_OPENED_PLACEHOLDER = get_prompt("chat_opened_placeholder").strip()
 
 # Small-talk and provocative limits (decided 2026-11-24). The warning turn is
 # still answered; the escalation turn skips response generation entirely.
@@ -67,6 +69,7 @@ async def _generate_handoff_message(messages: list, reason: str) -> str:
     try:
         result = await litellm.acompletion(
             model=settings.litellm_model,
+            **llm_kwargs(settings.litellm_model),
             messages=[{
                 "role": "user",
                 "content": HANDOFF_MESSAGE_PROMPT.format(
@@ -102,6 +105,7 @@ async def summarize_for_handoff(
     try:
         result = await litellm.acompletion(
             model=settings.litellm_classifier_model,
+            **llm_kwargs(settings.litellm_classifier_model),
             messages=[{
                 "role": "user",
                 "content": ESCALATION_SUMMARY_PROMPT.format(reason=reason, conversation=convo),
@@ -195,6 +199,27 @@ def _build_context_section(
     return "\n".join(parts)
 
 
+def _llm_history(messages: list, limit: int) -> list:
+    """The last `limit` customer/agent messages as LLM chat turns.
+
+    The API rejects a history whose first turn is the agent's. Mid-conversation
+    the window starts at the next customer message instead (cutting a window
+    of the last N messages used to start it on an agent reply, which failed
+    the classifier from the 6th customer message on). At the real start of a
+    conversation (the saved greeting) a hidden placeholder customer line goes
+    in front, so the agent still sees what it already said.
+    """
+    role_map = {"customer": "user", "agent": "assistant"}
+    turns = [m for m in messages if m.get("role") in role_map]
+    start = max(0, len(turns) - limit)
+    while 0 < start < len(turns) and turns[start]["role"] == "agent":
+        start += 1
+    history = [{"role": role_map[m["role"]], "content": m["content"]} for m in turns[start:]]
+    if history and history[0]["role"] == "assistant":
+        history.insert(0, {"role": "user", "content": CHAT_OPENED_PLACEHOLDER})
+    return history
+
+
 async def _classify_intent(state: AgentState, config: dict = None) -> tuple[str, float, dict, str]:
     """
     Call LLM to classify the customer's latest message.
@@ -205,12 +230,7 @@ async def _classify_intent(state: AgentState, config: dict = None) -> tuple[str,
     debug = bool((config or {}).get("configurable", {}).get("debug_classifier"))
     raw = ""
     try:
-        role_map = {"customer": "user", "agent": "assistant"}
-        history_turns = [
-            {"role": role_map[m["role"]], "content": m["content"]}
-            for m in state["messages"][-10:]
-            if m["role"] in role_map
-        ]
+        history_turns = _llm_history(state["messages"], 10)
         # Static prompt block carries a cache breakpoint: the intent prompt is
         # identical on every call, so repeat turns read it from the prompt cache
         # (cache reads bill ~0.1x and don't count toward input-token rate limits).
@@ -237,6 +257,7 @@ async def _classify_intent(state: AgentState, config: dict = None) -> tuple[str,
             })
         result = await litellm.acompletion(
             model=settings.litellm_classifier_model,
+            **llm_kwargs(settings.litellm_classifier_model),
             messages=[
                 {"role": "system", "content": system_blocks},
                 *history_turns,
@@ -282,14 +303,12 @@ async def _generate_response(state: AgentState, small_talk_warning: bool = False
     system_content = RESPONSE_PROMPT.format(context_section=context_section)
 
     messages_for_llm = [{"role": "system", "content": system_content}]
-    role_map = {"customer": "user", "agent": "assistant"}
-    for msg in state["messages"][-settings.max_context_messages:]:
-        if msg["role"] in role_map:
-            messages_for_llm.append({"role": role_map[msg["role"]], "content": msg["content"]})
+    messages_for_llm += _llm_history(state["messages"], settings.max_context_messages)
 
     try:
         result = await litellm.acompletion(
             model=settings.litellm_model,
+            **llm_kwargs(settings.litellm_model),
             messages=messages_for_llm,
             stream=False,
             num_retries=3,
@@ -315,6 +334,7 @@ async def _generate_redirect(block_count: int, category: str, customer_message: 
     try:
         result = await litellm.acompletion(
             model=settings.litellm_model,
+            **llm_kwargs(settings.litellm_model),
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": customer_message or "(empty message)"},
@@ -340,13 +360,11 @@ async def _generate_emotion_clarification(state: AgentState, clarification_hint:
     )
     system_content = RESPONSE_PROMPT.format(context_section=context_section)
     messages_for_llm = [{"role": "system", "content": system_content}]
-    role_map = {"customer": "user", "agent": "assistant"}
-    for msg in state["messages"][-settings.max_context_messages:]:
-        if msg["role"] in role_map:
-            messages_for_llm.append({"role": role_map[msg["role"]], "content": msg["content"]})
+    messages_for_llm += _llm_history(state["messages"], settings.max_context_messages)
     try:
         result = await litellm.acompletion(
             model=settings.litellm_model,
+            **llm_kwargs(settings.litellm_model),
             messages=messages_for_llm,
             stream=False,
             num_retries=3,
@@ -356,6 +374,12 @@ async def _generate_emotion_clarification(state: AgentState, clarification_hint:
     except Exception as e:
         run_trace.fallback("emotion_clarification", type(e).__name__)
         return "I'm sorry to hear you're frustrated. Could you tell me more about what happened so I can help?"
+
+
+# Tool reasons that settle the customer's question on their own — no further
+# tool call is needed before the agent answers. (Not "eligible": whether to go
+# on after an eligible result is the routing step's call.)
+_SETTLED_REASONS = frozenset({"no_eligible_orders"})
 
 
 def _service_needs_loop(state: AgentState) -> bool:
@@ -391,6 +415,22 @@ def _service_needs_loop(state: AgentState) -> bool:
     if last.get("candidate_orders"):
         return False
 
+    # Structural terminal: the write tool needs a reason, and only the
+    # customer can give one. Looping here let the routing step invent reasons
+    # ("customer_request") and send them to write tools (AE-002, AE-033).
+    if last.get("reason") == "reason_required":
+        return False
+
+    # Settled answers: nothing qualifies, so there is nothing to chain
+    # (AE-040). Keeps the old behaviour of the bare empty list, which never
+    # looped.
+    if (
+        last.get("success", True)
+        and not last.get("available_action")
+        and last.get("reason") in _SETTLED_REASONS
+    ):
+        return False
+
     return (
         not last.get("success", True)
         or bool(last.get("available_action"))
@@ -413,6 +453,7 @@ async def _classify_next_step(state: AgentState) -> dict:
     try:
         result = await litellm.acompletion(
             model=settings.litellm_classifier_model,
+            **llm_kwargs(settings.litellm_classifier_model),
             messages=[
                 {"role": "system", "content": LOOP_DECISION_PROMPT.replace("{context_section}", context_section)},
                 {"role": "user", "content": last_message},
@@ -846,7 +887,14 @@ async def _conversation_agent_turn(state: AgentState, config: dict, turn_info: "
                 "pending_service": "knowledge",
                 "service_call_count": service_call_count + 1,
             }
-        if next_step.get("next") == "action":
+        if next_step.get("next") == "action" and next_step.get("action") not in TOOL_REGISTRY:
+            # The routing step named a tool that doesn't exist (CR-006:
+            # "initiate_refund"). Answer from the results already in hand
+            # instead of sending it to action_service, whose "Unknown action"
+            # error would read as a system failure and escalate.
+            logger.warning("_classify_next_step chose unknown tool %r; responding instead", next_step.get("action"))
+            run_trace.record("loop_unknown_tool", tool=str(next_step.get("action")))
+        elif next_step.get("next") == "action":
             action_details = {
                 "tool": next_step.get("action", ""),
                 "params": next_step.get("params") or {},

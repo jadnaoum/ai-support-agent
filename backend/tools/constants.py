@@ -43,6 +43,8 @@ OUTPUT_REASONS: frozenset = frozenset({
     "reason_required",
     "invalid_reason",
     "confirmation_required",
+    "order_not_found",
+    "no_eligible_orders",
     # Action success
     "cancelled",
     "return_initiated",

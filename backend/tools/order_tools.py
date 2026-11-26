@@ -338,7 +338,7 @@ async def track_order(
     if order_id:
         order = await _find_order(db, order_id)
         if not order:
-            return {"success": False, "error": f"Order {order_id} not found."}
+            return {"success": False, "reason": "order_not_found", "order_id": order_id}
         if str(order.customer_id) != customer_id:
             return {"success": False, "error": "That order does not belong to your account."}
     else:
@@ -384,7 +384,7 @@ async def check_cancel_eligibility(
     if order_id:
         order = await _find_order(db, order_id)
         if not order:
-            return {"success": False, "error": f"Order {order_id} not found."}
+            return {"success": False, "reason": "order_not_found", "order_id": order_id}
         if str(order.customer_id) != customer_id:
             return {"success": False, "error": "That order does not belong to your account."}
         check = _check_cancel_eligibility_sync(order)
@@ -409,6 +409,8 @@ async def check_cancel_eligibility(
                 "status": order.status,
                 **check,
             })
+    if not eligible_orders:
+        return {"success": True, "reason": "no_eligible_orders", "eligible_orders": []}
     return {"success": True, "eligible_orders": eligible_orders}
 
 
@@ -429,7 +431,7 @@ async def check_return_eligibility(
     if order_id:
         order = await _find_order(db, order_id)
         if not order:
-            return {"success": False, "error": f"Order {order_id} not found."}
+            return {"success": False, "reason": "order_not_found", "order_id": order_id}
         if str(order.customer_id) != customer_id:
             return {"success": False, "error": "That order does not belong to your account."}
         items_result = await db.execute(
@@ -503,7 +505,7 @@ async def initiate_return(
     if order_id:
         order = await _find_order(db, order_id)
         if not order:
-            return {"success": False, "error": f"Order {order_id} not found."}
+            return {"success": False, "reason": "order_not_found", "order_id": order_id}
         if str(order.customer_id) != customer_id:
             return {"success": False, "error": "That order does not belong to your account."}
     else:
@@ -635,7 +637,7 @@ async def cancel_order(
     if order_id:
         order = await _find_order(db, order_id)
         if not order:
-            return {"success": False, "error": f"Order {order_id} not found."}
+            return {"success": False, "reason": "order_not_found", "order_id": order_id}
         if str(order.customer_id) != customer_id:
             return {"success": False, "error": "That order does not belong to your account."}
     else:
@@ -732,7 +734,7 @@ async def get_refund_status(
     if order_id:
         order = await _find_order(db, order_id)
         if not order:
-            return {"success": False, "error": f"Order {order_id} not found."}
+            return {"success": False, "reason": "order_not_found", "order_id": order_id}
         if str(order.customer_id) != customer_id:
             return {"success": False, "error": "That order does not belong to your account."}
 
@@ -781,7 +783,7 @@ async def check_missing_package(
     if order_id:
         order = await _find_order(db, order_id)
         if not order:
-            return {"success": False, "error": f"Order {order_id} not found."}
+            return {"success": False, "reason": "order_not_found", "order_id": order_id}
         if str(order.customer_id) != customer_id:
             return {"success": False, "error": "That order does not belong to your account."}
     else:

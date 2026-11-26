@@ -29,7 +29,7 @@ from backend.demo.sink import emit
 from backend.agents import run_trace
 from backend.agents.order_context import format_recent_orders
 from backend.agents.state import AgentState
-from backend.config import get_settings
+from backend.config import get_settings, llm_kwargs
 from prompts.loader import get_prompt
 
 settings = get_settings()
@@ -190,6 +190,7 @@ async def _check_output(
     try:
         result = await litellm.acompletion(
             model=settings.litellm_guard_model,
+            **llm_kwargs(settings.litellm_guard_model),
             messages=[{"role": "user", "content": prompt}],
             stream=False,
             request_timeout=30,

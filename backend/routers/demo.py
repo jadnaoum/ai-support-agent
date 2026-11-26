@@ -222,6 +222,7 @@ async def conversation_timeline(conversation_id: str, db: AsyncSession = Depends
         "customer": customer_data,
         "messages": [
             {"id": m.id, "role": m.role, "content": m.content,
+             "greeting": m.agent_type == "greeting",
              "created_at": m.created_at.isoformat() if m.created_at else None}
             for m in messages if m.role in ("customer", "agent")
         ],

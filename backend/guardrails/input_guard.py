@@ -20,7 +20,7 @@ from backend.agents import run_trace
 
 from backend.demo.sink import emit
 
-from backend.config import get_settings
+from backend.config import get_settings, llm_kwargs
 from backend.llm_json import extract_json_object
 from prompts.loader import get_prompt
 
@@ -113,6 +113,7 @@ async def _check_input(message: str) -> dict:
     try:
         result = await litellm.acompletion(
             model=settings.litellm_guard_model,
+            **llm_kwargs(settings.litellm_guard_model),
             messages=[
                 # Static prompt block carries a cache breakpoint — identical on
                 # every call, so repeat turns read it from the prompt cache.

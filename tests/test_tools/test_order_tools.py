@@ -240,7 +240,7 @@ async def test_track_order_most_recent(db, customer, placed_order):
 async def test_track_order_not_found(db, customer):
     result = await track_order(db, customer_id=customer.id, order_id=str(uuid.uuid4()))
     assert result["success"] is False
-    assert "not found" in result["error"].lower()
+    assert result["reason"] == "order_not_found"
 
 
 async def test_non_uuid_order_id_is_not_found_not_an_error(db, customer, placed_order):
@@ -250,14 +250,14 @@ async def test_non_uuid_order_id_is_not_found_not_an_error(db, customer, placed_
         result = await track_order(db, customer_id=customer.id, order_id=bad or None)
         assert result["success"] is (bad == ""), bad  # empty → falls back to most recent order
         if bad:
-            assert "not found" in result["error"].lower()
+            assert result["reason"] == "order_not_found"
     for fn in (check_cancel_eligibility, check_return_eligibility, get_refund_status, check_missing_package):
         result = await fn(db, customer_id=customer.id, order_id="the headphones order")
-        assert result["success"] is False and "not found" in result["error"].lower(), fn.__name__
+        assert result["success"] is False and result["reason"] == "order_not_found", fn.__name__
     result = await cancel_order(db, customer_id=customer.id, order_id="the headphones order", reason="changed_mind")
-    assert result["success"] is False and "not found" in result["error"].lower()
+    assert result["success"] is False and result["reason"] == "order_not_found"
     result = await initiate_return(db, customer_id=customer.id, order_id="the headphones order", reason="changed_mind")
-    assert result["success"] is False and "not found" in result["error"].lower()
+    assert result["success"] is False and result["reason"] == "order_not_found"
     # a real id still resolves, whitespace tolerated
     result = await track_order(db, customer_id=customer.id, order_id=f"  {placed_order.id} ")
     assert result["success"] is True

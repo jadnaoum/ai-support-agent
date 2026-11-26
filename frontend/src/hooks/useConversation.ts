@@ -65,12 +65,6 @@ const INITIAL: ConversationState = {
   csat: null,
 }
 
-export function greetingFor(c: DemoCustomer): string {
-  const n = c.orders.length
-  const orders = n === 1 ? 'one order' : `${n} orders`
-  return `Hi ${c.name}, I'm the support assistant. I can see ${orders} on your account. What can I help with?`
-}
-
 export function totalsFrom(records: TurnRecord[]): Totals {
   const priced = records.filter((r) => r.cost_usd != null)
   const cost_basis: Totals['cost_basis'] =
@@ -92,10 +86,13 @@ export function totalsFrom(records: TurnRecord[]): Totals {
 function fromTimeline(t: Timeline): ConversationState {
   const customer = t.customer
   const messages: ChatMessage[] = []
-  if (customer) messages.push({ id: 'greeting', role: 'greeting', content: greetingFor(customer) })
   let agentIndex = 0
   for (const m of t.messages) {
-    if (m.role === 'customer') {
+    // The opening greeting is saved by the backend as the agent's first
+    // message; it isn't a turn, so it doesn't consume one.
+    if (m.greeting) {
+      messages.push({ id: m.id, role: 'greeting', content: m.content })
+    } else if (m.role === 'customer') {
       messages.push({ id: m.id, role: 'customer', content: m.content })
     } else {
       const turn = t.turns[agentIndex++]

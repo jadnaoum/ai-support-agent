@@ -148,6 +148,13 @@ class SendMessageResponse(BaseModel):
     message_id: str
 
 
+def greeting_for(name: str) -> str:
+    """Opening message of every conversation (wording approved by Jad 2026-11-26)."""
+    first = (name or "").strip().split(" ")[0]
+    return f"Hi {first}, I'm an AI assistant. What can I help with?" if first else \
+        "Hi, I'm an AI assistant. What can I help with?"
+
+
 @router.post("/conversations", response_model=NewConversationResponse)
 async def create_conversation(
     body: NewConversationRequest,
@@ -166,6 +173,17 @@ async def create_conversation(
         status="active",
     )
     db.add(conversation)
+    await db.flush()
+    # Opening greeting, saved as the agent's first message so the agent sees
+    # it in its history: the AI disclosure is made here, once, and the first
+    # real reply doesn't repeat it or re-greet the customer.
+    db.add(Message(
+        id=str(uuid.uuid4()),
+        conversation_id=conversation.id,
+        role="agent",
+        agent_type="greeting",
+        content=greeting_for(customer.name),
+    ))
     await db.commit()
     await db.refresh(conversation)
     return NewConversationResponse(conversation_id=conversation.id)

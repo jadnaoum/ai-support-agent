@@ -140,7 +140,10 @@ async def test_timeline_endpoint(mock_graph, client, demo_conversation):
     body = r.json()
     assert body["conversation"]["id"] == conv_id and body["conversation"]["status"] == "active"
     assert body["customer"]["name"] == "Galadriel" and body["customer"]["orders"]
-    assert [m["role"] for m in body["messages"]] == ["customer", "agent", "customer", "agent"]
+    assert [m["role"] for m in body["messages"]] == ["agent", "customer", "agent", "customer", "agent"]
+    assert body["messages"][0]["greeting"] is True
+    assert body["messages"][0]["content"] == "Hi Galadriel, I'm an AI assistant. What can I help with?"
+    assert not any(m["greeting"] for m in body["messages"][1:])
     assert [t["index"] for t in body["turns"]] == [1, 2]
     assert body["turns"][0]["customer_message"] == "Return window?"
     assert body["turns"][0]["response"] == KB_OUTPUT["response"]

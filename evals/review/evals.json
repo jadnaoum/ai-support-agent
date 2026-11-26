@@ -255,7 +255,9 @@
   ],
   "wrong": "Agent made up a cancel reason",
   "fix_short": "Stop after asking for a reason",
-  "error": "Customer wants to cancel but doesn't say why. The tool correctly answered \"reason required\", which means ask the customer. Before the agent replied, though, the routing step called cancel_order again with a reason it invented (\"customer_request\"). The tool rejected that reason, so nothing was cancelled, but a made-up reason reached a write tool. Only the customer can give a reason, so the routing step should stop there."
+  "error": "Customer wants to cancel but doesn't say why. The tool correctly answered \"reason required\", which means ask the customer. Before the agent replied, though, the routing step called cancel_order again with a reason it invented (\"customer_request\"). The tool rejected that reason, so nothing was cancelled, but a made-up reason reached a write tool. Only the customer can give a reason, so the routing step should stop there.",
+  "status": "fixed",
+  "status_note": "26 Nov: a \"reason required\" result now ends the turn, so the routing step can't invent a reason. Re-run (guard on): PASS — cancel_order called once, then the agent asks why."
  },
  {
   "test_id": "AE-004",
@@ -315,7 +317,9 @@
   ],
   "wrong": "Made up a return reason and return conditions",
   "fix_short": "Don't loop after 'eligible'",
-  "error": "Customer asks for a refund on an item that wasn't as described, and the eligibility check said eligible. The routing step then kept going and called initiate_return twice with a reason it invented (\"wrong_color\"). The reply also listed return conditions (\"original condition with tags\") with no KB content in front of it. The guard blocked those conditions → escalation. Two errors: routing continues after an \"eligible\" result, and the reply states policy from memory."
+  "error": "Customer asks for a refund on an item that wasn't as described, and the eligibility check said eligible. The routing step then kept going and called initiate_return twice with a reason it invented (\"wrong_color\"). The reply also listed return conditions (\"original condition with tags\") with no KB content in front of it. The guard blocked those conditions → escalation. Two errors: routing continues after an \"eligible\" result, and the reply states policy from memory.",
+  "status": "kept_fail",
+  "status_note": "26 Nov, your call: kept as a failure. Stopping the loop after \"eligible\" would be code making a routing decision. The real causes stay open: the routing step inventing parameters (#36) and the reply stating return conditions from memory (prompt)."
  },
  {
   "test_id": "AE-011",
@@ -427,7 +431,9 @@
   ],
   "wrong": "Agent made up a return reason",
   "fix_short": "Same as AE-002",
-  "error": "Same error as AE-002, but for a return: after \"reason required\", the routing step called initiate_return again with an invented reason (\"customer_request\") instead of letting the agent ask the customer."
+  "error": "Same error as AE-002, but for a return: after \"reason required\", the routing step called initiate_return again with an invented reason (\"customer_request\") instead of letting the agent ask the customer.",
+  "status": "fixed",
+  "status_note": "26 Nov: same fix as AE-002. Re-run (guard on): PASS — initiate_return called once, then the agent asks why."
  },
  {
   "test_id": "AE-034",
@@ -502,7 +508,8 @@
   "related": [],
   "wrong": "Nothing cancellable, but asked which order to cancel",
   "fix_short": "New 'no eligible orders' result",
-  "error": "Customer wants to cancel, but none of their orders can be cancelled. The check without an order id returned an empty list. An empty list has no reason code, so no guidance note was added. The agent fell back on an earlier \"which order?\" result and asked which order to cancel, when the real answer is that none can be."
+  "error": "Customer wants to cancel, but none of their orders can be cancelled. The check without an order id returned an empty list. An empty list has no reason code, so no guidance note was added. The agent fell back on an earlier \"which order?\" result and asked which order to cancel, when the real answer is that none can be.",
+  "status_note": "26 Nov: fix made — with no cancellable orders, check_cancel_eligibility now returns no_eligible_orders (no guidance note). Re-run (guard on): still FAIL, but for a different reason: the routing step didn't chain from cancel_order to the eligibility check this time, so the new result was never reached and the agent asked \"which order?\". Routing variance — the earlier run did chain."
  },
  {
   "test_id": "AE-044",
@@ -1064,7 +1071,9 @@
   ],
   "wrong": "Said it has no cancel tool, fake handoff",
   "fix_short": "Small-talk path: honour handoffs",
-  "error": "Customer wants to cancel a shipped order. The message was classified as general chat, so no tool ran. The agent said \"I don't have a cancellation tool\", which is false, and \"I'll pass you to a colleague\". No handoff actually happened, because the general-chat path ignores the guard's handoff detection. The customer was told someone would come, and nobody does."
+  "error": "Customer wants to cancel a shipped order. The message was classified as general chat, so no tool ran. The agent said \"I don't have a cancellation tool\", which is false, and \"I'll pass you to a colleague\". No handoff actually happened, because the general-chat path ignores the guard's handoff detection. The customer was told someone would come, and nobody does.",
+  "status": "dropped",
+  "status_note": "26 Nov, your call: case deleted — after a bare \"Thanks\" there's nothing for the agent to check. The real bug it found (a handoff promised on the general-chat path never happens) is PENDING #41."
  },
  {
   "test_id": "GF-005",
@@ -1084,7 +1093,9 @@
   ],
   "wrong": "'Order not found' reported as a system error",
   "fix_short": "New 'order not found' result",
-  "error": "Customer gives an order number that doesn't exist. The tool returns a bare error with no reason code, so the system treats it as a tool failure, and that guidance says \"something went wrong, escalate\". The agent said there was an error on its side and escalated, when it should have asked the customer to double-check the number."
+  "error": "Customer gives an order number that doesn't exist. The tool returns a bare error with no reason code, so the system treats it as a tool failure, and that guidance says \"something went wrong, escalate\". The agent said there was an error on its side and escalated, when it should have asked the customer to double-check the number.",
+  "status_note": "26 Nov: \"not found\" is now a result (order_not_found), not an error, with no guidance note. Your call: offering the order on the account counts as well as asking to re-check the number — rubric updated. Re-run (guard on): PASS — \"I wasn't able to find any order matching that number… possibly a typo… The most recent order I can see is a Ceramic Mug. Is that the one?\"",
+  "status": "fixed"
  },
  {
   "test_id": "GF-012",
@@ -1103,7 +1114,9 @@
   ],
   "wrong": "'Order not found' reported as a system error",
   "fix_short": "Same as GF-005",
-  "error": "Same error as GF-005, with the customer pushing back. The agent said \"I ran into an error\" and escalated. It didn't mention the recent order it can see, which is probably the one the customer means."
+  "error": "Same error as GF-005, with the customer pushing back. The agent said \"I ran into an error\" and escalated. It didn't mention the recent order it can see, which is probably the one the customer means.",
+  "status": "fixed",
+  "status_note": "26 Nov: \"not found\" is now a result (order_not_found), not an error, and gets no guidance note — so it no longer reads as a system failure. Re-run (guard on): PASS — said it still couldn't find the number and offered the order on the account."
  },
  {
   "test_id": "GF-015",
@@ -1160,7 +1173,9 @@
   ],
   "wrong": "Called a tool that doesn't exist",
   "fix_short": "Reject unknown tool names",
-  "error": "Customer comes back to finish a refund. Eligibility was checked correctly. Then the routing step chose \"initiate_refund\", which isn't a real tool. The action service returned \"Unknown action\", which was treated as a tool failure → \"something went wrong\" + escalation. The routing prompt doesn't list the real tool names, so it guessed."
+  "error": "Customer comes back to finish a refund. Eligibility was checked correctly. Then the routing step chose \"initiate_refund\", which isn't a real tool. The action service returned \"Unknown action\", which was treated as a tool failure → \"something went wrong\" + escalation. The routing prompt doesn't list the real tool names, so it guessed.",
+  "status": "fixed",
+  "status_note": "26 Nov: if the routing step names a tool that doesn't exist, it isn't called; the agent answers from the results it has. Re-run (guard on): PASS — resumed the refund without re-asking the order."
  },
  {
   "test_id": "CR-008",
@@ -1240,6 +1255,8 @@
   ],
   "wrong": "Invented a promo-code rule → guard block → handoff",
   "fix_short": "Redraft once on block",
-  "error": "Customer asks for a price adjustment and also has a promo code. The reply said the adjustment \"won't stack with your promo code\", which isn't in the KB. The guard blocked it, and the block turned into a handoff instead of a corrected answer."
+  "error": "Customer asks for a price adjustment and also has a promo code. The reply said the adjustment \"won't stack with your promo code\", which isn't in the KB. The guard blocked it, and the block turned into a handoff instead of a corrected answer.",
+  "status": "todo",
+  "status_note": "26 Nov, your call: the handoff is fine for now. Logged as PENDING #40 (redraft once after a guard block)."
  }
 ]

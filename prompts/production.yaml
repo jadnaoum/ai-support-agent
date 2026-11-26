@@ -1093,3 +1093,12 @@ handoff_message_prompt: |
   "I'm going to pass this conversation to a colleague now."
 
   Respond with the message text only.
+
+# ============================================================
+# CHAT OPENED PLACEHOLDER
+# Hidden customer line put in front of a history that starts with an agent
+# message (the saved greeting): the API requires a customer message first.
+# Customers never see it. Used by _llm_history in conversation.py.
+# ============================================================
+
+chat_opened_placeholder: "(The customer opened the chat.)"

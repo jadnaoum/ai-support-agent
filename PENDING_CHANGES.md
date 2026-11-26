@@ -165,6 +165,12 @@ When retrieval finds nothing on a topic, the agent fills the gap with a made-up 
 - Related: the guard-block list in #36 (KB-003/015/023/024, CQ-004, GF-015 …) — check which of those are the same habit.
 Likely fix: knowledge_boundary wording that makes "I don't have information on that" the natural answer when context is empty (principle, not the in-store case) — wording for Jad to approve. Evals: Escalation sheet (no_information / llm_escalation_intent cases), KB Retrieval no-coverage cases.
 
+### 40. One blocked sentence hands off the whole turn — OPEN, later (Jad, 2026-11-26)
+When the output guard blocks a draft, the turn always escalates (`output_guard_block`), even when one invented sentence was the only problem. KB-024: price adjustment + promo code — the draft added "won't stack with your promo code" (not in the KB), the guard rightly blocked it, and the customer got a handoff instead of the KB answer. Jad: the handoff is fine for now. Option for later: redraft once using the guard's explanation, escalate only if the second draft is blocked too (guard-verdict handling — prompt-adjacent, needs Jad's approval). Same pattern: KB-003, KB-023, AE-010, CR-008. Related: #39 (invented limitations are what usually gets blocked).
+
+### 41. Handoff promised on the general-chat path never happens — OPEN (found by GF-003, 2026-11-26)
+On the general / small_talk path, `check_output`'s `handoff_intent` is ignored: only a block escalates. So a reply like "I'll pass you to a colleague" reaches the customer and no escalation fires — they wait for someone who never comes. The main (post-service) path turns handoff_intent into `llm_escalation_intent` / `no_information`. Fix option: apply the same handoff_intent → escalation handling in the general branch (guard-verdict handling — prompt-adjacent, needs Jad's approval). GF-003 surfaced it but was dropped as a bad case (2026-11-26: a bare "Thanks" gives the agent nothing to check); a new case is needed — e.g. a general question the agent can't answer, with the guard on.
+
 ---
 
 ## Performance (deferred 2026-09-01)

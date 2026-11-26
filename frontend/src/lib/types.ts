@@ -176,7 +176,7 @@ export interface Timeline {
     csat: Csat | null
   }
   customer: DemoCustomer | null
-  messages: { id: string; role: 'customer' | 'agent'; content: string; created_at: string | null }[]
+  messages: { id: string; role: 'customer' | 'agent'; content: string; greeting?: boolean; created_at: string | null }[]
   turns: TimelineTurn[]
   totals: Totals
   checks: Check[]

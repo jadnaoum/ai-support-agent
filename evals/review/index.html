@@ -138,7 +138,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 <div class="wrap">
   <header>
     <h1>eval_gaps_v1 review</h1>
-    <p class="sub">Failed cases from the 24 Nov run (guard on). Updated 25 Nov: the eval-side fixes are applied and re-run; fixed cases are in “Done” at the bottom. One line each — click a row for the full story. Tick what you want changed next, then copy your decisions into the chat.</p>
+    <p class="sub">Failed cases from the 24 Nov run (guard on). Updated 25 Nov: the eval-side fixes are applied and re-run. Updated 26 Nov: the approved agent code fixes are in and re-run (AE-002, AE-033, CR-006, GF-005, GF-012 now pass; AE-040 note inside). Fixed cases are no longer listed. One line each — click a row for the full story. Tick what you want changed next, then copy your decisions into the chat.</p>
     <div class="stats" id="stats"></div>
   </header>
 
@@ -188,7 +188,7 @@ const GROUPS = [
   { key: "kb", title: "Knowledge base fixes", action: "Draft KB text", note: "KB is missing something. Ticking = I draft the KB text for you.", types: ["kb"] },
   { key: "code", title: "Agent code fixes", action: "Approve", note: "Code change. Ticking = you approve the direction.", types: ["code"] },
   { key: "prompt", title: "Agent prompt fixes", action: "Draft wording", note: "Prompt change. Ticking = I draft exact wording for your approval.", types: ["prompt"] },
-  { key: "done", title: "Done — fixed and passing", action: "Done", note: "Applied on 25 Nov and re-run with the guard on. All pass now.", types: [] },
+  { key: "done", title: "Done — fixed and passing", action: "Done", note: "Applied on 25–26 Nov and re-run with the guard on. All pass now.", types: [] },
 ];
 const THEMES = [
   { title: "Routing step makes up tools and reasons", text: "The loop decision calls tools that don't exist (get_tracking_number, get_order_details, initiate_refund) or fills a cancel reason the customer never gave.", ids: ["AE-002","AE-033","AE-044","CQ-007","CR-006","PC-010"] },
@@ -203,16 +203,17 @@ const store = {
   save() { try { localStorage.setItem("evalReviewDecisions", JSON.stringify(S.decisions)); } catch (e) {} },
 };
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const isOpen = (id) => (S.rows.find((x) => x.test_id === id) || {}).status !== "fixed";
 const DONE = () => GROUPS[GROUPS.length - 1];
 const groupOf = (r) => r.status === "fixed" ? DONE() : (GROUPS.find((g) => g.types.includes(r.fix_type)) || GROUPS[3]);
 const effortRank = { easy: 0, medium: 1, hard: 2 };
 
 function renderStats() {
   const sims = S.sims;
-  const open = S.rows.filter((r) => r.status !== "fixed");
+  const open = S.rows.filter((r) => r.status !== "fixed" && r.status !== "dropped");
   const counts = GROUPS.slice(0, -1).map((g) => [g.title, open.filter((r) => groupOf(r) === g).length]);
   document.getElementById("stats").innerHTML =
-    `<div class="stat big"><b>83.8%</b><span>passing now (243/290) · was 77.2%</span></div>` +
+    `<div class="stat big"><b>87.6%</b><span>passing now (255/291, latest result per case, 26 Nov) · was 77.2%</span></div>` +
     `<div class="stat"><b>${S.rows.filter((r) => r.status === "fixed").length}</b><span>fixed and passing</span></div>` +
     `<div class="stat"><b>${open.length}</b><span>still failing</span></div>` +
     counts.map(([t, n]) => `<div class="stat"><b>${n}</b><span>${esc(t.toLowerCase())}</span></div>`).join("") +
@@ -220,15 +221,15 @@ function renderStats() {
 }
 
 function renderThemes() {
-  document.getElementById("themes").innerHTML = THEMES.map((t) =>
-    `<div class="theme" title="${esc(t.text)}"><h3>${esc(t.title)}</h3><div class="ids">${t.ids.map((i) => { const r = S.rows.find((x) => x.test_id === i); const d = r && r.status === "fixed"; return `<button class="id${d ? " done" : ""}" type="button" data-jump="${i}" title="${d ? "fixed" : "open"}">${i}</button>`; }).join("")}${t.ids.every((i) => (S.rows.find((x) => x.test_id === i) || {}).status === "fixed") ? ` <span class="chip done">all fixed</span>` : ""}</div></div>`).join("");
+  document.getElementById("themes").innerHTML = THEMES.filter((t) => !t.ids.every((i) => (S.rows.find((x) => x.test_id === i) || {}).status === "fixed")).map((t) =>
+    `<div class="theme" title="${esc(t.text)}"><h3>${esc(t.title)}</h3><div class="ids">${t.ids.filter((i) => (S.rows.find((x) => x.test_id === i) || {}).status !== "fixed").map((i) => { const r = S.rows.find((x) => x.test_id === i); const d = r && r.status === "fixed"; return `<button class="id${d ? " done" : ""}" type="button" data-jump="${i}" title="${d ? "fixed" : "open"}">${i}</button>`; }).join("")}${t.ids.every((i) => (S.rows.find((x) => x.test_id === i) || {}).status === "fixed") ? ` <span class="chip done">all fixed</span>` : ""}</div></div>`).join("");
 }
 
 function rowHtml(r) {
   const d = S.decisions[r.test_id] || {};
   const g = groupOf(r);
   const done = r.status === "fixed";
-  const tag = done ? ` <span class="chip done">fixed · PASS</span>` : r.status === "kept_fail" ? ` <span class="chip kept">kept as fail</span>`
+  const tag = done ? ` <span class="chip done">fixed · PASS</span>` : ROW_STATUS[r.status] ? ` <span class="chip kept">${ROW_STATUS[r.status]}</span>`
     : r.prev_verdict === "PASS" ? ` <span class="chip prev-PASS">regressed</span>` : r.prev_verdict === "new" ? ` <span class="chip">new</span>` : "";
   return `<div class="row${d.on && !done ? " approved" : ""}${done ? " is-done" : ""}" id="row-${r.test_id}">
     <div class="check">${done ? `<span aria-label="done" style="color:var(--pass);font-weight:600">✓</span>` : `<input type="checkbox" id="chk-${r.test_id}" data-id="${r.test_id}" ${d.on ? "checked" : ""} aria-label="${esc(g.action)} ${r.test_id}">`}</div>
@@ -242,7 +243,7 @@ function rowHtml(r) {
       ${r.status_note ? `<p class="status">${esc(r.status_note)}</p>` : ""}
       <p class="err"><b>The error.</b> ${esc(r.error || r.what_happened)}</p>
       <p><b>Fix.</b> ${esc(r.suggested_fix)}</p>
-      ${(r.related || []).length ? `<p class="small ids">Same cause: ${r.related.map((i) => `<button class="id" type="button" data-jump="${esc(i)}">${esc(i)}</button>`).join("")}</p>` : ""}
+      ${(r.related || []).filter(isOpen).length ? `<p class="small ids">Same cause: ${r.related.filter(isOpen).map((i) => `<button class="id" type="button" data-jump="${esc(i)}">${esc(i)}</button>`).join("")}</p>` : ""}
       <details class="trace"><summary>Full trace</summary>
         <p>${esc(r.what_happened)}</p>
         <p class="small">${esc(r.sheet)} · Customer said: ${esc(r.customer_said)} · Expected: ${esc(r.expected)} · Last run: ${esc(r.prev_verdict)}</p>
@@ -257,7 +258,7 @@ function renderGroups() {
   const q = document.getElementById("f-q").value.trim().toLowerCase();
   const match = (r) => (!sheet || r.sheet === sheet) && (!effort || r.effort === effort) &&
     (!q || JSON.stringify(r).toLowerCase().includes(q));
-  document.getElementById("groups").innerHTML = GROUPS.map((g) => {
+  document.getElementById("groups").innerHTML = GROUPS.filter((g) => g.key !== "done").map((g) => {
     const rows = S.rows.filter((r) => groupOf(r) === g && match(r))
       .sort((a, b) => (effortRank[a.effort] ?? 3) - (effortRank[b.effort] ?? 3) || a.test_id.localeCompare(b.test_id));
     if (!rows.length) return "";
@@ -289,6 +290,7 @@ function renderSimList() {
       <span class="top"><b class="mono">${s.id}</b><span class="verdict ${s.verdict}">${s.verdict.toUpperCase()}</span></span>
       <small>${esc(s.label)}</small>${s.verdict !== "pass" ? `<small>${esc(s.wrong)}</small>` : ""}${s.status ? `<small><span class="chip ${s.status === "fixed" ? "done" : "kept"}">${esc(SIM_STATUS[s.status] || s.status)}</span></small>` : ""}</button>`).join("");
 }
+const ROW_STATUS = { kept_fail: "kept as fail", dropped: "case dropped", todo: "in TODOs" };
 const SIM_STATUS = { fixed: "Fix made", awaiting_wording: "Waiting on your wording approval", answered: "Your question answered" };
 function renderSim() {
   const s = S.sims.find((x) => x.id === S.simSel); if (!s) return;

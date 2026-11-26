@@ -59,7 +59,7 @@ def _get_order(mock: dict, order_id) -> "tuple[dict | None, dict | None]":
     if order_id:
         o = next((o for o in orders if str(o.get("id", "")) == str(order_id)), None)
         if o is None:
-            return None, {"success": False, "error": f"Order {order_id} not found."}
+            return None, {"success": False, "reason": "order_not_found", "order_id": order_id}
         return o, None
     from backend.config import get_settings  # noqa: PLC0415
     candidates = mock_recent_orders(mock, get_settings().recent_orders_in_context) if len(orders) > 1 else []
@@ -214,6 +214,8 @@ def _mock_check_cancel_eligibility(params: dict, mock: dict) -> dict:
         check = _cancel_eligibility(o.get("status", "placed"))
         if check["eligible"]:
             eligible.append({"order_id": str(o["id"]), "status": o.get("status"), **check})
+    if not eligible:
+        return {"success": True, "reason": "no_eligible_orders", "eligible_orders": []}
     return {"success": True, "eligible_orders": eligible}
 
 

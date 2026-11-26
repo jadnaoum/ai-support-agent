@@ -6,6 +6,8 @@ table for pre-run estimates; unify the two when evals are next touched)."""
 MODEL_PRICE_PER_TOKEN: dict = {
     "claude-haiku-4-5-20251001": {"input": 1e-06,  "output": 5e-06},
     "claude-sonnet-4-6":         {"input": 3e-06,  "output": 1.5e-05},
+    "claude-sonnet-5-5":         {"input": 2e-06,  "output": 1e-05},
+    "claude-haiku-5-5":          {"input": 1e-07,  "output": 5e-07},
     "claude-opus-4-6":           {"input": 1.5e-05, "output": 7.5e-05},
     "text-embedding-3-small":    {"input": 2e-08,  "output": 0.0},
 }

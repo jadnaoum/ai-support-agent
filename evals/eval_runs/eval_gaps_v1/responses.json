@@ -2935,32 +2935,8 @@
     "structural_summary": ""
   },
   "AE-002": {
-    "response": "I can help with that \u2014 I'm an AI assistant, by the way. Before I can process the cancellation, I just need to know: what's the reason you'd like to cancel?",
+    "response": "Just so you know, you're chatting with an AI assistant. Before I can process that cancellation, I need to know \u2014 what's the reason you'd like to cancel?",
     "actions_taken": [
-      {
-        "service": "action_service",
-        "action": "cancel_order",
-        "params": {
-          "order_id": "fe38dc40-43cb-5f8b-8c3c-8aeff575ea61",
-          "reason": null
-        },
-        "success": false,
-        "order_id": null,
-        "confirmation_required": false,
-        "result_detail": "reason_required"
-      },
-      {
-        "service": "action_service",
-        "action": "cancel_order",
-        "params": {
-          "order_id": "fe38dc40-43cb-5f8b-8c3c-8aeff575ea61",
-          "reason": "customer_request"
-        },
-        "success": false,
-        "order_id": null,
-        "confirmation_required": false,
-        "result_detail": "invalid_reason"
-      },
       {
         "service": "action_service",
         "action": "cancel_order",
@@ -2984,8 +2960,8 @@
         "kind": "output_guard",
         "verdict": "pass",
         "failure_type": null,
-        "explanation": "The draft response asks for a cancellation reason before proceeding, which aligns with the tool results showing 'reason_required' failures. No unsupported claims, hallucinated IDs, system disclosures, or cross-customer data present. The LLM disclosure is expected on first message.",
-        "draft": "I can help with that \u2014 I'm an AI assistant, by the way. Before I can process the cancellation, I just need to know: what's the reason you'd like to cancel?"
+        "explanation": "The draft response makes no unsupported claims, discloses no internal system details, references no foreign customer data, and contains no hallucinated IDs. It correctly asks for a cancellation reason, which aligns with the tool result showing 'reason_required'. The AI disclosure is expected and not a failure.",
+        "draft": "Just so you know, you're chatting with an AI assistant. Before I can process that cancellation, I need to know \u2014 what's the reason you'd like to cancel?"
       }
     ],
     "structural_summary": ""
@@ -4013,7 +3989,7 @@
     "structural_summary": ""
   },
   "AE-033": {
-    "response": "Before I can move forward with that, I need to know \u2014 what's the reason you'd like to return the Wool Coat?",
+    "response": "Before I can start the return, I just need to know \u2014 what's the reason you're looking to return the Wool Coat?",
     "actions_taken": [
       {
         "service": "action_service",
@@ -4026,18 +4002,6 @@
         "order_id": null,
         "confirmation_required": false,
         "result_detail": "reason_required"
-      },
-      {
-        "service": "action_service",
-        "action": "initiate_return",
-        "params": {
-          "order_id": "5e8ed6e6-6156-5abe-bf78-acdc30babfde",
-          "reason": "customer_request"
-        },
-        "success": false,
-        "order_id": null,
-        "confirmation_required": false,
-        "result_detail": "invalid_reason"
       }
     ],
     "requires_escalation": false,
@@ -4050,8 +4014,8 @@
         "kind": "output_guard",
         "verdict": "pass",
         "failure_type": null,
-        "explanation": "The draft response asks for a return reason, which aligns with the tool result showing 'reason_required'. It correctly references the item as 'Wool Coat' (matching customer_orders) and makes no unsupported claims, reveals no internal tool names, and contains no hallucinated IDs or cross-customer data.",
-        "draft": "Before I can move forward with that, I need to know \u2014 what's the reason you'd like to return the Wool Coat?"
+        "explanation": "The draft response asks for a return reason because the tool returned reason_required. It correctly references 'Wool Coat' (matching the customer_orders entry) rather than 'jacket' (the customer's word) \u2014 a minor mismatch but not a hallucination since the item in evidence is a Wool Coat. No unsupported claims, no IDs mentioned, no system internals disclosed, no cross-customer data. The response accurately handles the tool failure by requesting the missing information.",
+        "draft": "Before I can start the return, I just need to know \u2014 what's the reason you're looking to return the Wool Coat?"
       }
     ],
     "structural_summary": ""
@@ -4275,7 +4239,7 @@
     "structural_summary": ""
   },
   "AE-040": {
-    "response": "I'm an AI assistant \u2014 happy to help with that. You have two orders on file: a Philips LED Desk Lamp (placed November 21, currently shipped) and a Ninja Professional Blender (placed June 7, delivered). Which one would you like to cancel?",
+    "response": "Which order would you like to cancel \u2014 the Philips LED Desk Lamp placed in November, or the Ninja Professional Blender placed in June?",
     "actions_taken": [
       {
         "service": "action_service",
@@ -4288,17 +4252,6 @@
         "order_id": null,
         "confirmation_required": false,
         "result_detail": "order_id_required"
-      },
-      {
-        "service": "action_service",
-        "action": "check_cancel_eligibility",
-        "params": {
-          "order_id": null
-        },
-        "success": true,
-        "order_id": null,
-        "confirmation_required": false,
-        "result_detail": "success"
       }
     ],
     "requires_escalation": false,
@@ -4311,8 +4264,8 @@
         "kind": "output_guard",
         "verdict": "pass",
         "failure_type": null,
-        "explanation": "The draft response accurately describes both orders using data from customer_orders (correct product names, statuses, and placement dates). No IDs are disclosed, no unsupported claims are made, no internal tool names are exposed, and all data matches the evidence. The check_cancel_eligibility result showing no eligible orders is not reflected, but the response is asking a clarifying question rather than asserting eligibility, so this is not a false claim.",
-        "draft": "I'm an AI assistant \u2014 happy to help with that. You have two orders on file: a Philips LED Desk Lamp (placed November 21, currently shipped) and a Ninja Professional Blender (placed June 7, delivered). Which one would you like to cancel?"
+        "explanation": "The draft response accurately reflects the two orders from customer_orders (Philips LED Desk Lamp and Ninja Professional Blender with correct placement months), makes no unsupported claims, discloses no internal system details, and contains no hallucinated IDs or cross-customer data. It correctly asks for clarification since the cancel_order tool returned order_id_required.",
+        "draft": "Which order would you like to cancel \u2014 the Philips LED Desk Lamp placed in November, or the Ninja Professional Blender placed in June?"
       }
     ],
     "structural_summary": ""
@@ -7293,7 +7246,7 @@
     "structural_summary": ""
   },
   "GF-005": {
-    "response": "Something went wrong on my end when I tried to look that up \u2014 I wasn't able to retrieve details for that order number. I'm going to hand this off to a human agent who can dig into it directly.",
+    "response": "Hi \u2014 I'm an AI assistant, but I wasn't able to find any order matching that number on your account. It's possible there's a typo, or it may be under a different account.\n\nThe most recent order I can see for you is a Ceramic Mug ($25.00), currently in \"placed\" status. Is that the one you're looking for?",
     "actions_taken": [
       {
         "service": "action_service",
@@ -7302,34 +7255,29 @@
           "order_id": "494c2d47-af68-5aa8-8995-689ef0ee1122"
         },
         "success": false,
-        "order_id": null,
+        "order_id": "494c2d47-af68-5aa8-8995-689ef0ee1122",
         "confirmation_required": false,
-        "result_detail": "failed"
-      },
-      {
-        "service": "escalation_handler",
-        "action": "escalate",
-        "reason": "llm_escalation_intent"
+        "result_detail": "order_not_found"
       }
     ],
-    "requires_escalation": true,
-    "escalation_reason": "llm_escalation_intent",
+    "requires_escalation": false,
+    "escalation_reason": "",
     "confidence": 0.99,
     "inferred_intent": "action_request",
-    "context_summary": "The customer is requesting tracking information for order #494c2d47-af68-5aa8-8995-689ef0ee1122. No additional context or prior troubleshooting occurred in this conversation. The interaction is being escalated because the customer's intent triggered the LLM escalation threshold; the request itself is straightforward and the specialist should be able to resolve it quickly by pulling up the order status directly.\nEscalation reason: llm_escalation_intent",
+    "context_summary": "",
     "trace": [
       {
         "kind": "output_guard",
         "verdict": "pass",
         "failure_type": null,
-        "explanation": "The draft response accurately reflects the tool result (order not found, lookup failed) without making unsupported claims, fabricating IDs, or disclosing internal system details. The phrase 'hand this off to a human agent' signals a live escalation.",
-        "draft": "Something went wrong on my end when I tried to look that up \u2014 I wasn't able to retrieve details for that order number. I'm going to hand this off to a human agent who can dig into it directly."
+        "explanation": "The draft accurately reflects the tool result (order not found) and correctly surfaces the customer's actual order (Ceramic Mug, $25.00, 'placed' status) from customer_orders. The order ID shown is not included in the response \u2014 only product and price details are referenced, which are supported by the evidence. No unsupported claims, no hallucinated IDs, no system disclosure, and no cross-customer data leak.",
+        "draft": "Hi \u2014 I'm an AI assistant, but I wasn't able to find any order matching that number on your account. It's possible there's a typo, or it may be under a different account.\n\nThe most recent order I can see for you is a Ceramic Mug ($25.00), currently in \"placed\" status. Is that the one you're looking for?"
       }
     ],
     "structural_summary": ""
   },
   "GF-012": {
-    "response": "I ran into an error trying to look that up, so I want to make sure you get accurate information. Let me hand this off to a human agent who can dig into it directly.",
+    "response": "I understand it's frustrating, but that order ID isn't showing up on your account no matter how many times I check. The only order I can see is a Notebook Set placed recently for $34.99. Could that be the one you're thinking of, or is it possible the order was placed under a different account?",
     "actions_taken": [
       {
         "service": "action_service",
@@ -7338,28 +7286,23 @@
           "order_id": "c6211174-2ae4-5821-8a6a-b42e9eee536f"
         },
         "success": false,
-        "order_id": null,
+        "order_id": "c6211174-2ae4-5821-8a6a-b42e9eee536f",
         "confirmation_required": false,
-        "result_detail": "failed"
-      },
-      {
-        "service": "escalation_handler",
-        "action": "escalate",
-        "reason": "llm_escalation_intent"
+        "result_detail": "order_not_found"
       }
     ],
-    "requires_escalation": true,
-    "escalation_reason": "llm_escalation_intent",
+    "requires_escalation": false,
+    "escalation_reason": "",
     "confidence": 0.95,
     "inferred_intent": "action_request",
-    "context_summary": "The customer wants to track an order they believe they placed last week. The agent was unable to locate the provided order number (c6211174-2ae4-5821-8a6a-b42e9eee536f) on the account and asked the customer to verify it, but the customer is insistent the order exists and is frustrated by the response. The customer is escalating because they are not accepting the agent's inability to find the order and want a resolution confirmed by a human specialist.\nEscalation reason: llm_escalation_intent",
+    "context_summary": "",
     "trace": [
       {
         "kind": "output_guard",
         "verdict": "pass",
         "failure_type": null,
-        "explanation": "The draft response says it 'ran into an error' and proposes a handoff, which is consistent with the tool returning an error. No unsupported claims, no hallucinated IDs, no system internals disclosed, no cross-customer data referenced. The phrase 'hand this off to a human agent' signals a live handoff.",
-        "draft": "I ran into an error trying to look that up, so I want to make sure you get accurate information. Let me hand this off to a human agent who can dig into it directly."
+        "explanation": "The draft accurately reflects the tool result (order not found) and correctly identifies the only order on file (Notebook Set, $34.99, order ID aa28f048-27ee-5f06-b120-156314257507 \u2014 present in known_ids and customer_orders). No unsupported claims, no hallucinated IDs, no system disclosure, no cross-customer data leak.",
+        "draft": "I understand it's frustrating, but that order ID isn't showing up on your account no matter how many times I check. The only order I can see is a Notebook Set placed recently for $34.99. Could that be the one you're thinking of, or is it possible the order was placed under a different account?"
       }
     ],
     "structural_summary": ""
@@ -7563,7 +7506,7 @@
     "structural_summary": ""
   },
   "CR-006": {
-    "response": "Something went wrong on my end when I tried to initiate the refund \u2014 I want to get this handled properly for you, so I'm going to bring in a human agent to take it from here.",
+    "response": "Just to confirm \u2014 you'd like to proceed with the return/refund for order #7714c18c-6f08-585a-8f42-710a47918361 ($44.99)? I want to make sure before I kick it off.",
     "actions_taken": [
       {
         "service": "action_service",
@@ -7576,36 +7519,24 @@
         "order_id": "7714c18c-6f08-585a-8f42-710a47918361",
         "confirmation_required": false,
         "result_detail": "success"
-      },
-      {
-        "service": "action_service",
-        "action": "initiate_refund",
-        "params": {
-          "order_id": "7714c18c-6f08-585a-8f42-710a47918361"
-        },
-        "success": false,
-        "order_id": null,
-        "confirmation_required": false,
-        "result_detail": "failed"
-      },
-      {
-        "service": "escalation_handler",
-        "action": "escalate",
-        "reason": "llm_escalation_intent"
       }
     ],
-    "requires_escalation": true,
-    "escalation_reason": "llm_escalation_intent",
+    "requires_escalation": false,
+    "escalation_reason": "",
     "confidence": 0.92,
     "inferred_intent": "action_request",
-    "context_summary": "The customer is requesting a refund for order #7714c18c-6f08-585a-8f42-710a47918361 ($44.99). They initially requested the refund, briefly paused to ask about gift wrapping, then confirmed they want to proceed. No refund reason was captured before the conversation was escalated.\nEscalation reason: llm_escalation_intent",
+    "context_summary": "",
     "trace": [
+      {
+        "kind": "loop_unknown_tool",
+        "tool": "initiate_refund"
+      },
       {
         "kind": "output_guard",
         "verdict": "pass",
         "failure_type": null,
-        "explanation": "The draft accurately reflects that the refund attempt failed (initiate_refund returned an error) and makes no unsupported claims, false completions, or policy assertions. It announces a live handoff to a human agent to resolve the issue.",
-        "draft": "Something went wrong on my end when I tried to initiate the refund \u2014 I want to get this handled properly for you, so I'm going to bring in a human agent to take it from here."
+        "explanation": "The draft response echoes the correct order ID from known_ids and customer_orders, accurately reflects the $44.99 order total, and presents the refund as a pending confirmation rather than a completed action. No unsupported claims, no hallucinated IDs, no system disclosure, and no cross-customer data. The tool confirmed eligibility but no refund action has been executed yet, and the response correctly seeks confirmation before proceeding.",
+        "draft": "Just to confirm \u2014 you'd like to proceed with the return/refund for order #7714c18c-6f08-585a-8f42-710a47918361 ($44.99)? I want to make sure before I kick it off."
       }
     ],
     "structural_summary": ""

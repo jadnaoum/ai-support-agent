@@ -51,3 +51,19 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+# Thinking-off request settings for models that think by default. Every agent
+# step is a single-shot call tuned without thinking (Sonnet 4.6 never thinks
+# unless asked), so newer models are held to the same setup. Sonnet 5.5 rejects
+# "disabled" and takes "between_tools" instead; Haiku 5.5 accepts "disabled".
+_THINKING_OFF = {
+    "claude-sonnet-5-5": {"type": "between_tools"},
+    "claude-haiku-5-5": {"type": "disabled"},
+}
+
+
+def llm_kwargs(model: str) -> dict:
+    """Extra litellm.acompletion kwargs for `model` (empty for Sonnet 4.6)."""
+    thinking = _THINKING_OFF.get((model or "").split("/")[-1])
+    return {"thinking": thinking} if thinking else {}
