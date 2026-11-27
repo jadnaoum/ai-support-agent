@@ -8,6 +8,14 @@ The customer's recent-orders summary (`customer_context["recent_orders"]`, rende
 
 No-`order_id` resolution is structural: `_no_order_id_selection_data` in `order_tools.py` (shared by real and mock tools) — 1 order → use it; 2+ → `order_id_required` + `candidate_orders`, and `_service_needs_loop` ends the turn on `candidate_orders` so the customer chooses. Never reintroduce a "newest order" default.
 
+## Earlier turns' results and today's date (2026-11-27, Jad)
+
+Same who-sees-what split for two more context blocks:
+
+- **Earlier-turn context** (`state["earlier_context"]`, saved in `turn_state` by `carry_earlier_context` in `chat.py`): the last 3 turns' tool results + top 2 KB passages per turn. **Reply step + output guard only** (`with_earlier=True`; the guard gets them in `results_from_earlier_turns` / `kb_content`). Without it Sonnet 5.5 retracted true facts from its own earlier replies ("disregard the 1 year I mentioned"). Never give it to the classifier or loop-decision step: stale results there would skip a fresh lookup.
+- **Today's date** (`today_line()` in `order_context.py`, UTC — the tools' clock): reply step + output guard (top of `<customer_orders>`). Lets "delivered yesterday" be checked; without it 5.5 "corrected" true relative dates.
+- **The output guard sees both sides of the conversation** (last 6 messages, role-labelled), so a draft that repeats or corrects an earlier reply can be verified.
+
 ## Accepted risk: business logic derived from order/product data (decision 2026-11-24, Jad)
 
 Showing order and product data to the LLM steps is a deliberate departure from the original design (name-only context, all order data via tools). Jad chose it for customer experience — answering accurately about the customer's own orders — and accepted the risk that the agent works out business logic (eligibility, return windows, deadlines, warranty coverage) from that data instead of taking it from the tools.

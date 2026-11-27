@@ -344,6 +344,7 @@ async def stream_response(
         "escalation_reason": "",
         "actions_taken": [],        # always empty at turn start — service_ran gate depends on this
         "prior_turn_actions": prior_turn_state.get("actions_taken", []),  # cross-turn confirmation gate
+        "earlier_context": prior_turn_state.get("earlier_context", []),
         "response": "",
         "pending_service": "",
         "pending_action": {},
@@ -609,6 +610,28 @@ class TestChatRequest(BaseModel):
 
 
 
+EARLIER_TURNS_KEPT = 3        # turns of earlier tool results / KB carried forward
+EARLIER_KB_PER_TURN = 2       # KB passages kept per turn (token budget)
+
+
+def carry_earlier_context(final_state: dict) -> list:
+    """This turn's tool results and top KB passages, appended to what earlier
+    turns left, keeping the last EARLIER_TURNS_KEPT turns. The next turn's reply
+    step and output guard see it, so the agent knows what its earlier replies
+    were based on (without it Sonnet 5.5 retracted true facts from earlier
+    replies, and nothing could verify them)."""
+    earlier = list(final_state.get("earlier_context") or [])
+    results = [r for r in (final_state.get("action_results") or []) if isinstance(r, dict)]
+    kb = [
+        {k: c.get(k) for k in ("title", "category", "chunk_text")}
+        for c in (final_state.get("retrieved_context") or [])[:EARLIER_KB_PER_TURN]
+        if isinstance(c, dict)
+    ]
+    if results or kb:
+        earlier.append({"results": results, "kb": kb})
+    return earlier[-EARLIER_TURNS_KEPT:]
+
+
 def next_turn_state(final_state: dict) -> "dict | None":
     """What carries into the next turn (conversations.turn_state). None after an
     escalation — the conversation is handed off. Shared by the live stream and
@@ -624,6 +647,7 @@ def next_turn_state(final_state: dict) -> "dict | None":
         "provocative_count": final_state.get("provocative_count", 0),
         "consecutive_high_negative": final_state.get("consecutive_high_negative", 0),
         "last_clarification_source": final_state.get("last_clarification_source", ""),
+        "earlier_context": carry_earlier_context(final_state),
     }
 
 
@@ -712,6 +736,7 @@ async def test_chat(
             "escalation_reason": "",
             "actions_taken": synthetic_actions_taken,
             "prior_turn_actions": [],
+            "earlier_context": [],
             "response": "",
             "pending_service": "",
             "pending_action": {},
@@ -793,6 +818,7 @@ async def test_chat(
         "escalation_reason": "",
         "actions_taken": [],
         "prior_turn_actions": [],
+        "earlier_context": [],
         "response": "",
         "pending_service": "",
         "pending_action": {},
@@ -816,7 +842,7 @@ async def test_chat(
     # (cleared between turns). Injecting prior-turn results would give the agent context
     # it would never have in a real conversation.
     _ALLOWED_MOCK_STATE_KEYS = {
-        "service_call_count",
+        "service_call_count", "earlier_context",
         "retrieved_context", "consecutive_blocks", "last_clarification_source",
         "customer_context",
         "consecutive_small_talk", "total_small_talk", "provocative_count",
@@ -826,6 +852,13 @@ async def test_chat(
         for key, value in body.mock_agent_state.items():
             if key == "actions_taken":
                 initial_state["prior_turn_actions"] = value
+            elif key == "action_results":
+                # Results a fixture lists for earlier turns are what those turns'
+                # replies were based on: they reach the agent as earlier context,
+                # never as this turn's results.
+                initial_state["earlier_context"] = (
+                    list(initial_state.get("earlier_context") or []) + [{"results": value, "kb": []}]
+                )
             elif key in _ALLOWED_MOCK_STATE_KEYS:
                 initial_state[key] = value
 

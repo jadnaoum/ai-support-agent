@@ -52,3 +52,16 @@ The runner resolves refs to live `docs/kb/` text at run time (`_resolve_kb_refs`
 ## Escalation sheet: expected reasons are system enum codes
 
 The `escalation_reason` column holds ESCALATION_TRIGGER_REASONS codes (backend/agents/escalation.py), pipe-separated for alternatives (e.g. `llm_escalation_intent|no_information` for Option-2 handoffs, where which side fires depends on live retrieval). `none` = no escalation expected. The match is checked PROGRAMMATICALLY in judge_escalation (exact code comparison before any LLM call) — never write semantic labels here; scenario semantics belong in expected_behavior.
+
+## Earlier agent turns must be backed: earlier_context
+
+Hand-written earlier agent turns in a fixture state facts (dates, refunds, "I've started your return"). Back each with what it would have come from, in `mock_agent_state.earlier_context` — the same shape production carries between turns:
+
+```json
+{"earlier_context": [{"results": [<tool result as the mock tool returns it>], "kb": [{"kb_ref": {"file": "warranties.md", "heading": "Warranty Periods by Product"}}]}]}
+```
+
+- `$EVAL_DATE` placeholders and `kb_ref` entries resolve inside it like everywhere else.
+- A legacy `mock_agent_state.action_results` list is passed through as one earlier turn (it used to be silently dropped).
+- Earlier turns must be TRUE given the account and KB, and must not promise things the agent can't do ("I'll keep monitoring it", "I'll flag it"). Otherwise the honest behaviour is to correct them, and the case tests the fixture, not the agent (CR-007/008/009, KB-012, ES-004 were rewritten 2026-11-27 for this).
+- Every agent sheet has a `mock_agent_state` column (PII got one 2026-11-27); the runner reads it by header name.

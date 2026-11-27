@@ -16,6 +16,7 @@ import litellm
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from evals.config import JUDGE_MODEL_BEHAVIORAL, JUDGE_MODEL_CALIBRATION  # noqa: E402
+from evals.judges.actions import actions_with_results  # noqa: E402
 from prompts.loader import get_prompt  # noqa: E402
 
 
@@ -118,7 +119,7 @@ async def judge_policy_compliance(test_case: dict, agent_response: dict, calibra
         judge_rubric=test_case.get("judge_rubric", ""),
         agent_response=agent_response.get("response", ""),
         requires_escalation=agent_response.get("requires_escalation", False),
-        actions_taken=json.dumps(agent_response.get("actions_taken", [])),
+        actions_taken=actions_with_results(agent_response),
     )
     return await _llm_judge(prompt, calibrate)
 
@@ -139,7 +140,7 @@ async def judge_graceful_failure(test_case: dict, agent_response: dict, calibrat
         judge_rubric=test_case.get("judge_rubric", ""),
         agent_response=agent_response.get("response", ""),
         requires_escalation=agent_response.get("requires_escalation", False),
-        actions_taken=json.dumps(agent_response.get("actions_taken", [])),
+        actions_taken=actions_with_results(agent_response),
     )
     return await _llm_judge(prompt, calibrate)
 

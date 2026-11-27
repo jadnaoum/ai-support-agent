@@ -287,10 +287,23 @@ def _resolve_kb_refs(mock_agent_state: dict) -> dict:
     restructure breaks the run loudly instead of grading against stale text.
     Plain chunk entries (with chunk_text) pass through unchanged.
     """
-    if not mock_agent_state or not mock_agent_state.get("retrieved_context"):
+    if not mock_agent_state:
         return mock_agent_state
+    out = dict(mock_agent_state)
+    if out.get("retrieved_context"):
+        out["retrieved_context"] = _resolve_kb_entries(out["retrieved_context"])
+    if out.get("earlier_context"):
+        # Earlier turns' KB passages use the same kb_ref form.
+        out["earlier_context"] = [
+            {**turn, "kb": _resolve_kb_entries(turn.get("kb") or [])}
+            for turn in out["earlier_context"]
+        ]
+    return out
+
+
+def _resolve_kb_entries(entries: list) -> list:
     resolved = []
-    for entry in mock_agent_state["retrieved_context"]:
+    for entry in entries:
         ref = entry.get("kb_ref") if isinstance(entry, dict) else None
         if not ref:
             resolved.append(entry)
@@ -313,7 +326,7 @@ def _resolve_kb_refs(mock_agent_state: dict) -> dict:
             "category": _KB_CATEGORY.get(ref["file"], "general"),
             "similarity": entry.get("similarity", 0.85),
         })
-    return {**mock_agent_state, "retrieved_context": resolved}
+    return resolved
 
 
 def _call_agent_full(messages: list, mock_context: dict, customer_id: str = None,

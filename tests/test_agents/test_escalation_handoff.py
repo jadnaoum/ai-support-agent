@@ -1,3 +1,4 @@
+import pytest
 """
 Classifier "decided" trigger, account-holder context, and the contextual
 handoff message on code-triggered escalations. All LLM calls are mocked.
@@ -64,16 +65,46 @@ async def test_classifier_omits_account_holder_when_unknown():
     assert len(llm.call_args.kwargs["messages"][0]["content"]) == 1
 
 
-async def test_escalation_uses_generated_handoff_message():
-    async def dispatch(**kwargs):
-        content = kwargs["messages"][0]["content"]
-        if "handing this conversation over" in content:
-            return _completion("Since this account belongs to someone else, I'm passing this to a colleague.")
-        return _completion("Internal briefing.")
-    with patch(f"{MOD}.litellm.acompletion", new_callable=AsyncMock, side_effect=dispatch):
+async def test_reply_step_writes_context_aware_handoffs():
+    """classifier_decided & co: the reply step writes the handoff with the
+    handoff snippet + reason label, and the output guard checks it."""
+    with patch(f"{MOD}._generate_response", new_callable=AsyncMock,
+               return_value="Since this account belongs to someone else, I'm passing this to a colleague.") as gen, \
+         patch(f"{MOD}.check_output", new_callable=AsyncMock, return_value={"safe": True}) as guard, \
+         patch(f"{MOD}.litellm.acompletion", new_callable=AsyncMock, return_value=_completion("Internal briefing.")):
         result = await _do_escalate("classifier_decided", _state(), {})
     assert result["response"].startswith("Since this account belongs to someone else")
+    assert gen.call_args.kwargs["handoff_reason"] == "classifier_decided"
+    guard.assert_awaited_once()
+    # the guard sees the handoff as an action taken, so "I'm passing this to a
+    # colleague" isn't read as a claim about an action no tool performed
+    guard_state = guard.call_args.args[1]
+    assert {"service": "escalation_handler", "action": "escalate", "reason": "classifier_decided"} in guard_state["actions_taken"]
     assert result["context_summary"].startswith("Internal briefing.")
+
+
+async def test_blocked_handoff_draft_falls_back_to_fixed_sentence():
+    with patch(f"{MOD}._generate_response", new_callable=AsyncMock, return_value="Invented claim."), \
+         patch(f"{MOD}.check_output", new_callable=AsyncMock, return_value={"safe": False, "reason": "unsupported_claim"}), \
+         patch(f"{MOD}.litellm.acompletion", new_callable=AsyncMock, return_value=_completion("Internal briefing.")):
+        result = await _do_escalate("customer_frustrated", _state(), {})
+    assert result["response"] == _HANDOFF_MESSAGE
+
+
+@pytest.mark.parametrize("reason", ["abusive_input", "provocative_input", "output_guard_block", "unhandled_error"])
+async def test_off_the_rails_and_error_handoffs_use_the_fixed_sentence(reason):
+    with patch(f"{MOD}._generate_response", new_callable=AsyncMock) as gen, \
+         patch(f"{MOD}.litellm.acompletion", new_callable=AsyncMock, return_value=_completion("Internal briefing.")):
+        result = await _do_escalate(reason, _state(), {})
+    gen.assert_not_awaited()
+    assert result["response"] == _HANDOFF_MESSAGE
+
+
+def test_handoff_snippet_and_reason_reach_the_reply_context():
+    from backend.agents.conversation import _build_context_section
+    ctx = _build_context_section({"customer_context": {}}, handoff_reason="customer_frustrated")
+    assert "handing this conversation to a colleague" in ctx
+    assert "Handoff reason: customer_frustrated" in ctx
 
 
 async def test_escalation_falls_back_to_fixed_message_on_error():

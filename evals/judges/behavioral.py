@@ -17,6 +17,7 @@ import litellm
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from evals.config import JUDGE_MODEL_BEHAVIORAL, JUDGE_MODEL_CALIBRATION  # noqa: E402
+from evals.judges.actions import actions_with_results  # noqa: E402
 from prompts.loader import get_prompt  # noqa: E402
 
 
@@ -99,7 +100,7 @@ async def judge_kb_retrieval(test_case: dict, agent_response: dict, calibrate: b
         expected_behavior=test_case.get("expected_behavior", ""),
         judge_rubric=test_case.get("judge_rubric", ""),
         agent_response=agent_response.get("response", ""),
-        actions_taken=json.dumps(agent_response.get("actions_taken", [])),
+        actions_taken=actions_with_results(agent_response),
     )
     return await _llm_judge(prompt, calibrate)
 
@@ -120,7 +121,7 @@ async def judge_action_execution(test_case: dict, agent_response: dict, calibrat
         expected_behavior=test_case.get("expected_behavior", ""),
         judge_rubric=test_case.get("judge_rubric", ""),
         agent_response=agent_response.get("response", ""),
-        actions_taken=json.dumps(agent_response.get("actions_taken", [])),
+        actions_taken=actions_with_results(agent_response),
         confidence=agent_response.get("confidence", 0.0),
         requires_escalation=agent_response.get("requires_escalation", False),
     )
@@ -175,7 +176,7 @@ async def judge_escalation(test_case: dict, agent_response: dict, calibrate: boo
         agent_response=agent_response.get("response", ""),
         requires_escalation=agent_response.get("requires_escalation", False),
         escalation_reason_actual=agent_response.get("escalation_reason", ""),
-        actions_taken=json.dumps(agent_response.get("actions_taken", [])),
+        actions_taken=actions_with_results(agent_response),
         context_summary=agent_response.get("context_summary") or "(not captured)",
     )
     return await _llm_judge(prompt, calibrate)

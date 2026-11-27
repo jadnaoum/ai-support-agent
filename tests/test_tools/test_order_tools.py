@@ -877,3 +877,21 @@ async def test_check_missing_package_carrier_claim_eligible(db, customer, stale_
     assert "product_name" in result
     assert "delivered_date" in result
     assert "business_days_since_delivery" in result
+
+
+def test_return_eligibility_carries_category_and_window_length():
+    """ES-021: the agent reads category and window from the tool, never guesses
+    them from the product name."""
+    from datetime import datetime, timedelta, timezone
+    from backend.tools.order_tools import _check_return_eligibility_data
+    now = datetime(2026, 11, 27, tzinfo=timezone.utc)
+    blender = {"category": "home_goods", "return_window_days": 30, "warranty_months": 12}
+    order = {"status": "delivered", "delivered_at": now - timedelta(days=45)}
+    defective = _check_return_eligibility_data(order, [blender], reason="defective", now=now)
+    assert defective["requires_escalation"] is True
+    assert defective["return_window_days"] == 30 and defective["category"] == "home_goods"
+    standard = _check_return_eligibility_data(order, [blender], now=now)
+    assert standard["reason"] == "outside_return_window" and standard["category"] == "home_goods"
+    lamp = {"category": "electronics", "return_window_days": 14}
+    mixed = _check_return_eligibility_data(order, [blender, lamp], now=now)
+    assert mixed["category"] == ["electronics", "home_goods"] and mixed["return_window_days"] == 14

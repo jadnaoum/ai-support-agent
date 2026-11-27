@@ -12,6 +12,7 @@ class AgentState(TypedDict):
     escalation_reason: str      # why escalation was triggered
     actions_taken: list[dict]   # audit trail of service calls THIS turn (empty at turn start; used by service_ran gate)
     prior_turn_actions: list    # actions_taken persisted from prior turns; used only by the confirmation gate
+    earlier_context: list       # tool results + top KB passages from the last few turns (reply step + output guard only)
     response: str               # final customer-facing response text
     pending_service: str        # internal routing: "knowledge"|"action"|"" (empty = none pending)
     pending_action: dict        # {"tool": "cancel_order", "params": {...}} set by conversation agent

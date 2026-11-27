@@ -14,3 +14,6 @@ frontend/dist/
 *.log
 .DS_Store
 test_output.txt
+
+# Office lock files (open spreadsheets)
+~$*

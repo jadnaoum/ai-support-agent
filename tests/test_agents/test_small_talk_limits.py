@@ -89,18 +89,21 @@ async def test_fourth_in_total_is_answered_with_warning():
     assert result["total_small_talk"] == 4
 
 
-async def test_third_in_a_row_escalates_without_generating_a_response():
+async def test_third_in_a_row_escalates_with_a_handoff_not_an_answer():
     result, gen = await _run_small_talk(_state(consecutive_small_talk=2, total_small_talk=2))
     assert result["requires_escalation"] is True
     assert result["escalation_reason"] == "excessive_small_talk"
-    gen.assert_not_awaited()
+    # the reply step writes only the handoff (2026-11-27), never a normal answer
+    gen.assert_awaited_once()
+    assert gen.call_args.kwargs["handoff_reason"] == "excessive_small_talk"
 
 
 async def test_fifth_in_total_escalates():
     result, gen = await _run_small_talk(_state(consecutive_small_talk=0, total_small_talk=4))
     assert result["requires_escalation"] is True
     assert result["escalation_reason"] == "excessive_small_talk"
-    gen.assert_not_awaited()
+    gen.assert_awaited_once()
+    assert gen.call_args.kwargs["handoff_reason"] == "excessive_small_talk"
 
 
 async def test_other_intent_resets_streak_but_not_total():
