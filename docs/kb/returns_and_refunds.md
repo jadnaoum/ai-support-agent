@@ -38,7 +38,7 @@ Two options:
 
 Returns on orders over €50 are subject to a brief review before the label is issued — our team follows up within 1–2 business days.
 
-Once we receive your return, allow 3–5 business days for inspection and processing.
+Once we receive your return, allow 1–3 business days for inspection and processing.
 
 ## Refund Timing and Methods
 
@@ -47,6 +47,8 @@ Refunds go to the original payment method:
 - **PayPal** — 1–3 business days
 - **Store credit** — applied instantly on approval
 - **Gift card purchases** — refunded as store credit, not back to the gift card
+
+In total, expect about 5–8 business days from when we receive your return to money on your card (2–6 for PayPal).
 
 For cancellations, refunds are issued automatically to your original payment method. For returns, refunds are issued automatically once we inspect and accept the item. You'll receive an email confirmation when the refund is issued.
 
