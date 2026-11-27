@@ -19,7 +19,7 @@ LLM_TIMEOUT = 30  # seconds per LLM call — prevents hung API requests from sta
 
 from backend.config import get_settings, llm_kwargs
 from backend.agents.state import AgentState
-from backend.agents.order_context import format_recent_orders
+from backend.agents.order_context import format_recent_orders, today_line
 from backend.agents import run_trace
 from backend.agents.escalation import handle_escalation, build_context_summary, run_escalation_side_effects
 from backend.guardrails.input_guard import check_input, log_blocked_attempt
@@ -160,11 +160,26 @@ def _result_guidance_notes(action_results: list) -> "list[str]":
     return [guidance[k] for k in keys]
 
 
+def format_earlier_context(earlier: list) -> str:
+    """Earlier turns' tool results and KB passages, labelled apart from this
+    turn's. Shared by the reply step and the output guard so both see the same."""
+    results = [r for turn in (earlier or []) for r in (turn.get("results") or [])]
+    kb = [c for turn in (earlier or []) for c in (turn.get("kb") or [])]
+    parts = []
+    if kb:
+        parts.append("\nKnowledge Base (earlier turns):\n" + "\n\n---\n\n".join(
+            f"Source: {c.get('title')} ({c.get('category')})\n{c.get('chunk_text')}" for c in kb))
+    if results:
+        parts.append(f"\nAction Results (earlier turns):\n{json.dumps(results, indent=2)}")
+    return "\n".join(parts)
+
+
 def _build_context_section(
     state: AgentState,
     with_result_guidance: bool = False,
     small_talk_warning: bool = False,
     with_orders: bool = True,
+    with_earlier: bool = False,
 ) -> str:
     chunks = state.get("retrieved_context") or []
     action_results = state.get("action_results") or []
@@ -185,6 +200,10 @@ def _build_context_section(
             for c in chunks
         )
         parts.append(f"\nKnowledge Base:\n{kb_text}")
+    if with_earlier:
+        # Reply step only (with the earlier turns' results it dates against)
+        parts.append("\n" + today_line())
+        parts.append(format_earlier_context(state.get("earlier_context")))
     if action_results:
         parts.append(f"\nAction Results:\n{json.dumps(action_results, indent=2)}")
         if with_result_guidance:
@@ -299,6 +318,7 @@ async def _generate_response(state: AgentState, small_talk_warning: bool = False
     """Generate the customer-facing response from conversation history + service results."""
     context_section = _build_context_section(
         state, with_result_guidance=True, small_talk_warning=small_talk_warning,
+        with_earlier=True,
     )
     system_content = RESPONSE_PROMPT.format(context_section=context_section)
 

@@ -27,7 +27,7 @@ import litellm
 from backend.demo.sink import emit
 
 from backend.agents import run_trace
-from backend.agents.order_context import format_recent_orders
+from backend.agents.order_context import format_recent_orders, today_line
 from backend.agents.state import AgentState
 from backend.config import get_settings, llm_kwargs
 from prompts.loader import get_prompt
@@ -46,12 +46,17 @@ _UUID_RE = re.compile(
 
 def _build_guard_context(response: str, state: AgentState) -> str:
     """Assemble the filled OUTPUT_GUARD_PROMPT string from state."""
-    # Recent customer messages (last 6)
-    customer_msgs = [
-        m["content"] for m in (state.get("messages") or [])
-        if m.get("role") == "customer"
-    ]
-    conversation = "\n".join(f"- {m}" for m in customer_msgs[-6:]) or "(none)"
+    # Recent conversation, both sides (last 6 messages). The agent's own earlier
+    # replies are included so a draft that repeats or corrects one of them can
+    # be checked against what was actually said.
+    role_label = {"customer": "Customer", "agent": "Agent"}
+    recent = [m for m in (state.get("messages") or []) if m.get("role") in role_label][-6:]
+    conversation = "\n".join(
+        f"- {role_label[m['role']]}: {m['content']}" for m in recent
+    ) or "(none)"
+    earlier = state.get("earlier_context") or []
+    earlier_results = [r for t in earlier for r in (t.get("results") or []) if isinstance(r, dict)]
+    earlier_kb = [c for t in earlier for c in (t.get("kb") or []) if isinstance(c, dict)]
 
     # Tools called this turn + their results
     actions = state.get("actions_taken") or []
@@ -63,6 +68,9 @@ def _build_guard_context(response: str, state: AgentState) -> str:
         ],
         "results": action_results,
     }
+    if earlier_results:
+        # What the agent's earlier replies were based on (same as the reply step sees)
+        tools_payload["results_from_earlier_turns"] = earlier_results
     tools_called = json.dumps(tools_payload, indent=2)
 
     # IDs legitimately present in this conversation's context, mapped to a
@@ -82,7 +90,7 @@ def _build_guard_context(response: str, state: AgentState) -> str:
         oid = order.get("order_id", "")
         if oid:
             ids.setdefault(oid, "order ID")
-    for result in action_results:
+    for result in action_results + earlier_results:
         if isinstance(result, dict):
             for v in result.values():
                 if isinstance(v, str) and _UUID_RE.match(v):
@@ -104,6 +112,9 @@ def _build_guard_context(response: str, state: AgentState) -> str:
     chunks = state.get("retrieved_context") or []
     kb_parts = [c.get("chunk_text", "") for c in chunks]
     kb_content = "\n\n---\n\n".join(kb_parts) or "(none)"
+    if earlier_kb:
+        kb_content += "\n\n--- (earlier turns) ---\n\n" + "\n\n---\n\n".join(
+            c.get("chunk_text", "") for c in earlier_kb)
 
     return OUTPUT_GUARD_PROMPT.format(
         response=response,
@@ -112,7 +123,9 @@ def _build_guard_context(response: str, state: AgentState) -> str:
         known_ids=known_ids,
         # Same block the response agent sees, so details it repeats from the
         # order list ("your lamp from Nov 2") are verifiable evidence.
-        customer_orders=format_recent_orders(ctx) or "(none)",
+        # Today's date rides with the order list: the same line the reply step
+        # sees, so relative dates in a draft can be verified.
+        customer_orders=today_line() + "\n" + (format_recent_orders(ctx) or "(none)"),
         kb_content=kb_content,
     )
 

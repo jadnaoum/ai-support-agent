@@ -54,7 +54,9 @@ async def test_output_guard_receives_same_order_block():
                new_callable=AsyncMock, return_value=mock) as llm:
         await check_output("Your desk lamp from Nov 2 has shipped.", state)
     prompt = llm.call_args.kwargs["messages"][0]["content"]
-    assert "<customer_orders>\n" + format_recent_orders(state["customer_context"]) in prompt
+    from backend.agents.order_context import today_line
+    assert ("<customer_orders>\n" + today_line() + "\n"
+            + format_recent_orders(state["customer_context"])) in prompt
 
 
 def test_mock_recent_orders_matches_production_shape():

@@ -4,6 +4,15 @@ text block the response agent and the output guard both see (one renderer, so
 the guard verifies exactly what the agent was shown). The intent classifier
 gets the identity-only variant; the loop-decision step gets no list at all.
 """
+from datetime import datetime, timezone
+
+
+def today_line(now: "datetime | None" = None) -> str:
+    """Today's date for the reply step and output guard, so relative dates
+    ("delivered yesterday", "3 days ago") can be checked against tool dates.
+    Same clock as the tools' eligibility checks (UTC)."""
+    now = now or datetime.now(timezone.utc)
+    return f"Today's date: {now:%Y-%m-%d} ({now:%A})"
 
 
 def _order_line(order: dict, identity_only: bool) -> str:
