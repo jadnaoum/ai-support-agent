@@ -72,6 +72,7 @@ export default function ChatPage({ readOnly = false }: { readOnly?: boolean }) {
           />
           {!readOnly && conv.phase === 'chatting' && (
             <Composer
+              suggestions={customer.suggested_prompts}
               busy={conv.busy}
               error={conv.error}
               onSend={conv.send}

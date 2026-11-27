@@ -1,8 +1,7 @@
 import { UserCheck } from 'lucide-react'
 import type { TurnView } from '@/hooks/useConversation'
-import type { PipelineEvent } from '@/lib/types'
 import { useElapsed } from '@/hooks/useConversation'
-import { stepView } from '@/lib/pipeline'
+import { turnSteps } from '@/lib/pipeline'
 import { fmtLatency, humanize, truncate } from '@/lib/format'
 import { PipelineStep } from './PipelineStep'
 
@@ -32,24 +31,6 @@ function Briefing({ reason, summary }: { reason: string; summary: string }) {
   )
 }
 
-/** What the pipeline is most likely doing after the last reported step. */
-export function nextStepLabel(events: PipelineEvent[]): string {
-  const last = events[events.length - 1]
-  if (!last) return 'Checking the message'
-  switch (last.type) {
-    case 'input_guard':
-      return last.verdict === 'safe' ? 'Deciding what to do' : 'Writing a redirect'
-    case 'tool_call':
-      return 'Deciding what to do with the result'
-    case 'kb_retrieval':
-      return 'Writing a reply from the policy'
-    case 'output_guard':
-      return 'Sending'
-    default:
-      return 'Working'
-  }
-}
-
 export function TurnCard({ turn }: { turn: TurnView }) {
   const running = turn.status === 'running' || turn.status === 'queued' || turn.status === 'streaming'
   const elapsed = useElapsed(turn.startedAt, running)
@@ -62,7 +43,7 @@ export function TurnCard({ turn }: { turn: TurnView }) {
   else right = fmtLatency(record?.latency_ms)
 
   return (
-    <div className="flex flex-col gap-2.5 rounded-[10px] border border-neutral-200 bg-white px-4 py-3">
+    <div className={'flex flex-col gap-2 rounded-[10px] border bg-white px-4 py-3 ' + (running ? 'border-dashed border-brand-purple-line' : 'border-neutral-200')}>
       <div className="flex items-center justify-between gap-2.5">
         <div className="flex min-w-0 items-center gap-2.5">
           <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md bg-neutral-900 text-[11px] font-semibold text-white">
@@ -72,25 +53,15 @@ export function TurnCard({ turn }: { turn: TurnView }) {
         </div>
         <span className={'shrink-0 text-xs text-neutral-400 ' + (running ? 'animate-soft-pulse' : '')}>{right}</span>
       </div>
-      <div className="flex flex-col gap-0.5 pl-1">
+      <div className="flex flex-col border-t border-neutral-100 pt-1">
         {record ? (
-          record.events.map((e, i) =>
-            e.type === 'escalation' ? null : <PipelineStep key={i} step={stepView(e)} />,
-          )
+          turnSteps(record.events, false).map((s, i) => <PipelineStep key={i} step={s} />)
         ) : turn.status === 'queued' ? (
-          <PipelineStep step={{ tone: 'grey', icon: 'minus', label: 'Waiting for a free slot' }} />
+          <PipelineStep step={{ kind: 'wait', status: 'pending', title: 'Waiting for a free slot' }} />
         ) : turn.status === 'error' ? (
-          <PipelineStep step={{ tone: 'red', icon: 'error', label: 'The stream dropped before the turn finished' }} />
+          <PipelineStep step={{ kind: 'error', status: 'error', title: 'The stream dropped before the turn finished' }} />
         ) : (
-          <>
-            {turn.liveEvents.map((e, i) => (
-              <PipelineStep key={i} step={stepView(e)} />
-            ))}
-            <PipelineStep
-              pulse
-              step={{ tone: 'indigo', icon: 'spinner', label: nextStepLabel(turn.liveEvents) }}
-            />
-          </>
+          turnSteps(turn.liveEvents, true).map((s, i) => <PipelineStep key={i} step={s} />)
         )}
         {escalation && escalation.type === 'escalation' && (
           <Briefing reason={escalation.reason} summary={escalation.context_summary} />

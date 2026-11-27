@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 
 export function Composer({
+  suggestions,
   busy,
   error,
   onSend,
   onDismissError,
 }: {
+  suggestions: string[]
   busy: boolean
   error: string | null
   onSend: (text: string) => void
@@ -27,6 +29,25 @@ export function Composer({
 
   return (
     <div className="flex shrink-0 flex-col gap-2.5 border-t border-neutral-200 px-6 pb-4 pt-3">
+      {suggestions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] text-neutral-400">Try</span>
+          {suggestions.map((s) => (
+            <button
+              key={s}
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setText(s)
+                inputRef.current?.focus()
+              }}
+              className="rounded-full border border-neutral-200 bg-white px-2.5 py-1 text-xs text-neutral-600 hover:border-neutral-400 disabled:opacity-50"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
       {error && (
         <button
           type="button"

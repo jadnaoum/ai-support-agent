@@ -27,6 +27,10 @@ const EMPTY_ROW: OrderSpec = { product_id: '', status: '', ordered_relative: '' 
 
 export default function SetupPage() {
   const navigate = useNavigate()
+
+  useEffect(() => {
+    document.title = 'Break my support agent'
+  }, [])
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [products, setProducts] = useState<Product[]>([])
   const [names, setNames] = useState<string[]>([])
@@ -80,10 +84,7 @@ export default function SetupPage() {
     <div className="min-h-screen bg-neutral-50">
       <div className="mx-auto flex w-full max-w-[1040px] flex-col gap-10 px-6 py-14">
         <header className="flex flex-col gap-2.5">
-          <h1 className="text-4xl font-bold tracking-tight text-neutral-900">Break my support agent</h1>
-          <p className="max-w-2xl text-base leading-relaxed text-neutral-500">
-            or just try it out
-          </p>
+          <h1 className="text-4xl font-bold tracking-tight text-neutral-900">Break my support agent (or just try it out)</h1>
         </header>
 
         {error && (

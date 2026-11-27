@@ -3,7 +3,7 @@ import { Loader2, UserCheck } from 'lucide-react'
 import type { ChatMessage, TurnView } from '@/hooks/useConversation'
 import { useElapsed } from '@/hooks/useConversation'
 import { fmtLatency } from '@/lib/format'
-import { nextStepLabel } from '@/components/behind/TurnCard'
+import { nextStepLabel } from '@/lib/pipeline'
 
 function Avatar() {
   return (

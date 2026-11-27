@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import type { DemoCustomer } from '@/lib/types'
 import type { ReplyStats } from '@/lib/stats'
 import { fmtCost, fmtLatency } from '@/lib/format'
@@ -50,11 +51,16 @@ export function TopBar({
       <div className="flex max-w-full items-center gap-2 overflow-x-auto">
         <Pill label="Last reply time" value={fmtLatency(stats.lastLatencyMs)} />
         <Pill label="Last reply cost" value={fmtCost(stats.lastCostUsd, stats.lastCostBasis)} />
-        {!readOnly && (
-          <Button variant="outline" size="sm" className="ml-2 shrink-0" onClick={onEnd} disabled={ended || busy}>
-            {ended ? 'Chat ended' : 'End chat'}
-          </Button>
-        )}
+        {!readOnly &&
+          (ended ? (
+            <Button asChild size="sm" className="ml-2 shrink-0">
+              <Link to="/">Start over</Link>
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" className="ml-2 shrink-0" onClick={onEnd} disabled={busy}>
+              End chat
+            </Button>
+          ))}
       </div>
     </header>
   )
