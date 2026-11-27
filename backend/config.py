@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     database_url_sync: str = "postgresql+pg8000://jad@localhost:5432/support_agent"
 
     # LLM (via LiteLLM)
-    litellm_model: str = "claude-sonnet-4-6"
+    litellm_model: str = "claude-sonnet-5-5"  # reply steps (response, redirect, handoff message); thinking off via llm_kwargs. Chosen by Jad 2026-11-27 (PENDING #42)
     litellm_guard_model: str = "claude-sonnet-4-6"  # model for input/output guard LLM calls; swap to a cheaper model once validated
     litellm_classifier_model: str = "claude-sonnet-4-6"  # intent classifier + loop decision; swap to Haiku only after an eval baseline validates it
     litellm_embedding_model: str = "text-embedding-3-small"

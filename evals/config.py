@@ -88,7 +88,7 @@ SHEET_CALL_PROFILE = {
 }
 
 # Agent model (mirrors backend/config.py litellm_model default)
-AGENT_MODEL = os.environ.get("LITELLM_MODEL", "claude-sonnet-4-6")
+AGENT_MODEL = os.environ.get("LITELLM_MODEL", "claude-sonnet-5-5")
 
 # Per-token prices (USD) for pre-run cost estimation.
 # LiteLLM's completion_cost() doesn't resolve these short model IDs reliably,

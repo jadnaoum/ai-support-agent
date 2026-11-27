@@ -568,7 +568,7 @@ Current state: **19 chunks across 6 documents** — returns_and_refunds, shippin
 |---|---|---|
 | `database_url` | `postgresql+asyncpg://localhost/support_agent` | Async DB URL (FastAPI / pytest) |
 | `database_url_sync` | `postgresql+pg8000://localhost/support_agent` | Sync DB URL (Alembic) |
-| `litellm_model` | `claude-sonnet-4-6` | Model for all LLM completions |
+| `litellm_model` | `claude-sonnet-5-5` | Reply steps: response, redirect, handoff message (thinking off). Guards and classifier have their own settings |
 | `litellm_embedding_model` | `text-embedding-3-small` | Model for KB embeddings |
 | `anthropic_api_key` | `""` | Set in `.env` |
 | `openai_api_key` | `""` | Set in `.env` (for embeddings) |
