@@ -1,4 +1,4 @@
-<title>eval_gaps_v1 Review</title>
+<title>Sonnet 5.5 Eval Review</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -71,6 +71,7 @@ section.group { margin-bottom: 28px }
 .more { padding: 8px 0 6px 82px; font-size: 14px; color: var(--ink) }
 .more p { margin: 0 0 8px; max-width: 80ch } .more b { font-weight: 600 }
 .more .small { color: var(--muted); font-size: 13px }
+.theme .small { color: var(--muted); font-size: 13px; margin: 2px 0 4px; flex-basis: 100% }
 .more .err { font-size: 15px; line-height: 1.6; border-left: 3px solid var(--fail); padding-left: 10px }
 .more details.trace { margin: 0 0 8px }
 .more details.trace p { color: var(--muted); font-size: 13px; margin: 6px 0 }
@@ -137,8 +138,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
 <div class="wrap">
   <header>
-    <h1>eval_gaps_v1 review</h1>
-    <p class="sub">Failed cases from the 24 Nov run (guard on). Updated 25 Nov: the eval-side fixes are applied and re-run. Updated 26 Nov: the approved agent code fixes are in and re-run (AE-002, AE-033, CR-006, GF-005, GF-012 now pass; AE-040 note inside). Fixed cases are no longer listed. One line each — click a row for the full story. Tick what you want changed next, then copy your decisions into the chat.</p>
+    <h1>Sonnet 5.5 review — what still fails</h1>
+    <p class="sub">Every case still failing with the agent on Sonnet 5.5 (tag sonnet55_v1, guard on, 26–27 Nov), re-checked one by one and grouped by what kind of decision it needs. Target cases (waiting on a feature) are listed separately. Results are from runs on 26–27 Nov; a full guard-on run on today's code is still due. Click a row for the full story; tick what you want done, then copy your decisions into the chat.</p>
     <div class="stats" id="stats"></div>
   </header>
 
@@ -164,7 +165,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
     <div id="view-simulated" hidden>
       <h2>Simulated conversations</h2>
-      <p class="group-note">A simulated customer talks to the real agent (guard on, 2 runs each). Grey lines under agent replies = what the system did that turn.</p>
+      <p class="group-note">A simulated customer talks to the real agent (Sonnet 5.5, guard on, 2 runs each). Grey lines under agent replies = what the system did that turn.</p>
       <div class="sim">
         <div class="sim-list" id="sim-list" role="tablist" aria-label="Simulated conversations"></div>
         <div class="sim-view" id="sim-view" role="tabpanel"><div class="empty">Loading conversations…</div></div>
@@ -184,45 +185,47 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
 <script>
 const GROUPS = [
-  { key: "eval", title: "Eval-side fixes", action: "Apply", note: "The test is wrong or stale; the agent was fine.", types: ["eval", "harness", "none"] },
-  { key: "kb", title: "Knowledge base fixes", action: "Draft KB text", note: "KB is missing something. Ticking = I draft the KB text for you.", types: ["kb"] },
-  { key: "code", title: "Agent code fixes", action: "Approve", note: "Code change. Ticking = you approve the direction.", types: ["code"] },
-  { key: "prompt", title: "Agent prompt fixes", action: "Draft wording", note: "Prompt change. Ticking = I draft exact wording for your approval.", types: ["prompt"] },
-  { key: "done", title: "Done — fixed and passing", action: "Done", note: "Applied on 25–26 Nov and re-run with the guard on. All pass now.", types: [] },
+  { key: "design", title: "Your design rules vs the tests", action: "Decide", note: "The agent follows a rule you set (one thing at a time, short answers), and the test expects something else. Ticking = I apply the recommended option; add a note to pick the alternative.", types: ["design"] },
+  { key: "eval", title: "Eval-side fixes", action: "Apply", note: "The test is wrong or out of date; the agent was fine or did its best with what it could see.", types: ["eval"] },
+  { key: "kb", title: "Knowledge base", action: "Draft KB text", note: "The KB doesn't say enough. Ticking = I draft the KB text for your approval.", types: ["kb"] },
+  { key: "classifier", title: "Steps still on Sonnet 4.6 (classifier, routing, summary)", action: "Look into", note: "Not the reply model: the intent classifier, routing step or summary picked the wrong path. Ticking = I propose a fix (classifier wording needs your approval).", types: ["classifier"] },
+  { key: "prompt", title: "Agent reply wording (Sonnet 5.5)", action: "Draft wording", note: "How the reply is written. Ticking = I draft exact wording for your approval.", types: ["prompt"] },
+  { key: "code", title: "Agent code", action: "Approve", note: "Code change that affects what the agent sees. Ticking = you approve the direction.", types: ["code"] },
+  { key: "rerun", title: "Probably fixed — needs a re-run", action: "Re-run", note: "A fix made today targets this; it hasn't been re-run yet.", types: ["rerun"] },
+  { key: "feature", title: "Target cases — waiting on a feature", action: "Track", note: "Excluded from the pass rate. They pass once the PENDING feature ships.", types: ["feature"] },
 ];
 const THEMES = [
-  { title: "Routing step makes up tools and reasons", text: "The loop decision calls tools that don't exist (get_tracking_number, get_order_details, initiate_refund) or fills a cancel reason the customer never gave.", ids: ["AE-002","AE-033","AE-044","CQ-007","CR-006","PC-010"] },
-  { title: "Offers a handoff instead of doing it", text: "For out-of-scope requests the agent says \"want me to pass you over?\" or \"contact support\" without escalating. These passed before only because guard-off runs faked the handoff signal.", ids: ["ES-008","ES-013","ES-016","ES-020","ES-026","ES-028","ES-041"] },
-  { title: "One blocked sentence → whole turn handed off", text: "When the guard blocks a draft, the agent hands off instead of redrafting — so a good answer with one bad line becomes an escalation.", ids: ["KB-003","KB-023","KB-024","AE-010","ES-017","CR-008","GF-015"] },
-  { title: "Persona says we only sell clothing", text: "response_prompt says the store sells \"clothing, footwear, and accessories\"; the KB also covers electronics and home goods. In KB-023 the agent denied selling blenders.", ids: ["KB-015","KB-023"] },
-  { title: "Tests written before this week's changes", text: "Cases written before today's changes: new escalation codes, the order list, or a second valid tool path.", ids: ["ES-003","ES-015","AE-036","AE-046","AE-060","IG-023","KB-007"] },
+  { title: "One thing at a time", text: "The classifier rule \"two requests in one message → ask which to start with\" fires on \"all my orders\", two named orders, and a confirmed action plus a new one.", ids: ["AE-011","GF-015","CR-003","AE-008"] },
+  { title: "Stops at \"no\"", text: "Correct \"can't cancel, it shipped\", but no \"you can return it once it arrives\". Sonnet 5.5 is terser than 4.6.", ids: ["AE-004","AE-030","AE-057","AE-045","KB-020"] },
+  { title: "Hands off when unsure", text: "Sonnet 5.5 says \"I don't know\" and hands off more readily — good for invented answers (#39), but sometimes after already answering, or when the KB search missed the answer.", ids: ["KB-023","AE-020","PC-007","PC-008","GF-002"] },
+  { title: "Classifier picks the wrong path", text: "The intent classifier (still Sonnet 4.6) sends the message down the wrong path: KB instead of a tool, a made-up reason, a lost-package tool for a missing item.", ids: ["AE-039","AE-044","AE-050","AE-019","IC-030","ES-016","AE-040","AE-010"] },
 ];
 const S = { rows: [], sims: [], decisions: {} };
 const store = {
-  load() { try { return JSON.parse(localStorage.getItem("evalReviewDecisions") || "{}"); } catch (e) { return {}; } },
-  save() { try { localStorage.setItem("evalReviewDecisions", JSON.stringify(S.decisions)); } catch (e) {} },
+  load() { try { return JSON.parse(localStorage.getItem("evalReviewDecisions_s55") || "{}"); } catch (e) { return {}; } },
+  save() { try { localStorage.setItem("evalReviewDecisions_s55", JSON.stringify(S.decisions)); } catch (e) {} },
 };
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const isOpen = (id) => (S.rows.find((x) => x.test_id === id) || {}).status !== "fixed";
-const DONE = () => GROUPS[GROUPS.length - 1];
-const groupOf = (r) => r.status === "fixed" ? DONE() : (GROUPS.find((g) => g.types.includes(r.fix_type)) || GROUPS[3]);
+const groupOf = (r) => GROUPS.find((g) => g.types.includes(r.fix_type)) || GROUPS[0];
 const effortRank = { easy: 0, medium: 1, hard: 2 };
 
 function renderStats() {
   const sims = S.sims;
-  const open = S.rows.filter((r) => r.status !== "fixed" && r.status !== "dropped");
-  const counts = GROUPS.slice(0, -1).map((g) => [g.title, open.filter((r) => groupOf(r) === g).length]);
+  const counted = S.rows.filter((r) => r.fix_type !== "feature");
+  const counts = GROUPS.filter((g) => g.key !== "feature").map((g) => [g.title, counted.filter((r) => groupOf(r) === g).length]);
   document.getElementById("stats").innerHTML =
-    `<div class="stat big"><b>87.6%</b><span>passing now (255/291, latest result per case, 26 Nov) · was 77.2%</span></div>` +
-    `<div class="stat"><b>${S.rows.filter((r) => r.status === "fixed").length}</b><span>fixed and passing</span></div>` +
-    `<div class="stat"><b>${open.length}</b><span>still failing</span></div>` +
+    `<div class="stat big"><b>91.1%</b><span>passing on Sonnet 5.5 (265/291, latest result per case) · 4.6 was 87.6%</span></div>` +
+    `<div class="stat"><b>${counted.length}</b><span>still failing</span></div>` +
+    `<div class="stat"><b>${S.rows.filter((r) => r.prev_verdict === "PASS" && r.fix_type !== "feature").length}</b><span>passed on 4.6</span></div>` +
     counts.map(([t, n]) => `<div class="stat"><b>${n}</b><span>${esc(t.toLowerCase())}</span></div>`).join("") +
+    `<div class="stat"><b>${S.rows.length - counted.length}</b><span>target cases</span></div>` +
     `<div class="stat"><b>${sims.filter((s) => s.verdict === "pass").length}/${sims.length}</b><span>simulated conversations passed</span></div>`;
 }
 
 function renderThemes() {
-  document.getElementById("themes").innerHTML = THEMES.filter((t) => !t.ids.every((i) => (S.rows.find((x) => x.test_id === i) || {}).status === "fixed")).map((t) =>
-    `<div class="theme" title="${esc(t.text)}"><h3>${esc(t.title)}</h3><div class="ids">${t.ids.filter((i) => (S.rows.find((x) => x.test_id === i) || {}).status !== "fixed").map((i) => { const r = S.rows.find((x) => x.test_id === i); const d = r && r.status === "fixed"; return `<button class="id${d ? " done" : ""}" type="button" data-jump="${i}" title="${d ? "fixed" : "open"}">${i}</button>`; }).join("")}${t.ids.every((i) => (S.rows.find((x) => x.test_id === i) || {}).status === "fixed") ? ` <span class="chip done">all fixed</span>` : ""}</div></div>`).join("");
+  document.getElementById("themes").innerHTML = THEMES.map((t) =>
+    `<div class="theme" title="${esc(t.text)}"><h3>${esc(t.title)}</h3><p class="small">${esc(t.text)}</p><div class="ids">${t.ids.map((i) => `<button class="id" type="button" data-jump="${i}">${i}</button>`).join("")}</div></div>`).join("");
 }
 
 function rowHtml(r) {
@@ -230,7 +233,7 @@ function rowHtml(r) {
   const g = groupOf(r);
   const done = r.status === "fixed";
   const tag = done ? ` <span class="chip done">fixed · PASS</span>` : ROW_STATUS[r.status] ? ` <span class="chip kept">${ROW_STATUS[r.status]}</span>`
-    : r.prev_verdict === "PASS" ? ` <span class="chip prev-PASS">regressed</span>` : r.prev_verdict === "new" ? ` <span class="chip">new</span>` : "";
+    : r.prev_verdict === "PASS" ? ` <span class="chip prev-PASS">passed on 4.6</span>` : r.prev_verdict === "new" ? ` <span class="chip">new</span>` : "";
   return `<div class="row${d.on && !done ? " approved" : ""}${done ? " is-done" : ""}" id="row-${r.test_id}">
     <div class="check">${done ? `<span aria-label="done" style="color:var(--pass);font-weight:600">✓</span>` : `<input type="checkbox" id="chk-${r.test_id}" data-id="${r.test_id}" ${d.on ? "checked" : ""} aria-label="${esc(g.action)} ${r.test_id}">`}</div>
     <details><summary>
@@ -245,8 +248,8 @@ function rowHtml(r) {
       <p><b>Fix.</b> ${esc(r.suggested_fix)}</p>
       ${(r.related || []).filter(isOpen).length ? `<p class="small ids">Same cause: ${r.related.filter(isOpen).map((i) => `<button class="id" type="button" data-jump="${esc(i)}">${esc(i)}</button>`).join("")}</p>` : ""}
       <details class="trace"><summary>Full trace</summary>
-        <p>${esc(r.what_happened)}</p>
-        <p class="small">${esc(r.sheet)} · Customer said: ${esc(r.customer_said)} · Expected: ${esc(r.expected)} · Last run: ${esc(r.prev_verdict)}</p>
+        <p><b>Agent's reply:</b> ${esc(r.what_happened)}</p>
+        <p class="small">${esc(r.sheet)} · Customer said: ${esc(r.customer_said)} · Expected: ${esc(r.expected)} · Sonnet 5.5: ${esc(r.now_verdict)} · Sonnet 4.6: ${esc(r.prev_verdict)}</p>
       </details>
       <input class="note" id="note-${r.test_id}" data-note="${r.test_id}" placeholder="Note (optional)" value="${esc(d.note || "")}" aria-label="Note for ${r.test_id}">
     </div></details>
@@ -290,8 +293,8 @@ function renderSimList() {
       <span class="top"><b class="mono">${s.id}</b><span class="verdict ${s.verdict}">${s.verdict.toUpperCase()}</span></span>
       <small>${esc(s.label)}</small>${s.verdict !== "pass" ? `<small>${esc(s.wrong)}</small>` : ""}${s.status ? `<small><span class="chip ${s.status === "fixed" ? "done" : "kept"}">${esc(SIM_STATUS[s.status] || s.status)}</span></small>` : ""}</button>`).join("");
 }
-const ROW_STATUS = { kept_fail: "kept as fail", dropped: "case dropped", todo: "in TODOs" };
-const SIM_STATUS = { fixed: "Fix made", awaiting_wording: "Waiting on your wording approval", answered: "Your question answered" };
+const ROW_STATUS = { kept_fail: "kept as fail", dropped: "case dropped", todo: "in TODOs", accepted: "you accepted", applied: "fix applied, not re-run" };
+const SIM_STATUS = { fixed: "Fix made", awaiting_wording: "Waiting on your wording approval", answered: "Your question answered", awaiting_rerun: "Fix made, waiting on a re-run" };
 function renderSim() {
   const s = S.sims.find((x) => x.id === S.simSel); if (!s) return;
   const d = S.decisions[s.id] || {};
@@ -328,7 +331,7 @@ function tally() {
 function decisionsText() {
   const all = [...S.rows.filter((r) => !r.status).map((r) => ({ id: r.test_id, kind: groupOf(r).title, fix: r.suggested_fix })),
                ...S.sims.filter((s) => !s.status).map((s) => ({ id: s.id, kind: "Simulated conversations", fix: s.suggested_fix }))];
-  const lines = ["My decisions on the eval_gaps_v1 review:"];
+  const lines = ["My decisions on the Sonnet 5.5 review:"];
   const byKind = {};
   all.forEach((x) => { const d = S.decisions[x.id]; if (d && (d.on || d.note)) (byKind[x.kind] = byKind[x.kind] || []).push([x, d]); });
   Object.entries(byKind).forEach(([kind, items]) => {
