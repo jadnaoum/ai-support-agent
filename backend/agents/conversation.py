@@ -36,7 +36,6 @@ RESPONSE_PROMPT = get_prompt("response_prompt")
 REDIRECT_PROMPT = get_prompt("redirect_prompt")
 LOOP_DECISION_PROMPT = get_prompt("loop_decision_prompt")
 ESCALATION_SUMMARY_PROMPT = get_prompt("escalation_summary_prompt")
-HANDOFF_MESSAGE_PROMPT = get_prompt("handoff_message_prompt")
 CHAT_OPENED_PLACEHOLDER = get_prompt("chat_opened_placeholder").strip()
 
 # Small-talk and provocative limits (decided 2026-11-24). The warning turn is
@@ -51,6 +50,15 @@ SMALL_TALK_WARN_TOTAL = 4
 SMALL_TALK_ESCALATE_TOTAL = 5
 PROVOCATIVE_ESCALATE = 2  # the 1st provocative message gets a warning redirect
 
+# Handoffs whose message the reply step writes (response_guidance.yaml
+# "handoff" snippet). The rest — abusive/harmful/provocative input, repeated
+# blocks, a guard-blocked draft, errors — use the fixed sentence: nothing to
+# tailor, and no chance of engaging with the content (decided 2026-11-27).
+_REPLY_WRITTEN_HANDOFFS = frozenset({
+    "customer_requested", "threat", "classifier_decided",
+    "customer_frustrated", "unable_to_clarify", "excessive_small_talk",
+})
+
 
 def _format_conversation(messages: list, last: int = 12) -> str:
     """Plain-text transcript of the last turns, for the handoff prompts."""
@@ -60,30 +68,6 @@ def _format_conversation(messages: list, last: int = 12) -> str:
         for m in (messages or [])[-last:]
         if m.get("role") in role_label
     ) or "(no messages)"
-
-
-async def _generate_handoff_message(messages: list, reason: str) -> str:
-    """Customer-facing handoff sentence written for this conversation and
-    reason (replaces the fixed _HANDOFF_MESSAGE on code-triggered escalations).
-    Returns "" on any error — the caller then keeps the fixed message."""
-    try:
-        result = await litellm.acompletion(
-            model=settings.litellm_model,
-            **llm_kwargs(settings.litellm_model),
-            messages=[{
-                "role": "user",
-                "content": HANDOFF_MESSAGE_PROMPT.format(
-                    reason=reason, conversation=_format_conversation(messages),
-                ),
-            }],
-            stream=False,
-            request_timeout=LLM_TIMEOUT,
-        )
-        return (result.choices[0].message.content or "").strip()
-    except Exception as e:
-        logger.warning("handoff message fell back to the fixed sentence (%s)", type(e).__name__)
-        run_trace.fallback("handoff_message", type(e).__name__)
-        return ""
 
 
 async def summarize_for_handoff(
@@ -180,6 +164,7 @@ def _build_context_section(
     small_talk_warning: bool = False,
     with_orders: bool = True,
     with_earlier: bool = False,
+    handoff_reason: str = "",
 ) -> str:
     chunks = state.get("retrieved_context") or []
     action_results = state.get("action_results") or []
@@ -215,6 +200,12 @@ def _build_context_section(
         note = get_response_guidance().get("small_talk_warning")
         if note:
             parts.append("\nFor this reply:\n" + note)
+    if handoff_reason:
+        # Owner-authored snippet (response_guidance.yaml); code only selects it
+        # and adds the reason code as a plain label.
+        note = get_response_guidance().get("handoff")
+        if note:
+            parts.append("\nFor this reply:\n" + note + f"\nHandoff reason: {handoff_reason}")
     return "\n".join(parts)
 
 
@@ -314,11 +305,15 @@ async def _classify_intent(state: AgentState, config: dict = None) -> tuple[str,
         return "general", 0.5, {}, ""
 
 
-async def _generate_response(state: AgentState, small_talk_warning: bool = False) -> str:
-    """Generate the customer-facing response from conversation history + service results."""
+async def _generate_response(
+    state: AgentState, small_talk_warning: bool = False, handoff_reason: str = "",
+) -> str:
+    """Generate the customer-facing response from conversation history + service results.
+    With handoff_reason, it writes the handoff message instead (returns "" on error
+    so the caller falls back to the fixed handoff sentence)."""
     context_section = _build_context_section(
         state, with_result_guidance=True, small_talk_warning=small_talk_warning,
-        with_earlier=True,
+        with_earlier=True, handoff_reason=handoff_reason,
     )
     system_content = RESPONSE_PROMPT.format(context_section=context_section)
 
@@ -336,6 +331,9 @@ async def _generate_response(state: AgentState, small_talk_warning: bool = False
         )
         return result.choices[0].message.content
     except Exception as e:
+        if handoff_reason:
+            run_trace.fallback("handoff_message", type(e).__name__)
+            return ""
         run_trace.fallback("response_generation", type(e).__name__)
         return "I'm having trouble processing your request right now. Please try again in a moment."
 
@@ -513,7 +511,33 @@ async def _do_escalate(
     """
     _db = config.get("configurable", {}).get("db")
     _conv_id = config.get("configurable", {}).get("conversation_id", "")
-    # Internal briefing and customer-facing handoff sentence are independent —
+    _guard_bypass = bool(config.get("configurable", {}).get("disable_output_guard"))
+
+    async def _handoff_message() -> str:
+        """The reply step writes the handoff (same context and voice as every
+        other reply, checked by the output guard) for reasons where the
+        conversation's facts matter. Everything else — off-the-rails input,
+        a blocked draft, errors — gets the fixed sentence ("" here)."""
+        if reason not in _REPLY_WRITTEN_HANDOFFS:
+            return ""
+        draft = await _generate_response(state, handoff_reason=reason)
+        if not draft:
+            return ""
+        # The handoff is happening whatever the draft says, so the guard sees it
+        # as an action taken — otherwise "I'm handing this to a colleague" reads
+        # as a claim about an action no tool performed (4 of 21 handoff drafts
+        # were blocked that way on 2026-11-27).
+        guard_state = {**state, "actions_taken": (state.get("actions_taken") or []) + [
+            {"service": "escalation_handler", "action": "escalate", "reason": reason}
+        ]}
+        verdict = await check_output(draft, guard_state, bypass=_guard_bypass)
+        if not verdict.get("safe"):
+            if _db and _conv_id:
+                await log_output_guard_blocked(_db, _conv_id, draft, verdict.get("reason"), verdict.get("explanation", ""))
+            return ""
+        return draft
+
+    # Internal briefing and customer-facing handoff message are independent —
     # run them concurrently so the handoff message adds no latency.
     summary, handoff_message = await asyncio.gather(
         summarize_for_handoff(
@@ -522,7 +546,7 @@ async def _do_escalate(
             actions_taken=state.get("actions_taken") or [],
             retrieved_context=state.get("retrieved_context") or [],
         ),
-        _generate_handoff_message(state.get("messages") or [], reason),
+        _handoff_message(),
     )
     context = {
         "db": _db,

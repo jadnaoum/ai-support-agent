@@ -751,6 +751,10 @@ output_guard_prompt: |
   — e.g., "I'm connecting you with a specialist," "I'll escalate this
   to our team," "a human agent will follow up with you."
 
+  Announcing a handoff is never an unsupported claim on its own — when
+  handoff_intent is true, the system carries out the handoff. Judge the
+  rest of the response as usual.
+
   Set "handoff_intent" to false if:
   - The specialist mention is future or process-oriented ("a specialist
     will inspect your return on receipt" — this describes a future step,
