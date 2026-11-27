@@ -1,6 +1,6 @@
 # AI Support Agent — Pending Changes
 
-Last updated: 2026-11-26
+Last updated: 2026-11-27
 
 ---
 
@@ -153,6 +153,7 @@ When a customer is extremely frustrated, hand off to a human instead of asking c
 Today: the input guard already returns `emotion: high_negative`; `conversation_agent_node` uses it only to ask ONE empathetic clarifying question when intent is `needs_clarification` (the emotion path). Nothing escalates on emotion.
 To decide before building: what counts as "extremely" (the existing high_negative flag, or a stronger level); escalate immediately, or after the first reply still leaves them frustrated; whether it also applies when the intent is actionable (e.g. a clear refund request from an angry customer); the escalation reason code (new ESCALATION_TRIGGER_REASONS entry). Escalation decision logic — prompt-adjacent, Jad approves the design. Evals: CQ-011 and the frustrated_customer cases in Conversation Quality; add Escalation cases for the new trigger.
 **Design (Jad, 2026-11-26):** new reason `customer_frustrated`. high_negative on 2 turns in a row → handoff (the 1st gets the normal calm, acting reply; a calm turn resets `consecutive_high_negative`, carried in turn_state like the small-talk counters). A new input-guard level `extreme_negative` → handoff at once, even when the intent is actionable. An explicit escalation_request (threat / customer asked) keeps its own reason; a classifier-"decided" escalation yields to `customer_frustrated` when the frustration rule fires (Jad, 2026-11-26, ES-044 — target reached and flipped to current). **Built:** the code (conversation.py, state/turn_state, reason code, tests). Input-guard wording for `extreme_negative` approved and applied 2026-11-26. Watch: a frustrated customer confirming an action on their 2nd angry turn now gets a handoff instead of the action.
+**2026-11-27 (SC-006):** that happened — an impatient customer's "YES" to a pending cancellation was handed off. Jad chose the root fix: input-guard emotion wording now says how the customer feels, not how they type (capitals/exclamations = style, pushing to go faster = impatience, relief = relief) plus one example. Approved and applied; tested in a scratch copy (21 messages × 3 runs: impatient ones no longer flagged, all real frustration/distress still flagged). **Not yet re-run in evals:** Input Guard sheet, ES-006/007/042/043/044, CQ frustration cases, SC-006.
 
 
 ### 38. Shorter answers, and stop parroting the customer — OPEN (Jad, 2026-11-26)
@@ -163,13 +164,27 @@ When retrieval finds nothing on a topic, the agent fills the gap with a made-up 
 - **ES-017** — in-store purchase return: "in-store purchases follow a separate returns process handled by the store directly" (guard block, failed twice in a row).
 - **ES-013, ES-016, ES-026, ES-028, ES-041** — out-of-scope / no-KB-coverage requests where the agent states a limitation or policy that isn't in the KB, or offers a handoff without making it.
 - Related: the guard-block list in #36 (KB-003/015/023/024, CQ-004, GF-015 …) — check which of those are the same habit.
-Likely fix: knowledge_boundary wording that makes "I don't have information on that" the natural answer when context is empty (principle, not the in-store case) — wording for Jad to approve. Evals: Escalation sheet (no_information / llm_escalation_intent cases), KB Retrieval no-coverage cases.
+**2026-11-27:** with the agent on Sonnet 5.5, ES-013, ES-026, ES-028 and ES-041 pass (it says it doesn't know and hands off). Still open on 5.5: ES-016, ES-017 (guard block), and a new instance CR-002 ("I can only handle one at a time"). Likely fix if staying on 4.6: knowledge_boundary wording that makes "I don't have information on that" the natural answer when context is empty (principle, not the in-store case) — wording for Jad to approve. Evals: Escalation sheet (no_information / llm_escalation_intent cases), KB Retrieval no-coverage cases.
 
 ### 40. One blocked sentence hands off the whole turn — OPEN, later (Jad, 2026-11-26)
 When the output guard blocks a draft, the turn always escalates (`output_guard_block`), even when one invented sentence was the only problem. KB-024: price adjustment + promo code — the draft added "won't stack with your promo code" (not in the KB), the guard rightly blocked it, and the customer got a handoff instead of the KB answer. Jad: the handoff is fine for now. Option for later: redraft once using the guard's explanation, escalate only if the second draft is blocked too (guard-verdict handling — prompt-adjacent, needs Jad's approval). Same pattern: KB-003, KB-023, AE-010, CR-008. Related: #39 (invented limitations are what usually gets blocked).
 
 ### 41. Handoff promised on the general-chat path never happens — OPEN (found by GF-003, 2026-11-26)
 On the general / small_talk path, `check_output`'s `handoff_intent` is ignored: only a block escalates. So a reply like "I'll pass you to a colleague" reaches the customer and no escalation fires — they wait for someone who never comes. The main (post-service) path turns handoff_intent into `llm_escalation_intent` / `no_information`. Fix option: apply the same handoff_intent → escalation handling in the general branch (guard-verdict handling — prompt-adjacent, needs Jad's approval). GF-003 surfaced it but was dropped as a bad case (2026-11-26: a bare "Thanks" gives the agent nothing to check); a new case is needed — e.g. a general question the agent can't answer, with the guard on.
+
+### 42. Sonnet 5.5 for the agent's reply steps — DECISION PENDING (Jad leaning 5.5, 2026-11-27)
+Full guard-on run `sonnet55_v1` (agent reply steps on Sonnet 5.5, thinking off via `llm_kwargs`; classifier, guards, judges still 4.6). Same-rule comparison (script: per case, 5.5 = sonnet55_v1, 4.6 = latest earlier result; target cases excluded): **4.6 255/291 (87.6%) vs 5.5 257/291 (88.3%)** after the fixes below; ~21% cheaper; no faster (most calls per turn still run on 4.6). Caveat: the 4.6 numbers come from older code — a 4.6 run on today's code is the like-for-like check.
+- **5.5 better:** says "I don't know" instead of inventing limitations (#39), drafts pass the guard (KB-003, KB-024, ES-041), more complete answers (AE-034, PC-001, KB-021).
+- **Fixed along the way (2026-11-27):** 5.5 retracted its own earlier replies when nothing in context backed them → earlier turns' tool results + KB passages now carry 3 turns forward to the reply step and guard; the guard sees both sides of the conversation; both see today's date (rules: order-context.md). Eval fixtures with untrue/unbacked earlier turns rewritten and backed (eval-conventions.md).
+- **Still worse on 5.5 (open):** leaves out the next step after a "no"/"not yet" (AE-045, KB-020, PC-002); handoff message says too much (ES-032 answers the small talk, ES-021 walks through the warranty process); offers a handoff instead of doing it (GF-002 — Jad to decide ask vs do); CR-002 (#39).
+- **Not the model:** AE-039/IC-036 classifier flip (#35), ES-038 summary (4.6), SC-006 (#37).
+- To switch: set `LITELLM_MODEL=claude-sonnet-5-5` in `.env`, then a full guard-on run before merge (release rule).
+
+### 43. Frustrated third ask about an order that doesn't exist — DECISION (2026-11-27)
+ES-006 was built on "lookups keep failing"; since `order_not_found` became a reason code (not an error), an account with no such order gets an honest "no order with that number — double-check it?" instead of the tool-error handoff. ES-006 now injects no account data so the lookup genuinely fails (passes on 5.5). Open question for Jad: should a frustrated repeat ask about an order that truly isn't on the account also hand off? Escalation decision logic — needs approval.
+
+### 44. KB refund timing made consistent — DONE (Jad, 2026-11-27)
+returns_and_refunds.md said 3–5 days inspection ("How to Start a Return") but 1–3 days / 5–8 total in the FAQ. Jad chose 1–3 days inspection, 5–8 business days total to a card (2–6 PayPal), stated in "Refund Timing and Methods" too. KB re-ingested; ES-011 updated.
 
 ---
 
