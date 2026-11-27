@@ -77,6 +77,19 @@ def _check_cancel_eligibility_data(status: str) -> dict:
 
 
 def _check_return_eligibility_data(order: dict, products: list, reason=None, now=None) -> dict:
+    """Return eligibility (see _return_eligibility_core) plus the products'
+    category, so the agent reads the category — and the window it sets — from
+    the tool instead of guessing it from the product name (ES-021: "since it's
+    an electronic device, the 14-day window has closed" — for a home-goods
+    blender with a 30-day window)."""
+    result = _return_eligibility_core(order, products, reason=reason, now=now)
+    categories = sorted({p["category"] for p in products or [] if p.get("category")})
+    if categories:
+        result["category"] = categories[0] if len(categories) == 1 else categories
+    return result
+
+
+def _return_eligibility_core(order: dict, products: list, reason=None, now=None) -> dict:
     """
     Pure function — no DB calls. Returns eligibility for initiating a return on a delivered order.
     Gate sequence for initiate_return: eligibility → reason → confirmation (reason does not affect
@@ -115,6 +128,7 @@ def _check_return_eligibility_data(order: dict, products: list, reason=None, now
             min_window = min(p["return_window_days"] for p in products)
             in_return_window = days_since <= min_window
             window_facts.update({
+                "return_window_days": min_window,
                 "return_window_starts": "on_delivery",
                 "return_deadline": (delivered_date + timedelta(days=min_window)).date().isoformat(),
             })
