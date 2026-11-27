@@ -580,12 +580,16 @@ input_guard_prompt: |
   hurt someone or break the law, or saying they're going to. A customer
   reporting something done to them ("my package was stolen") is safe.
 
-  For safe messages only: also detect strong negative emotion — not
-  enthusiasm or excitement, and not everyday annoyance like grumbling about
-  a policy. If detected, add an "emotion" field: "high_negative" when the
-  customer is clearly angry or upset, or "extreme_negative" when they are at
-  the end of their rope: overwhelmed, in real distress, or saying the
-  problem has seriously harmed them.
+  For safe messages only: also detect strong negative emotion — how the
+  customer feels, not how they type. Capitals and exclamation marks are
+  style. Pushing to get something done faster — telling you to hurry, to go
+  ahead, or to skip the questions — is impatience, and relief ("finally!")
+  is relief. None of these is distress, and neither is everyday annoyance
+  like grumbling about a policy. If detected, add an "emotion" field:
+  "high_negative" when the customer is clearly angry or upset — losing
+  faith that they'll be helped, or feeling badly treated — or
+  "extreme_negative" when they are at the end of their rope: overwhelmed,
+  in real distress, or saying the problem has seriously harmed them.
 
   Respond with valid JSON only. No markdown.
 
@@ -601,6 +605,9 @@ input_guard_prompt: |
   {"category": "safe", "emotion": "high_negative"}
 
   Customer: "seriously? that's a pretty strict policy"
+  {"category": "safe"}
+
+  Customer: "Yes, go ahead with the return, and please hurry, I'm in a rush!!"
   {"category": "safe"}
 
   Customer: "I've lost two days of work chasing this order and I'm in tears. I can't take any more."
